@@ -1,0 +1,511 @@
+'use client';
+import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+
+export interface Message {
+  id: string;
+  role: 'user' | 'ai';
+  content: string;
+  streaming?: boolean;
+  agent?: string;
+  intent?: string;
+}
+
+// Intent -> icon + color mapping
+const INTENT_META: Record<string, { icon: string; color: string; label: string }> = {
+  chat:     { icon: '💬', color: 'rgba(0,220,255,0.7)',  label: 'Chat' },
+  security: { icon: '🛡',  color: 'rgba(255,80,80,0.75)', label: 'Security' },
+  system:   { icon: '⚙',  color: 'rgba(255,180,50,0.75)', label: 'System' },
+  research: { icon: '🔍', color: 'rgba(100,220,100,0.75)', label: 'Research' },
+  code:     { icon: '💻', color: 'rgba(180,130,255,0.8)', label: 'Code' },
+  image:    { icon: '🎨', color: 'rgba(255,140,200,0.8)', label: 'Image' },
+};
+
+function CodeBlock({
+  language,
+  codeText,
+}: {
+  language: string;
+  codeText: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function onCopy() {
+    try {
+      await navigator.clipboard.writeText(codeText.replace(/\n$/, ''));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1000);
+    } catch {
+      // Fallback: best-effort (some environments may block clipboard)
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = codeText.replace(/\n$/, '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1000);
+      } catch {
+        // no-op
+      }
+    }
+  }
+
+  return (
+    <div style={{ position: 'relative', marginTop: '10px', marginBottom: '10px' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          background: 'rgba(0,10,30,0.65)',
+          border: '1px solid rgba(0,212,255,0.15)',
+          borderBottom: 'none',
+          borderRadius: '8px 8px 0 0',
+          padding: '4px 12px',
+          fontSize: '10px',
+          color: 'rgba(0,220,255,0.5)',
+          fontFamily: 'monospace',
+          textTransform: 'uppercase',
+          letterSpacing: '1px',
+          gap: '10px',
+        }}
+      >
+        <span>{language}</span>
+
+        <button
+          onClick={onCopy}
+          type="button"
+          style={{
+            marginLeft: 'auto',
+            cursor: 'pointer',
+            background: copied ? 'rgba(0,220,255,0.18)' : 'rgba(0,212,255,0.08)',
+            border: '1px solid rgba(0,212,255,0.18)',
+            color: copied ? 'rgba(0,220,255,0.95)' : 'rgba(0,220,255,0.75)',
+            borderRadius: '6px',
+            padding: '3px 8px',
+            fontSize: '9.5px',
+            letterSpacing: '0.5px',
+            transition: 'background 0.15s ease, border-color 0.15s ease',
+          }}
+          aria-label="Copy code"
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+
+      <SyntaxHighlighter
+        PreTag="div"
+        language={language}
+        style={oneDark}
+        customStyle={{
+          margin: 0,
+          background: 'rgba(0,4,16,0.85)',
+          border: '1px solid rgba(0,212,255,0.15)',
+          borderRadius: '0 0 8px 8px',
+          padding: '12px',
+          fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', monospace",
+          fontSize: '11.5px',
+          lineHeight: 1.55,
+        }}
+      >
+        {codeText.replace(/\n$/, '')}
+      </SyntaxHighlighter>
+    </div>
+  );
+}
+
+const CustomMarkdown = ({ content }: { content: string }) => {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ node, ...props }) => (
+          <h1
+            style={{
+              fontSize: '18px',
+              fontWeight: 700,
+              margin: '16px 0 8px 0',
+              background: 'linear-gradient(135deg, #00d4ff, #8b5cf6)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              textShadow: '0 0 15px rgba(0,220,255,0.15)',
+            }}
+            {...props}
+          />
+        ),
+        h2: ({ node, ...props }) => (
+          <h2
+            style={{
+              fontSize: '16px',
+              fontWeight: 600,
+              margin: '14px 0 6px 0',
+              color: 'rgba(0, 220, 255, 0.95)',
+              borderBottom: '1px solid rgba(0, 212, 255, 0.1)',
+              paddingBottom: '4px',
+            }}
+            {...props}
+          />
+        ),
+        h3: ({ node, ...props }) => (
+          <h3
+            style={{
+              fontSize: '14px',
+              fontWeight: 600,
+              margin: '12px 0 6px 0',
+              color: 'rgba(200, 240, 255, 0.95)',
+            }}
+            {...props}
+          />
+        ),
+        p: ({ node, ...props }) => (
+          <p
+            style={{
+              margin: '0 0 10px 0',
+              color: 'rgba(200, 240, 255, 0.85)',
+              lineHeight: 1.6,
+            }}
+            {...props}
+          />
+        ),
+        a: ({ node, ...props }) => (
+          <a
+            style={{
+              color: '#00d4ff',
+              textDecoration: 'none',
+              borderBottom: '1px dashed rgba(0, 212, 255, 0.4)',
+              transition: 'border-color 0.2s',
+            }}
+            target="_blank"
+            rel="noopener noreferrer"
+            {...props}
+          />
+        ),
+        blockquote: ({ node, ...props }) => (
+          <blockquote
+            style={{
+              borderLeft: '3px solid rgba(0, 212, 255, 0.5)',
+              background: 'rgba(0, 212, 255, 0.03)',
+              padding: '8px 16px',
+              margin: '12px 0',
+              color: 'rgba(200, 240, 255, 0.7)',
+              borderRadius: '0 8px 8px 0',
+              fontSize: '12.5px',
+              fontStyle: 'italic',
+            }}
+            {...props}
+          />
+        ),
+        table: ({ node, ...props }) => (
+          <div style={{ overflowX: 'auto', margin: '12px 0', borderRadius: '8px', border: '1px solid rgba(0, 212, 255, 0.15)' }}>
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '12px',
+                textAlign: 'left',
+              }}
+              {...props}
+            />
+          </div>
+        ),
+        thead: ({ node, ...props }) => (
+          <thead style={{ background: 'rgba(0, 212, 255, 0.08)' }} {...props} />
+        ),
+        th: ({ node, ...props }) => (
+          <th
+            style={{
+              padding: '8px 12px',
+              fontWeight: 600,
+              color: 'rgba(0, 220, 255, 0.95)',
+              borderBottom: '1px solid rgba(0, 212, 255, 0.2)',
+            }}
+            {...props}
+          />
+        ),
+        td: ({ node, ...props }) => (
+          <td
+            style={{
+              padding: '8px 12px',
+              color: 'rgba(200, 240, 255, 0.8)',
+              borderBottom: '1px solid rgba(0, 212, 255, 0.1)',
+            }}
+            {...props}
+          />
+        ),
+        ul: ({ node, ...props }) => (
+          <ul
+            style={{
+              paddingLeft: '20px',
+              margin: '0 0 10px 0',
+              listStyleType: 'disc',
+            }}
+            {...props}
+          />
+        ),
+        ol: ({ node, ...props }) => (
+          <ol
+            style={{
+              paddingLeft: '20px',
+              margin: '0 0 10px 0',
+              listStyleType: 'decimal',
+            }}
+            {...props}
+          />
+        ),
+        li: ({ node, ...props }) => (
+          <li
+            style={{
+              margin: '4px 0',
+              color: 'rgba(200, 240, 255, 0.85)',
+            }}
+            {...props}
+          />
+        ),
+        code: ({ node, className, children, ...props }: any) => {
+          const match = /language-(\w+)/.exec(className || '');
+          const inline = !match;
+          if (inline) {
+            return (
+              <code
+                style={{
+                  background: 'rgba(0, 212, 255, 0.12)',
+                  color: '#00d4ff',
+                  padding: '2px 5px',
+                  borderRadius: '4px',
+                  fontFamily: 'monospace',
+                  fontSize: '11.5px',
+                }}
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          }
+          return (
+            <CodeBlock
+              language={match[1] || 'text'}
+              codeText={String(children).replace(/\n$/, '')}
+            />
+          );
+        }
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+};
+
+function renderContent(text: string) {
+  // Detect [IMAGE:url] markers and split into segments
+  const parts = text.split(/(\[IMAGE:https?:\/\/[^\]]+\])/g);
+  
+  return parts.map((part, index) => {
+    const imageMatch = part.match(/\[IMAGE:(https?:\/\/[^\]]+)\]/);
+    if (imageMatch) {
+      const imageUrl = imageMatch[1];
+      return (
+        <div key={index} style={{
+          position: 'relative',
+          display: 'inline-block',
+          borderRadius: '12px',
+          overflow: 'hidden',
+          border: '1px solid rgba(0,212,255,0.25)',
+          boxShadow: '0 0 24px rgba(0,212,255,0.12), 0 8px 32px rgba(0,0,0,0.4)',
+          maxWidth: '100%',
+          marginTop: '10px',
+          marginBottom: '10px',
+        }}>
+          <img
+            src={imageUrl}
+            alt="AERIS Generated Image"
+            style={{
+              display: 'block',
+              maxWidth: '420px',
+              width: '100%',
+              borderRadius: '11px',
+            }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+          <div style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            padding: '6px 10px',
+            background: 'linear-gradient(transparent, rgba(0,4,18,0.85))',
+            fontSize: '10px',
+            color: 'rgba(0,220,255,0.6)',
+            letterSpacing: '1px',
+          }}>AERIS · AI GENERATED</div>
+        </div>
+      );
+    }
+    
+    if (!part.trim()) return null;
+    return <CustomMarkdown key={index} content={part} />;
+  });
+}
+
+interface StreamingBubbleProps {
+  content: string;
+  onDone: () => void;
+}
+
+function StreamingBubble({ content, onDone }: StreamingBubbleProps) {
+  const [displayed, setDisplayed] = useState('');
+
+  useEffect(() => {
+    let i = 0;
+    const interval = setInterval(() => {
+      if (i < content.length) {
+        setDisplayed(content.slice(0, i + 1));
+        i++;
+      } else {
+        clearInterval(interval);
+        onDone();
+      }
+    }, 11);
+    return () => clearInterval(interval);
+  }, [content, onDone]);
+
+  return (
+    <span>
+      {renderContent(displayed)}
+      <span style={{
+        display: 'inline-block',
+        width: '2px',
+        height: '13px',
+        background: 'rgba(0,220,255,0.8)',
+        marginLeft: '2px',
+        verticalAlign: 'middle',
+        animation: 'cursor-blink 0.65s ease-in-out infinite',
+      }} />
+    </span>
+  );
+}
+
+/* ── Agent Badge ──────────────────────────────────────────────────── */
+
+function AgentBadge({ agent, intent }: { agent?: string; intent?: string }) {
+  if (!agent && !intent) return null;
+
+  const meta = INTENT_META[intent || 'chat'] || INTENT_META.chat;
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px',
+      marginBottom: '6px',
+      animation: 'msg-appear 0.3s ease',
+    }}>
+      <span style={{ fontSize: '12px' }}>{meta.icon}</span>
+      <span style={{
+        fontSize: '9.5px',
+        fontWeight: 600,
+        letterSpacing: '1.8px',
+        color: meta.color,
+        textTransform: 'uppercase',
+        textShadow: `0 0 12px ${meta.color.replace(/[\d.]+\)$/, '0.3)')}`,
+      }}>
+        {agent || meta.label}
+      </span>
+      {intent && (
+        <span style={{
+          fontSize: '8.5px',
+          color: 'rgba(255,255,255,0.2)',
+          letterSpacing: '1px',
+          fontWeight: 400,
+        }}>
+          / {intent}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ── ChatMessage ──────────────────────────────────────────────────── */
+
+interface ChatMessageProps {
+  message: Message;
+  onStreamDone?: () => void;
+}
+
+export default function ChatMessage({ message, onStreamDone }: ChatMessageProps) {
+  const isAI = message.role === 'ai';
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: '10px',
+        flexDirection: isAI ? 'row' : 'row-reverse',
+        animation: 'msg-appear 0.4s cubic-bezier(0.23,1,0.32,1)',
+      }}
+    >
+      {/* Avatar */}
+      <div style={{
+        width: '28px',
+        height: '28px',
+        borderRadius: '50%',
+        flexShrink: 0,
+        marginTop: '3px',
+        ...(isAI ? {
+          background: 'radial-gradient(circle at 35% 30%, rgba(0,220,255,0.32) 0%, transparent 60%), radial-gradient(circle, #020820 0%, #050f32 100%)',
+          border: '1px solid rgba(0,200,255,0.3)',
+          boxShadow: '0 0 10px rgba(0,200,255,0.18)',
+        } : {
+          background: 'linear-gradient(135deg, rgba(139,92,246,0.28), rgba(0,100,200,0.18))',
+          border: '1px solid rgba(139,92,246,0.28)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '9px',
+          color: 'rgba(190,160,255,0.85)',
+          fontWeight: 500,
+          letterSpacing: '0.5px',
+        }),
+      }}>
+        {!isAI && 'YOU'}
+      </div>
+
+      {/* Bubble */}
+      <div style={{
+        maxWidth: '76%',
+        padding: '11px 15px',
+        borderRadius: isAI ? '4px 14px 14px 14px' : '14px 4px 14px 14px',
+        fontSize: '13px',
+        lineHeight: 1.65,
+        ...(isAI ? {
+          background: 'rgba(0,212,255,0.05)',
+          border: '1px solid rgba(0,212,255,0.1)',
+          color: 'rgba(200,240,255,0.88)',
+        } : {
+          background: 'rgba(139,92,246,0.09)',
+          border: '1px solid rgba(139,92,246,0.15)',
+          color: 'rgba(215,195,255,0.88)',
+        }),
+      }}>
+        {/* Agent badge for AI messages */}
+        {isAI && <AgentBadge agent={message.agent} intent={message.intent} />}
+
+        {isAI && message.streaming && onStreamDone ? (
+          <StreamingBubble content={message.content} onDone={onStreamDone} />
+        ) : (
+          renderContent(message.content)
+        )}
+      </div>
+    </div>
+  );
+}

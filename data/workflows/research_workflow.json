@@ -1,0 +1,14 @@
+{
+  "name": "Deep Research",
+  "description": "Research a topic thoroughly",
+  "steps": [
+    {
+      "action": "research",
+      "command": "{topic}"
+    },
+    {
+      "action": "chat",
+      "command": "Summarize the key findings about {topic}"
+    }
+  ]
+}
