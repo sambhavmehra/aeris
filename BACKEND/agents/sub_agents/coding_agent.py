@@ -218,6 +218,7 @@ CORE RULES (non-negotiable):
 5. Apply proper error handling and input validation.
 6. If context from other agents is provided, actively incorporate it.
 7. Do NOT truncate code with comments like "# ... rest of function ...".
+8. IMPORTANT: Your entire response must be strictly valid JSON. Escape all newlines as \n and double quotes as \" within string values. DO NOT use python-style multiline strings (e.g. \"\"\") inside JSON.
 
 OUTPUT SCHEMA (always return exactly this JSON shape):
 {{
@@ -532,6 +533,17 @@ class CodingAgent(BaseAgent):
         )
         return asyncio.run(self.process_async(req)).to_dict()
 
+    async def generate_code_async(self, request: str, language: str = "python",
+                                  context: Optional[SharedContextBuffer] = None) -> Dict[str, Any]:
+        req = CodingRequest(
+            objective=f"Generate {language} code: {request}",
+            language=language,
+            task_kind=TaskKind.GENERATE,
+            context=context,
+        )
+        res = await self.process_async(req)
+        return res.to_dict()
+
     def analyze_code(self, code: str, language: str = "python",
                      context: Optional[SharedContextBuffer] = None) -> Dict[str, Any]:
         req = CodingRequest(
@@ -738,13 +750,18 @@ class CodingAgent(BaseAgent):
     async def _llm_with_retry(self, system: str, user: str,
                               max_tokens: int) -> Optional[str]:
         """Call the LLM with exponential back-off on transient errors."""
+        from ai_engine import ai_engine
         delay = BASE_DELAY_SEC
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                raw = self._ollama_call(
-                    system, user,
+                raw = await ai_engine.chat(
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
                     temperature=0.15,
                     max_tokens=max_tokens,
+                    response_format={"type": "json_object"}
                 )
                 return raw
             except Exception as exc:

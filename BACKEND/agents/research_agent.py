@@ -5,11 +5,13 @@ Searches the web via Tavily, then summarizes findings via Groq.
 
 import json
 import logging
+import os
 from typing import Any
+
+import httpx
 
 from agents.base_agent import BaseAgent
 from ai_engine import ai_engine
-from tools.tool_registry import global_tool_registry as tool_registry
 
 logger = logging.getLogger("aeris.agent.research")
 
@@ -69,13 +71,35 @@ class ResearchAgent(BaseAgent):
             return {"queries": [message], "original_question": message}
 
     async def execute(self, plan: Any) -> Any:
-        """Run web searches for each query."""
+        """Run web searches for each query via Tavily API directly."""
         all_results = []
         for query in plan.get("queries", [])[:3]:  # Max 3 queries
-            result = await tool_registry.execute("web_search", {"query": query, "max_results": 5})
-            if result.get("status") == "success":
-                all_results.append(result.get("data", {}))
+            try:
+                data = await self._tavily_search(query)
+                if data:
+                    all_results.append(data)
+            except Exception as e:
+                logger.warning(f"Search failed for '{query}': {e}")
         return {"question": plan.get("original_question", ""), "search_results": all_results}
+
+    async def _tavily_search(self, query: str, max_results: int = 5) -> dict:
+        """Call the Tavily Search API directly."""
+        api_key = os.getenv("VITE_TAVILY_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("VITE_TAVILY_API_KEY not set. Please add it to your .env file.")
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": api_key,
+                    "query": query,
+                    "max_results": max_results,
+                    "include_answer": True,
+                    "search_depth": "basic",
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()
 
     async def report(self, results: Any) -> str:
         """Synthesize search results into a comprehensive answer."""

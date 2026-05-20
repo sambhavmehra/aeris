@@ -65,35 +65,63 @@ def _extract_keywords(text: str) -> str:
 
 def _simple_embed(text: str, dim: int = 768) -> list[float]:
     """
-    RAG system using Gemini Embeddings API (text-embedding-004).
-    As dictated by the architecture, semantic codebase search is driven by Gemini.
+    Multi-tier embedding pipeline:
+      1. Cohere embed-english-v3.0  (if COHERE_API_KEY is set)
+      2. Gemini text-embedding-004  (if AERIS_REMOTE_EMBEDDINGS=1)
+      3. Local trigram hashing       (always available, zero-cost)
     """
+    # ── Tier 1: Cohere Embeddings (Primary) ───────────────────────────────────
+    cohere_key = os.getenv("COHERE_API_KEY", "").strip()
+    if cohere_key:
+        try:
+            import requests
+            resp = requests.post(
+                "https://api.cohere.ai/v1/embed",
+                headers={
+                    "Authorization": f"Bearer {cohere_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "embed-english-v3.0",
+                    "texts": [text[:2048]],
+                    "input_type": "search_document",
+                },
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                embeddings = resp.json().get("embeddings", [[]])
+                if embeddings and len(embeddings[0]) > 0:
+                    return embeddings[0]
+        except Exception as e:
+            print(f"Cohere Embedding warning: {type(e).__name__}. Falling back to Gemini...")
+
+    # ── Tier 2: Gemini Embeddings (Fallback) ──────────────────────────────────
     if os.getenv("AERIS_REMOTE_EMBEDDINGS", "").strip().lower() in {"1", "true", "yes"}:
         try:
             from dotenv import dotenv_values
             import requests
-            
+
             env = dotenv_values(".env")
             api_key = env.get("VITE_GEMINI_API_KEY") or env.get("GEMINI_API_KEY")
-            
+
             if api_key:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={api_key}"
                 headers = {"Content-Type": "application/json"}
                 payload = {
                     "model": "models/text-embedding-004",
                     "content": {
-                        "parts": [{"text": text[:9000]}] # limit size
+                        "parts": [{"text": text[:9000]}]  # limit size
                     }
                 }
-                
+
                 response = requests.post(url, headers=headers, json=payload, timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     return data["embedding"]["values"]
         except Exception as e:
-            print(f"Gemini Embedding warning: {type(e).__name__}. Falling back to default hashing...")
+            print(f"Gemini Embedding warning: {type(e).__name__}. Trying hashing...")
 
-    # Fallback hashing if remote embeddings are disabled or unavailable
+    # ── Tier 3: Local trigram hashing fallback ────────────────────────────────
     vector = [0.0] * dim
     text_lower = text.lower()
     for i in range(len(text_lower) - 2):
@@ -101,10 +129,9 @@ def _simple_embed(text: str, dim: int = 768) -> list[float]:
         h = int(hashlib.md5(trigram.encode()).hexdigest(), 16)
         idx = h % dim
         vector[idx] += 1.0
-    
-    import math
     norm = math.sqrt(sum(v * v for v in vector)) or 1.0
     return [v / norm for v in vector]
+
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -156,9 +183,55 @@ class VectorStore:
         return len(self.documents)
 
 
-# =====================================================================
-#  AST-AWARE CODE ANALYZER -- understands code structure
-# =====================================================================
+async def cohere_rerank(
+    query: str,
+    documents: list,
+    top_k: int = 5,
+) -> list:
+    """
+    Re-rank RAG search results using Cohere Rerank v3.
+    Returns (Document, relevance_score) tuples sorted by Cohere's score.
+    Falls back to the original cosine-similarity order if Cohere is unavailable.
+    """
+    import httpx
+
+    api_key = os.getenv("COHERE_API_KEY", "").strip()
+    if not api_key or not documents:
+        return documents[:top_k]
+
+    # documents is list[tuple[Document, float]] from VectorStore.search()
+    docs = [d for d, _ in documents]
+    doc_contents = [d.content[:1000] for d in docs]
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://api.cohere.ai/v1/rerank",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "rerank-english-v3.0",
+                    "query": query,
+                    "documents": doc_contents,
+                    "top_n": top_k,
+                },
+            )
+            if resp.status_code == 200:
+                results = resp.json().get("results", [])
+                reranked = []
+                for r in results:
+                    idx = r["index"]
+                    score = r.get("relevance_score", 0.0)
+                    reranked.append((docs[idx], score))
+                return reranked
+    except Exception as e:
+        print(f"Cohere Rerank warning: {type(e).__name__}: {e}")
+
+    # Fallback: return original cosine-scored results
+    return documents[:top_k]
+
 
 @dataclass
 class CodeEntity:

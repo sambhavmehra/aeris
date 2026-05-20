@@ -16,12 +16,20 @@ def get_downloads_path() -> Path:
     return Path.home() / "Downloads"
 
 def get_documents_path() -> Path:
-    """Get Documents folder path."""
-    return Path.home() / "Documents"
+    """Get Documents folder path, checking OneDrive fallback."""
+    home = Path.home()
+    onedrive_docs = home / "OneDrive" / "Documents"
+    if onedrive_docs.is_dir():
+        return onedrive_docs
+    return home / "Documents"
 
 def get_desktop_path() -> Path:
-    """Get Desktop folder path."""
-    return Path.home() / "Desktop"
+    """Get Desktop folder path, checking OneDrive fallback."""
+    home = Path.home()
+    onedrive_desktop = home / "OneDrive" / "Desktop"
+    if onedrive_desktop.is_dir():
+        return onedrive_desktop
+    return home / "Desktop"
 
 def get_shared_directories() -> dict:
     """Get all accessible shared directories on the system."""

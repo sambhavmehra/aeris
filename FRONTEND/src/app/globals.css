@@ -90,8 +90,34 @@ html, body {
 }
 
 @keyframes hint-pulse {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 0.7; }
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.85; }
+}
+
+@keyframes hint-pulse-visible {
+  0%, 100% { opacity: 0.65; transform: translateX(-50%); }
+  50% { opacity: 1; transform: translateX(-50%); }
+}
+
+@keyframes greeting-glow {
+  0%, 100% { 
+    text-shadow: 0 0 20px rgba(0,255,255,0.5), 0 0 40px rgba(0,255,255,0.25);
+    opacity: 0.9;
+  }
+  50% { 
+    text-shadow: 0 0 30px rgba(0,255,255,0.9), 0 0 60px rgba(0,255,170,0.4), 0 0 80px rgba(0,255,255,0.2);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-down {
+  from { opacity: 0; transform: translateY(-16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes sub-fade-in {
+  from { opacity: 0; letter-spacing: 1px; }
+  to   { opacity: 1; letter-spacing: 2.5px; }
 }
 
 @keyframes voice-ring {
@@ -112,5 +138,69 @@ html, body {
 @keyframes thinking-fade {
   from { opacity: 0; transform: translateX(-6px); }
   to { opacity: 1; transform: translateX(0); }
+}
+
+/* ─── Greeting Text Classes ──────────────────────────────────────────── */
+.greeting-text {
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: 7px;
+  text-transform: uppercase;
+  text-align: center;
+  color: #00ffff;
+  text-shadow:
+    0 0 20px rgba(0, 255, 255, 0.8),
+    0 0 40px rgba(0, 255, 255, 0.4),
+    0 0 60px rgba(0, 255, 170, 0.2);
+  animation:
+    greeting-glow 3s ease-in-out infinite,
+    slide-in-down 0.8s ease-out both;
+}
+
+.greeting-text-split {
+  font-size: clamp(24px, 4vw, 42px);
+  font-weight: 500;
+  letter-spacing: 10px;
+  text-transform: uppercase;
+  color: #00ffff;
+  text-shadow:
+    0 0 20px rgba(0, 255, 255, 0.8),
+    0 0 40px rgba(0, 255, 255, 0.4),
+    0 0 60px rgba(0, 255, 170, 0.2);
+  animation:
+    greeting-glow 3s ease-in-out infinite,
+    slide-in-down 0.8s ease-out both;
+}
+
+.greeting-sub {
+  font-size: 11px;
+  letter-spacing: 2.5px;
+  color: rgba(255, 255, 255, 0.7);
+  text-align: center;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+  animation:
+    sub-fade-in 1s ease-out 0.4s both;
+}
+
+.greeting-icon {
+  font-size: 22px;
+  animation: slide-in-down 0.6s ease-out both;
+}
+
+.tap-hint {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(0, 255, 255, 0.75);
+  font-size: 11px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  text-shadow: 0 0 12px rgba(0, 255, 255, 0.5);
+  white-space: nowrap;
+  animation: hint-pulse-visible 3s ease-in-out infinite;
+  transition: opacity 0.3s ease;
+  font-family: inherit;
 }
 

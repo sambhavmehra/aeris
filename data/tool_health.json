@@ -1,0 +1,18 @@
+{
+  "run_bash": {
+    "total_runs": 5,
+    "successful_runs": 0,
+    "failed_runs": 5,
+    "success_rate": 0.0,
+    "avg_execution_time_ms": 0.0,
+    "last_error": null
+  },
+  "convert_file": {
+    "total_runs": 5,
+    "successful_runs": 0,
+    "failed_runs": 5,
+    "success_rate": 0.0,
+    "avg_execution_time_ms": 0.0,
+    "last_error": null
+  }
+}

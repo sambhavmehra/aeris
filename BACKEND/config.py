@@ -22,6 +22,7 @@ class Settings:
         self.CEREBRAS_API_KEY: str = os.getenv("CEREBRAS_API_KEY", "")
         self.HF_API_KEY: str = os.getenv("VITE_IMAGE_AI_API_KEY", "")
         self.TAVILY_API_KEY: str = os.getenv("VITE_TAVILY_API_KEY", "")
+        self.COHERE_API_KEY: str = os.getenv("COHERE_API_KEY", "").strip()
 
         # --- Identity ---
         self.USERNAME: str = os.getenv("Username", "User")
@@ -67,12 +68,17 @@ class Settings:
     def has_tavily(self) -> bool:
         return bool(self.TAVILY_API_KEY)
 
+    @property
+    def has_cohere(self) -> bool:
+        return bool(self.COHERE_API_KEY)
+
     def __repr__(self) -> str:
         return (
             f"Settings(\n"
             f"  groq_keys={len(self.GROQ_API_KEYS)}, "
             f"gemini={'✓' if self.has_gemini else '✗'}, "
-            f"tavily={'✓' if self.has_tavily else '✗'}\n"
+            f"tavily={'✓' if self.has_tavily else '✗'}, "
+            f"cohere={'✓' if self.has_cohere else '✗'}\n"
             f"  user={self.USERNAME}, assistant={self.ASSISTANT_NAME}\n"
             f"  port={self.API_PORT}\n"
             f")"

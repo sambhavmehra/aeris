@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 
 from ai_engine import ai_engine
-from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent
+from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent
 from agents.agent_registry import agent_registry, AgentStatus
 from memory.store import memory_store
 from neural.core import neural_core
@@ -58,22 +58,36 @@ Your ONLY job: decompose the user's message into an ordered execution plan.
 
 AVAILABLE INTENTS:
 - "chat"     : Casual conversation, greetings, general knowledge, jokes, math, definitions
-- "security" : Port scanning, recon, vulnerability testing, VAPT, DNS lookup, SSL checks
+- "security" : Port scanning, recon, vulnerability testing, VAPT, DNS lookup, SSL checks, zero-day analysis
 - "system"   : Open/close apps, run shell commands, file operations, OS info, system control
-- "research" : Search the web, find current information, news, live data, synthesis
+- "research" : Deep academic research, synthesis of complex technical topics, multi-source information gathering
+- "search"   : Realtime internet search, current events, news, live prices, trending topics, quick web lookups, weather, user location (where am i), scraping
 - "code"     : Write code, debug, explain code, refactor, generate scripts
 - "image"    : Generate, create, or draw images/pictures/photos from a text description
+- "diagram"  : Create flowcharts, system diagrams, architecture charts, mind maps, flow charts, graphs, charts, widgets
 - "codepipeline" : Build an entire project/app autonomously, scaffold a workspace, create a full codebase
+- "analyze"  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents
 
-USER MESSAGE: "{message}"
+=== CONVERSATION HISTORY (last 3 messages) ===
+{history}
+=== END HISTORY ===
+
+=== RECENT AGENT TASK EXECUTIONS ===
+{recent_tasks}
+=== END RECENT TASKS ===
+
+CURRENT USER MESSAGE: "{message}"
+
+IMPORTANT: Use the conversation history to resolve pronouns ("it", "that", "iska", "uska") and understand follow-up queries.
+If the current message is a follow-up to a previous security task (e.g., "scan it", "check its SSL"), classify it as "security" and resolve the target from history.
 
 Respond with ONLY valid JSON, no markdown, no extra text:
 {{
   "tasks": [
     {{
       "task_id": "t1",
-      "intent": "<one of the 6 intents above>",
-      "description": "<clear, standalone instruction for this task>",
+      "intent": "<one of the intents above>",
+      "description": "<clear, standalone instruction — resolve any pronouns using history>",
       "dependencies": []
     }}
   ],
@@ -84,7 +98,7 @@ RULES:
 - If the message has only ONE request, output exactly ONE task.
 - If the message has MULTIPLE requests, split into multiple tasks with correct dependencies.
 - Set is_parallel=true ONLY if tasks are completely independent.
-- "description" must be self-contained (don't use pronouns like "it" or "that").
+- "description" MUST be self-contained — replace pronouns with the actual resolved target/subject from history.
 - When unsure between "chat" and "research", prefer "research".
 """
 
@@ -111,19 +125,31 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "open youtube", "youtube pe", "youtube par",
      ], "system"),
     (["search", "find out", "latest news", "who is ", "what is the latest",
-      "current price", "weather", "trending", "look up"], "research"),
+      "current price", "weather", "trending", "look up",
+      "realtime", "real-time", "live data", "right now", "today's",
+      "what happened", "breaking news", "search for", "google it",
+      "find me", "look for", "latest on", "current news", "my location", "where am i"], "search"),
+    (["deep research", "academic research", "synthesize", "research paper",
+      "technical research", "in-depth analysis", "compare technologies"], "research"),
     (["write code", "debug", "write a function", "write a script",
       "fix this code", "refactor", "explain this code",
-      "generate a class", "create a flask", "create an api"], "code"),
+      "generate a class", "create a flask", "create an api",
+      # Hindi / Hinglish code keywords — must come before image block
+      "game banao", "code banao", "program banao", "script banao",
+      "function banao", "api banao", "app banao", "website banao",
+      "code likho", "program likho", "algorithm banao",
+      "python mein", "javascript mein", "java mein",
+      "mein banao", "mein bana do", "mein bana de",
+    ], "code"),
     # ── Image generation ──────────────────────────────────────────────────────
     ([
       "generate image", "create image", "make image", "draw ",
       "generate a picture", "create a picture", "make a picture",
       "generate photo", "create photo", "make photo",
       "image of ", "picture of ", "photo of ",
-      # Hindi / Hinglish
-      "photo de", "photo bana", "image bana", "tasveer", "bana de",
-      "bana do", "banao", "phot de", "phot bana",
+      # Hindi / Hinglish — image-specific only (no generic "banao")
+      "photo de", "photo bana", "image bana", "tasveer",
+      "phot de", "phot bana",
     ], "image"),
     # ── Autonomous code pipeline ──────────────────────────────────────────────
     ([
@@ -133,6 +159,22 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "generate a full project", "full project", "code pipeline",
       "project bana", "project banao", "app bana do",
     ], "codepipeline"),
+    # ── Diagram / flowchart / widget ─────────────────────────────────────────
+    ([
+      "flowchart", "flow chart", "diagram", "chart", "mind map", "mindmap",
+      "architecture diagram", "system diagram", "sequence diagram",
+      "er diagram", "class diagram", "network diagram",
+      "widget", "visualize", "visualise", "flow banao", "chart banao",
+      "diagram banao", "diagram bana", "chart bana",
+    ], "diagram"),
+    # ── Analyze / inspect / diagnose ──────────────────────────────────────────
+    ([
+      "analyze ", "analyse ", "inspect ", "diagnose", "summarize file",
+      "analyze file", "analyse file", "check this file", "check this data",
+      "parse this", "read and explain", "find issues in",
+      "analyze karo", "analyse karo", "check karo", "dekhke batao",
+      "file analyze", "log analyze", "data analyze",
+    ], "analyze"),
 ]
 
 
@@ -162,7 +204,7 @@ class Brain:
     """
 
     NEURAL_CONFIDENCE_THRESHOLD = 0.80
-    VALID_INTENTS = {"chat", "security", "system", "research", "code", "image", "codepipeline"}
+    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze"}
 
     def __init__(self):
         # ── Instantiate all Core agents ──
@@ -171,8 +213,10 @@ class Brain:
             "security": SecurityAgent(),
             "system":   SystemAgent(),
             "research": ResearchAgent(),
+            "search":   SearchAgent(),
             "code":     CodeAgent(),
             "image":    ImageAgent(),
+            "analyze":  AnalyzerAgent(),
         }
         self.audit_agent = AuditAgent()
         self.observer_agent = ObserverAgent()
@@ -253,13 +297,56 @@ class Brain:
 
     # ─────────────────────────── Intent Routing ───────────────────────────────
 
+    def _build_history_summary(self, limit: int = 3) -> str:
+        """Format last N memory messages as a compact context string for LLM prompts."""
+        try:
+            history = memory_store.get_context(limit)
+            if not history:
+                return "No prior conversation."
+            lines = []
+            for msg in history:
+                role = msg.get("role", "user").upper()
+                content = msg.get("content", "")[:180]
+                lines.append(f"[{role}]: {content}")
+            return "\n".join(lines)
+        except Exception:
+            return "No prior conversation."
+
+    def _build_recent_tasks_summary(self, limit: int = 3) -> str:
+        """Format the last few task execution details for LLM context."""
+        try:
+            results = memory_store.task_results
+            if not results:
+                return "No recent tasks executed."
+            
+            sorted_tasks = sorted(
+                results.items(),
+                key=lambda x: x[1].get("stored_at", ""),
+                reverse=True
+            )[:limit]
+            
+            lines = []
+            for task_id, data in reversed(sorted_tasks):
+                for t in data.get("tasks", []):
+                    intent = t.get("intent", "unknown").upper()
+                    agent = t.get("agent", "unknown")
+                    success = "SUCCESS" if t.get("success") else "FAILED"
+                    resp_snippet = str(t.get("response", ""))[:200].replace("\n", " ").strip()
+                    lines.append(
+                        f"- [{intent}] by {agent} -> Status: {success}. Response: {resp_snippet}"
+                    )
+            return "\n".join(lines) if lines else "No recent tasks executed."
+        except Exception as e:
+            logger.warning(f"Failed to build task summary: {e}")
+            return "No recent tasks executed."
+
     async def _classify_intent(self, message: str) -> str:
         """
-        Single-intent classification.
+        Single-intent classification with conversation context.
 
         Priority:
           1. Neural ML — only at very high confidence (95%+) for instant routing
-          2. LLM classification — primary classifier, understands any language
+          2. LLM classification — primary classifier, understands any language + history
           3. Keyword fallback — only if LLM fails entirely
         """
         # 1. Neural ML fast-route (very high confidence only)
@@ -274,21 +361,29 @@ class Brain:
             except Exception as e:
                 logger.warning(f"[Brain] Neural routing failed: {e}")
 
-        # 2. LLM classification — primary, understands any language
+        # 2. LLM classification — primary, understands any language + conversation context
+        history_summary = self._build_history_summary(3)
+        recent_tasks_summary = self._build_recent_tasks_summary(3)
         try:
             raw = await ai_engine.classify(
                 f"You are an intent classifier. Classify the following user message into EXACTLY ONE intent.\n\n"
                 f"INTENTS:\n"
                 f"- chat     : Casual conversation, greetings, general knowledge, jokes, math, definitions\n"
-                f"- security : Port scanning, recon, vulnerability testing, VAPT, DNS lookup, SSL checks\n"
+                f"- security : Port scanning, recon, vulnerability testing, VAPT, DNS lookup, SSL checks, zero-day analysis\n"
                 f"- system   : Open/close apps, run shell commands, file operations, OS info, system control, browser navigation, playing music/videos\n"
-                f"- research : Search the web, find current information, news, live data, synthesis\n"
+                f"- research : Deep academic/technical research, multi-source synthesis of complex topics, research papers\n"
+                f"- search   : Realtime web search, current events, breaking news, live prices, trending topics, quick internet lookups, weather, user location/where am i, web scraping\n"
                 f"- code     : Write code, debug, explain code, refactor, generate scripts\n"
                 f"- image    : Generate, create, draw, or produce images/pictures/photos/art from a text description\n"
-                f"- codepipeline : Build an entire project/app autonomously, scaffold a workspace, generate a full codebase\n\n"
-                f"The message may be in ANY language (English, Hindi, Hinglish, etc). Understand the MEANING, not just keywords.\n\n"
-                f'User message: "{message}"\n\n'
-                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, code, image, codepipeline>", "reason": "<brief explanation>"}}'
+                f"- diagram  : Create flowcharts, system diagrams, architecture charts, mind maps, charts, graphs, widgets — ANY visual data structure or flow diagram\n"
+                f"- codepipeline : Build an entire project/app autonomously, scaffold a workspace, generate a full codebase\n"
+                f"- analyze  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents of files\n\n"
+                f"The message may be in ANY language (English, Hindi, Hinglish, etc). Understand the MEANING, not just keywords.\n"
+                f"Use the conversation history to resolve follow-up queries and pronouns (e.g., 'it', 'that', 'iska').\n\n"
+                f"=== CONVERSATION HISTORY (last 3 messages) ===\n{history_summary}\n=== END HISTORY ===\n\n"
+                f"=== RECENT AGENT TASK EXECUTIONS ===\n{recent_tasks_summary}\n=== END RECENT TASKS ===\n\n"
+                f'Current user message: "{message}"\n\n'
+                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze>", "reason": "<brief explanation>"}}'
             )
             raw = raw.strip().strip("```json").strip("```").strip()
             data = json.loads(raw)
@@ -311,10 +406,15 @@ class Brain:
     async def _plan_multi_task(self, message: str) -> BrainPlan:
         """
         Use LLM to parse complex, multi-step queries into a BrainPlan.
+        Injects conversation history to resolve follow-up queries and pronouns.
         Falls back to a single-task plan on any error.
         """
+        history_summary = self._build_history_summary(3)
+        recent_tasks_summary = self._build_recent_tasks_summary(3)
         try:
-            raw = await ai_engine.classify(MULTI_TASK_PROMPT.format(message=message), )
+            raw = await ai_engine.classify(
+                MULTI_TASK_PROMPT.format(message=message, history=history_summary, recent_tasks=recent_tasks_summary)
+            )
             raw = raw.strip().strip("```json").strip("```").strip()
             plan = BrainPlan(**json.loads(raw))
             # Validate all intents
@@ -338,7 +438,11 @@ class Brain:
         """
         lower = message.lower()
         multi_step_signals = [" and then ", " after that ", " also ", " additionally ",
-                              " furthermore ", " then ", " next ", " followed by "]
+                              " furthermore ", " then ", " next ", " followed by ",
+                              # Hindi / Hinglish conjunctions for multi-step requests
+                              " or ", " aur ", " phir ", " uske baad ", " krke ", " karke ",
+                              " kar ke ", " karne ke baad ", " fir ", " bhi ",
+                              " convert ", " convert kr", " convert kar",]
         if any(sig in lower for sig in multi_step_signals):
             return True
         if len(message) > 150:
@@ -356,6 +460,27 @@ class Brain:
     ) -> dict:
         """Execute a single BrainTask through the appropriate agent."""
         logger.info(f"[Brain] Task {step_idx + 1}/{total}: intent='{task.intent}' — {task.description[:80]}")
+
+        # Handle diagram intent — generate an interactive React Flow widget
+        if task.intent == "diagram":
+            try:
+                from agents.diagram_agent import get_diagram_agent
+                agent = get_diagram_agent()
+                response = await agent.generate(task.description)
+                return {
+                    "task_id": task.task_id, "intent": task.intent,
+                    "agent": "DiagramAgent",
+                    "response": response,
+                    "success": True, "execution_time": 0.0,
+                }
+            except Exception as e:
+                logger.error(f"[Brain] DiagramAgent failed: {e}")
+                return {
+                    "task_id": task.task_id, "intent": task.intent,
+                    "agent": "DiagramAgent",
+                    "response": f"Could not generate diagram: {e}",
+                    "success": False, "execution_time": 0.0, "error": str(e),
+                }
 
         # Handle codepipeline intent — run the autonomous pipeline
         if task.intent == "codepipeline":
@@ -378,7 +503,7 @@ class Brain:
                            f"Description: {fs.description}\nProject: {task.description}\n"
                            f"Blueprint:\n{arch_summary}")
                     try:
-                        res = coder.generate_code(request=obj, language=fs.language or manifest.language)
+                        res = await coder.generate_code_async(request=obj, language=fs.language or manifest.language)
                         content = res.get("code") or ""
                         if not content:
                             for ff in res.get("files", []):
@@ -483,6 +608,13 @@ class Brain:
                     snippet = result["response"][:600]
                     accumulated_context += f"\n--- [{task.intent.upper()}] ---\n{snippet}\n"
 
+                    # Extract file paths from results so downstream tasks can use them directly
+                    import re
+                    paths_found = re.findall(r'[A-Za-z]:\\[^\s\n\r\'"<>|]+\.\w+', snippet)
+                    if paths_found:
+                        accumulated_context += f"\n[FILE_PATHS_FOUND]: {'; '.join(paths_found)}\n"
+                        logger.info(f"[Brain] Extracted file paths for downstream tasks: {paths_found}")
+
         return results
 
     # ─────────────────────────── Public API ───────────────────────────────────
@@ -500,6 +632,7 @@ class Brain:
         # 2. Build base context (last 10 messages)
         base_context = {
             "chat_history": memory_store.get_context(10),
+            "recent_tasks": self._build_recent_tasks_summary(5),
         }
 
         max_retries = 2
@@ -568,8 +701,8 @@ class Brain:
                     tasks=[BrainTask(task_id="t1", intent=intent, description=current_message)],
                     is_parallel=False,
                 )
-                # If it's a simple command and routed via neural/keywords to system/chat, we consider it fast
-                if intent in ["chat", "system"] and attempt == 1:
+                # If it's a simple command or a specialized pipeline, skip the audit
+                if intent in ["chat", "system", "codepipeline", "diagram", "image"] and attempt == 1:
                     is_fast_route = True
 
             # 4. Execute

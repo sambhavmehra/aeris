@@ -125,7 +125,7 @@ class PlannerAgent(BaseAgent):
                 "Dependency Analysis",
             ],
         )
-        self.base_dir = Path(os.path.expanduser("~/AERIS_Projects")).resolve()
+        self.base_dir = (Path(__file__).resolve().parent.parent.parent / "workspace").resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     # ── BaseAgent interface ──────────────────────────────────────────────
@@ -176,6 +176,7 @@ class PlannerAgent(BaseAgent):
             ],
             temperature=0.25,
             max_tokens=2048,
+            response_format={"type": "json_object"}
         )
 
         manifest = self._parse_manifest(raw, objective)

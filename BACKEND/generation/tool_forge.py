@@ -50,22 +50,67 @@ TOOL_TEMPLATES: dict[str, dict] = {
         "description": "Recursively search files by name pattern or content",
         "code": textwrap.dedent("""\
             import os, fnmatch
+
+            def _default_roots(directory: str) -> list[str]:
+                # If caller passes ".", try common AERIS data roots first.
+                if directory in (".", "", None):
+                    return ["." , "BACKEND/data", "data", "BACKEND/data/converted", "BACKEND/Screenshots"]
+                return [directory]
+
             def run(directory: str = ".", pattern: str = "*", content_query: str = "", max_results: int = 50) -> dict:
                 results = []
-                for root, dirs, files in os.walk(directory):
-                    for fname in files:
-                        if fnmatch.fnmatch(fname, pattern):
-                            full = os.path.join(root, fname)
-                            if content_query:
+                content_query_l = (content_query or "").lower().strip()
+
+                # Case-insensitive filename matching for cases like "sambhavv.pdf" vs "SambhavV.pdf"
+                pattern_l = (pattern or "*").lower()
+
+                def match_name(fname: str) -> bool:
+                    return fnmatch.fnmatch(fname.lower(), pattern_l)
+
+                def consider_file(full: str, fname: str) -> None:
+                    if not match_name(fname):
+                        return
+                    if content_query_l:
+                        try:
+                            # Only attempt text matching; skip binaries / unreadable files
+                            with open(full, "r", errors="ignore") as f:
+                                text = f.read()
+                            if content_query_l not in text.lower():
+                                return
+                        except Exception:
+                            return
+                    results.append(full)
+
+                roots = _default_roots(directory)
+
+                for root_dir in roots:
+                    try:
+                        if not os.path.exists(root_dir):
+                            continue
+                        for root, dirs, files in os.walk(root_dir, onerror=lambda e: None):
+                            # Skip dirs that are likely inaccessible (best-effort)
+                            # Also prevent os.walk from repeatedly trying protected folders.
+                            pruned = []
+                            for d in dirs:
+                                dl = d.lower()
+                                if dl in ("node_modules", ".git", "__pycache__", "venv", "windows", "system32", "program files", "program files (x86)"):
+                                    pruned.append(d)
+                            if pruned:
+                                dirs[:] = [d for d in dirs if d not in pruned]
+
+                            for fname in files:
                                 try:
-                                    text = open(full, "r", errors="ignore").read()
-                                    if content_query.lower() not in text.lower():
-                                        continue
+                                    full = os.path.join(root, fname)
+                                    consider_file(full, fname)
                                 except Exception:
                                     continue
-                            results.append(full)
-                            if len(results) >= max_results:
-                                return {"success": True, "count": len(results), "files": results, "truncated": True}
+
+                                if len(results) >= max_results:
+                                    return {"success": True, "count": len(results), "files": results, "truncated": True}
+                    except Exception:
+                        # If a root traversal fails (permissions, etc), keep going with next root.
+                        continue
+
                 return {"success": True, "count": len(results), "files": results, "truncated": False}
         """),
     },

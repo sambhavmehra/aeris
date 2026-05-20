@@ -16,12 +16,14 @@ export interface Message {
 
 // Intent -> icon + color mapping
 const INTENT_META: Record<string, { icon: string; color: string; label: string }> = {
-  chat:     { icon: '💬', color: 'rgba(0,220,255,0.7)',  label: 'Chat' },
-  security: { icon: '🛡',  color: 'rgba(255,80,80,0.75)', label: 'Security' },
-  system:   { icon: '⚙',  color: 'rgba(255,180,50,0.75)', label: 'System' },
-  research: { icon: '🔍', color: 'rgba(100,220,100,0.75)', label: 'Research' },
-  code:     { icon: '💻', color: 'rgba(180,130,255,0.8)', label: 'Code' },
-  image:    { icon: '🎨', color: 'rgba(255,140,200,0.8)', label: 'Image' },
+  chat:        { icon: '💬', color: 'rgba(0,220,255,0.7)',  label: 'Chat' },
+  security:    { icon: '🛡',  color: 'rgba(255,80,80,0.75)', label: 'Security' },
+  system:      { icon: '⚙',  color: 'rgba(255,180,50,0.75)', label: 'System' },
+  research:    { icon: '🔍', color: 'rgba(100,220,100,0.75)', label: 'Research' },
+  code:        { icon: '💻', color: 'rgba(180,130,255,0.8)', label: 'Code' },
+  image:       { icon: '🎨', color: 'rgba(255,140,200,0.8)', label: 'Image' },
+  diagram:     { icon: '📊', color: 'rgba(96,165,250,0.85)', label: 'Diagram' },
+  codepipeline:{ icon: '📐', color: 'rgba(52,211,153,0.85)', label: 'CodePipeline' },
 };
 
 function CodeBlock({
@@ -305,10 +307,11 @@ const CustomMarkdown = ({ content }: { content: string }) => {
 };
 
 function renderContent(text: string) {
-  // Detect [IMAGE:url] markers and split into segments
-  const parts = text.split(/(\[IMAGE:https?:\/\/[^\]]+\])/g);
-  
+  // Split on [IMAGE:url] and [WIDGET:encoded_html] markers
+  const parts = text.split(/(\[IMAGE:https?:\/\/[^\]]+\]|\[WIDGET:[^\]]+\])/g);
+
   return parts.map((part, index) => {
+    // Image marker
     const imageMatch = part.match(/\[IMAGE:(https?:\/\/[^\]]+)\]/);
     if (imageMatch) {
       const imageUrl = imageMatch[1];
@@ -351,7 +354,38 @@ function renderContent(text: string) {
         </div>
       );
     }
-    
+
+    // Widget marker — render interactive diagram/chart in an iframe
+    const widgetMatch = part.match(/\[WIDGET:([^\]]+)\]/);
+    if (widgetMatch) {
+      const html = decodeURIComponent(widgetMatch[1]);
+      return (
+        <div key={index} style={{
+          marginTop: '14px',
+          marginBottom: '10px',
+          borderRadius: '16px',
+          overflow: 'hidden',
+          border: '1px solid rgba(0,212,255,0.2)',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,212,255,0.05)',
+          width: '100%',
+        }}>
+          <iframe
+            srcDoc={html}
+            style={{
+              width: '100%',
+              height: '520px',
+              border: 'none',
+              display: 'block',
+              borderRadius: '16px',
+              background: 'rgba(3,9,25,0.97)',
+            }}
+            title="AERIS Interactive Diagram"
+            sandbox="allow-scripts allow-same-origin"
+          />
+        </div>
+      );
+    }
+
     if (!part.trim()) return null;
     return <CustomMarkdown key={index} content={part} />;
   });

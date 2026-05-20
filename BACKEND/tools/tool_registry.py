@@ -246,7 +246,7 @@ def _register_all_tools():
                 raise RuntimeError(r.output)
             return r.output
 
-        def run_bash(command: str) -> str:
+        def run_bash(command: str, **kwargs) -> str:
             r = _ft.bash(command)
             if not r.success:
                 raise RuntimeError(r.output)
@@ -546,7 +546,7 @@ def _register_all_tools():
         )
         reg.register(
             "find_system_file",
-            "Search the entire host system for a file by name. Useful when the user mentions a file name (e.g. 'resume.pdf') but doesn't provide the exact path. Provide the filename to search for.",
+            "Search the entire host system for a file by name. Provide the EXACT filename to search for. STRIP OUT any conversational words like 'my', 'meri', 'file', 'dhund', etc. For example, if user says 'meri sambhavv.pdf ki file dhund na', filename should ONLY be 'sambhavv.pdf'.",
             find_system_file,
             ["filename"],
             RiskLevel.SAFE,

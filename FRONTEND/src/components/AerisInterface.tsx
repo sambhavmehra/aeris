@@ -5,10 +5,13 @@ import ChatPanel from './ChatPanel';
 import { useParticles } from '@/hooks/useParticles';
 import { useCursor } from '@/hooks/useCursor';
 
+const BRAND = 'AERIS';
+
 export default function AerisInterface() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
+  const [dynamicGreeting, setDynamicGreeting] = useState<string>('Sir, ready when you are.');
   const particleRef = useRef<HTMLCanvasElement>(null);
 
   useParticles(particleRef, isSpeaking);
@@ -29,8 +32,42 @@ export default function AerisInterface() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchGreeting = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/greeting');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && typeof data?.line === 'string' && data.line.trim()) {
+          setDynamicGreeting(data.line.trim());
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    fetchGreeting();
+    const interval = setInterval(fetchGreeting, 10 * 60 * 1000); // 10 mins
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
   const openChat = () => setChatOpen(true);
   const closeChat = () => { setChatOpen(false); setIsSpeaking(false); };
+
+  const greetingAccent = {
+    primary: '#00ffff',
+    secondary: '#00ffaa',
+    glow1: 'rgba(0,255,255,0.8)',
+    glow2: 'rgba(0,255,255,0.4)',
+    glow3: 'rgba(0,255,170,0.2)',
+  };
+
+  const greetingTextShadow = `0 0 20px ${greetingAccent.glow1}, 0 0 40px ${greetingAccent.glow2}, 0 0 60px ${greetingAccent.glow3}`;
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--navy)', overflow: 'hidden', cursor: 'none' }}>
@@ -84,52 +121,125 @@ export default function AerisInterface() {
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
       }}>
-        {/* Brand */}
+        {/* Top status (AERIS brand removed) */}
         <div style={{
           position: 'absolute', top: '36px', left: '50%', transform: 'translateX(-50%)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
         }}>
           <div style={{
-            fontSize: '11px', fontWeight: 400, letterSpacing: '10px',
-            color: 'rgba(0,255,255,0.38)', textTransform: 'uppercase',
-          }}>AERIS</div>
-          <div style={{
             display: 'flex', alignItems: 'center', gap: '7px',
-            background: 'rgba(0,255,255,0.04)', border: '1px solid rgba(0,255,255,0.1)',
+            background: 'rgba(0,255,255,0.08)', border: '1px solid rgba(0,255,255,0.3)',
             borderRadius: '20px', padding: '5px 14px',
+            boxShadow: '0 0 12px rgba(0,255,255,0.08)',
           }}>
             <div style={{
-              width: '5px', height: '5px', borderRadius: '50%',
+              width: '6px', height: '6px', borderRadius: '50%',
               background: !isOnline ? '#ff4444' : (isSpeaking ? '#00ffaa' : '#00ffff'),
-              boxShadow: `0 0 8px ${!isOnline ? '#ff4444' : (isSpeaking ? '#00ffaa' : '#00ffff')}`,
+              boxShadow: `0 0 10px ${!isOnline ? '#ff4444' : (isSpeaking ? '#00ffaa' : '#00ffff')}`,
               animation: 'status-blink 2s ease-in-out infinite',
             }} />
-            <span style={{ fontSize: '10px', color: !isOnline ? 'rgba(255,100,100,0.7)' : 'rgba(0,255,255,0.5)', letterSpacing: '2.5px' }}>
+            <span style={{ fontSize: '10px', color: !isOnline ? 'rgba(255,100,100,0.9)' : 'rgba(0,255,255,0.85)', letterSpacing: '2.5px', fontWeight: 500 }}>
               {!isOnline ? 'OFFLINE' : (isSpeaking ? 'PROCESSING' : 'IDLE')}
             </span>
           </div>
           <a href="/codepipeline" style={{
             display: 'flex', alignItems: 'center', gap: '6px',
-            background: 'rgba(0,255,170,0.04)', border: '1px solid rgba(0,255,170,0.12)',
+            background: 'rgba(0,255,170,0.1)', border: '1px solid rgba(0,255,170,0.35)',
             borderRadius: '20px', padding: '5px 14px', textDecoration: 'none',
             cursor: 'pointer', transition: 'all 0.3s', marginTop: '6px',
+            boxShadow: '0 0 12px rgba(0,255,170,0.1)',
           }}>
             <span style={{ fontSize: '10px' }}>🤖</span>
-            <span style={{ fontSize: '10px', color: 'rgba(0,255,170,0.55)', letterSpacing: '2px' }}>CODE PIPELINE</span>
+            <span style={{ fontSize: '10px', color: 'rgba(0,255,170,0.9)', letterSpacing: '2px', fontWeight: 500 }}>CODE PIPELINE</span>
           </a>
+        </div>
+
+        {/* Split Time-based Greeting */}
+        <div style={{
+          position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: '100%',
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          opacity: chatOpen ? 0 : 1, transition: 'opacity 0.5s ease',
+          pointerEvents: 'none', zIndex: 12,
+        }}>
+          {(() => {
+            const g = (dynamicGreeting || '').trim();
+            const mid = Math.ceil(g.length / 2);
+            const left = g.slice(0, mid);
+            const right = g.slice(mid);
+            return (
+              <>
+                {/* Left part */}
+                <div
+                  className="greeting-text-split"
+                  style={{
+                    position: 'absolute',
+                    right: '50%',
+                    marginRight: 'clamp(200px, 22vw, 320px)',
+                    textAlign: 'right',
+                    color: greetingAccent.primary,
+                    textShadow: greetingTextShadow,
+                  }}
+                >
+                  {left}
+                </div>
+
+                {/* Right part */}
+                <div
+                  className="greeting-text-split"
+                  style={{
+                    position: 'absolute',
+                    left: '50%',
+                    marginLeft: 'clamp(200px, 22vw, 320px)',
+                    textAlign: 'left',
+                    color: greetingAccent.primary,
+                    textShadow: greetingTextShadow,
+                  }}
+                >
+                  {right}
+                </div>
+              </>
+            );
+          })()}
+        </div>
+
+        {/* Sub-greeting & Icon below Orb */}
+        <div style={{
+          position: 'absolute', top: '50%', left: '50%',
+          transform: 'translate(-50%, calc(-50% + 180px))',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
+          opacity: chatOpen ? 0 : 1, transition: 'opacity 0.5s ease',
+          pointerEvents: 'none', zIndex: 12,
+        }}>
+          <div
+            className="greeting-icon"
+            style={{
+              color: greetingAccent.secondary,
+              textShadow: `0 0 18px ${greetingAccent.glow1}`,
+            }}
+          >
+            {'✨'}
+          </div>
+          <div
+            className="greeting-sub"
+            style={{
+              color: 'rgba(0, 255, 170, 0.85)',
+              textShadow: `0 0 10px rgba(0,255,170,0.25)`,
+            }}
+          >
+            {dynamicGreeting}
+          </div>
         </div>
 
         {/* Orb */}
         <Orb isSpeaking={isSpeaking} onClick={openChat} />
 
         {/* Hint */}
-        <div style={{
-          position: 'absolute', bottom: '56px', left: '50%', transform: 'translateX(-50%)',
-          color: 'rgba(255,255,255,0.2)', fontSize: '11px', letterSpacing: '3.5px',
-          textTransform: 'uppercase', animation: 'hint-pulse 3s ease-in-out infinite',
-          opacity: chatOpen ? 0 : 1, transition: 'opacity 0.3s',
-          whiteSpace: 'nowrap',
-        }}>
+        <div
+          className="tap-hint"
+          style={{ opacity: chatOpen ? 0 : 1 }}
+        >
           Tap to awaken
         </div>
       </div>

@@ -38,6 +38,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasOpened = useRef(false);
   const thinkingTimers = useRef<NodeJS.Timeout[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const fetchHistory = async () => {
@@ -122,6 +123,15 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     setActiveAgent(null);
   }, []);
 
+  const handleStop = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    stopThinking();
+    onSpeakingChange(false);
+  }, [stopThinking, onSpeakingChange]);
+
   const sendMessage = useCallback(async (text?: string) => {
     const msg = (text ?? input).trim();
     if (!msg || isTyping) return;
@@ -130,17 +140,22 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     startThinking();
     onSpeakingChange(true);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const res = await fetch('http://localhost:8000/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
+        body: JSON.stringify({ message: msg }),
+        signal: controller.signal,
       });
 
       if (!res.ok) throw new Error('Backend error');
 
       const data = await res.json();
 
+      abortControllerRef.current = null;
       stopThinking();
 
       // Pass agent and intent metadata to the message
@@ -150,22 +165,100 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
         data.agent || undefined,
         data.intent || undefined
       );
-    } catch (e) {
+    } catch (e: any) {
+      abortControllerRef.current = null;
       stopThinking();
-      addAIMessage('Error: Could not connect to AERIS neural core. System may be offline or initializing.');
+      if (e?.name === 'AbortError') {
+        addAIMessage('⏹ Request cancelled.', false);
+      } else {
+        addAIMessage('Error: Could not connect to AERIS neural core. System may be offline or initializing.');
+      }
     }
   }, [input, isTyping, addAIMessage, onSpeakingChange, startThinking, stopThinking]);
 
-  const toggleVoice = () => {
-    if (isListening) return;
-    setIsListening(true);
-    onSpeakingChange(true);
-    setTimeout(() => {
+  // -- Web Speech API for real STT --
+  const recognitionRef = useRef<any>(null);
+
+  const toggleVoice = useCallback(() => {
+    // If already listening, stop
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
       setIsListening(false);
-      setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: 'Voice input received.' }]);
-      setTimeout(() => addAIMessage('Voice channel received. Acoustic neural interface processed your input. How would you like to proceed?'), 300);
-    }, 2500);
-  };
+      onSpeakingChange(false);
+      return;
+    }
+
+    // Check browser support
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      addAIMessage('Speech recognition is not supported in this browser. Please use Chrome or Edge.', false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-IN'; // Supports English + Hindi
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognitionRef.current = recognition;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      onSpeakingChange(true);
+    };
+
+    recognition.onresult = async (event: any) => {
+      const transcript = event.results[0]?.[0]?.transcript?.trim();
+      if (!transcript) return;
+
+      setIsListening(false);
+      onSpeakingChange(false);
+
+      // Show user message in chat
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'user',
+        content: transcript,
+      }]);
+
+      // Send to AERIS voice endpoint
+      startThinking();
+      try {
+        const res = await fetch('http://localhost:8000/api/voice/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript, speak: true }),
+        });
+        const data = await res.json();
+        stopThinking();
+        addAIMessage(
+          data.response_text || data.response || 'No response received.',
+          true,
+          undefined,
+          data.intent || undefined,
+        );
+      } catch (e) {
+        stopThinking();
+        addAIMessage('Error: Could not process voice command. Backend may be offline.', false);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error:', event.error);
+      setIsListening(false);
+      onSpeakingChange(false);
+      if (event.error !== 'aborted' && event.error !== 'no-speech') {
+        addAIMessage(`Voice error: ${event.error}. Please try again.`, false);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.start();
+  }, [isListening, onSpeakingChange, addAIMessage, startThinking, stopThinking]);
 
   const currentStageText = THINKING_STAGES[thinkingStage]?.text || 'Processing...';
 
@@ -377,17 +470,23 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
               }}
             >🎙</button>
             <button
-              onClick={() => sendMessage()}
-              title="Send"
+              onClick={() => isTyping ? handleStop() : sendMessage()}
+              title={isTyping ? 'Stop' : 'Send'}
               style={{
-                width: '32px', height: '32px', borderRadius: '50%',
-                background: 'linear-gradient(135deg, rgba(0,200,255,0.2), rgba(0,140,200,0.15))',
-                border: '1px solid rgba(0,200,255,0.32)',
-                color: 'rgba(0,220,255,0.92)', cursor: 'pointer', fontSize: '13px',
+                width: '32px', height: '32px',
+                borderRadius: isTyping ? '6px' : '50%',
+                background: isTyping
+                  ? 'linear-gradient(135deg, rgba(255,60,60,0.25), rgba(200,40,40,0.2))'
+                  : 'linear-gradient(135deg, rgba(0,200,255,0.2), rgba(0,140,200,0.15))',
+                border: isTyping
+                  ? '1px solid rgba(255,80,80,0.4)'
+                  : '1px solid rgba(0,200,255,0.32)',
+                color: isTyping ? 'rgba(255,120,120,0.95)' : 'rgba(0,220,255,0.92)',
+                cursor: 'pointer', fontSize: '13px',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                transition: 'all 0.2s', flexShrink: 0,
+                transition: 'all 0.25s ease', flexShrink: 0,
               }}
-            >➤</button>
+            >{isTyping ? '■' : '➤'}</button>
           </div>
         </div>
       </div>

@@ -182,10 +182,26 @@ class FileToolSystem:
 
         # ── FIX 1: Expand tilde in commands ──────────────────────────
         # Replace ~/ or ~/path with the actual home directory
+        # Quotes unquoted paths automatically to handle user directories with spaces
+        home_path = os.path.expanduser("~").replace("\\", "/")
+
+        # Map ~/Desktop and ~/Documents to OneDrive if they exist
+        onedrive_desktop = os.path.join(os.path.expanduser("~"), "OneDrive", "Desktop")
+        onedrive_docs = os.path.join(os.path.expanduser("~"), "OneDrive", "Documents")
+        if os.path.exists(onedrive_desktop):
+            command = re.sub(r'~/Desktop(?=/|$)', "~/OneDrive/Desktop", command)
+        if os.path.exists(onedrive_docs):
+            command = re.sub(r'~/Documents(?=/|$)', "~/OneDrive/Documents", command)
+
         command = re.sub(
-            r'(?<=["\s])~/|^~/',
-            os.path.expanduser("~/").replace("\\", "/"),
-            command,
+            r'(?<!["\'\S])(~/[^\s"\']*)',
+            lambda m: f'"{home_path}{m.group(1)[1:]}"',
+            command
+        )
+        command = re.sub(
+            r'(?<=["\'])~/',
+            home_path + "/",
+            command
         )
 
         # ── FIX 2: python -c '...' or python -c "..." → temp file ───
@@ -436,6 +452,10 @@ class FileToolSystem:
                         f_lower = file.lower()
                         f_clean = f_lower.replace(" ", "")
                         q_clean = q_lower.replace(" ", "")
+
+                        # If query has an extension (e.g. .pdf, .doc), the matched file MUST end with that extension
+                        if q_ext and not f_lower.endswith(q_ext):
+                            continue
 
                         is_match = False
                         # 1. Exact / substring match (ignoring spaces)

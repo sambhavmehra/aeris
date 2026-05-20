@@ -18,6 +18,8 @@ PLAN_PROMPT = """You are an OS automation AI. The user wants to perform a system
 Available tools (ranked by relevance):
 {tools}
 
+{prior_context}
+
 User request: {message}
 
 Respond with ONLY valid JSON:
@@ -38,9 +40,13 @@ Rules:
 - "pause / next / volume up / mute" (media) -> use system_control with action
 - For command execution -> use run_bash with the exact command
 - For file browsing -> use list_dir or read_file
+- To search for a file anywhere on the system -> use find_system_file
 - For UI automation, screen interaction, or visual tasks -> use computer_use_task with instruction
-- You can chain multiple tools if needed
+- You can chain multiple tools if needed. If a file path is not in the prior context, you MUST first run find_system_file to locate the file, followed by convert_file, read_file, or other file tools.
+- When chaining find_system_file with convert_file or read_file, use a placeholder path like "/path/to/file" or the filename for the subsequent tool. The engine's parameter healer will automatically replace it with the found path after the search step executes.
 - PREFER tools ranked higher (they scored better for this query)
+- If prior context provides a file path, use that EXACT absolute path — DO NOT invent or guess paths
+- For file conversion, use convert_file with the EXACT input_path from prior context (or from the find_system_file step in your chain) and the correct target_format (e.g. 'docx' for doc/Word)
 """
 
 
@@ -74,10 +80,12 @@ class SystemAgent(BaseAgent):
                 from tools.universal_registry import get_universal_registry
                 from tools.tool_selector import ToolSelector
                 reg = get_universal_registry()
-                system_tools = reg.get_tools_by_category("system")
+                system_tools = []
+                for cat in ["system", "automation", "file"]:
+                    system_tools.extend(reg.get_tools_by_category(cat))
                 if system_tools:
                     self._selector = ToolSelector(system_tools)
-                    self.logger.info(f"ToolSelector initialized with {len(system_tools)} system tools")
+                    self.logger.info(f"ToolSelector initialized with {len(system_tools)} system/automation/file tools")
             except Exception as e:
                 self.logger.debug(f"ToolSelector unavailable, using basic registry: {e}")
         return self._selector
@@ -86,7 +94,7 @@ class SystemAgent(BaseAgent):
         # Try ToolSelector first for smarter ranking
         selector = self._get_selector()
         if selector:
-            candidates = selector.select(message, top_k=8, category_hint="system")
+            candidates = selector.select(message, top_k=15, category_hint=None)
             if candidates:
                 tools_desc = "\n".join(
                     f"- {c.tool.name}({', '.join(p.name for p in c.tool.input_schema.params)}): "
@@ -95,11 +103,30 @@ class SystemAgent(BaseAgent):
                 )
                 self.logger.info(f"ToolSelector ranked {len(candidates)} candidates for: {message[:60]}")
             else:
-                tools_desc = tool_registry.get_tools_description("system")
+                tools_desc = "\n".join(tool_registry.get_tools_description(cat) for cat in ["system", "automation", "file"])
         else:
-            tools_desc = tool_registry.get_tools_description("system")
+            tools_desc = "\n".join(tool_registry.get_tools_description(cat) for cat in ["system", "automation", "file"])
 
-        prompt = PLAN_PROMPT.format(tools=tools_desc, message=message)
+        # Build prior context from previous pipeline steps (e.g. file paths found by AnalyzerAgent)
+        prior_ctx = ""
+        if context.get("prior_step_context"):
+            prior_ctx = (
+                "=== CONTEXT FROM PREVIOUS STEPS ===\n"
+                f"{context['prior_step_context']}\n"
+                "=== END CONTEXT ===\n"
+                "CRITICAL: If the above context contains a file path, you MUST use that EXACT path in your tool parameters. DO NOT search for the file again."
+            )
+            self.logger.info(f"SystemAgent received prior context ({len(context['prior_step_context'])} chars)")
+        elif context.get("recent_tasks"):
+            prior_ctx = (
+                "=== RECENT AGENT TASK EXECUTIONS ===\n"
+                f"{context['recent_tasks']}\n"
+                "=== END RECENT TASKS ===\n"
+                "Use the recent tasks to resolve pronouns or build on top of previous work."
+            )
+            self.logger.info(f"SystemAgent received task history context")
+
+        prompt = PLAN_PROMPT.format(tools=tools_desc, message=message, prior_context=prior_ctx)
 
         try:
             raw = await ai_engine.classify(prompt)
@@ -189,12 +216,20 @@ class SystemAgent(BaseAgent):
                 elif strategy == "retry_different_params":
                     suggestion = decision.get("suggestion", "")
                     if suggestion:
+                        # Gather file paths / data from prior successful steps to avoid hallucinated paths
+                        prior_results_str = ""
+                        for r in results:
+                            if r.get("status") == "success" and r.get("result"):
+                                prior_results_str += f"\nSuccessful prior step result: {str(r['result'])[:400]}\n"
+
                         # Heal params using LLM
                         try:
                             prompt = (
                                 f"Tool '{step_info['name']}' failed with error:\n{decision.get('error')}\n\n"
                                 f"Observer suggestion:\n{suggestion}\n\n"
                                 f"Current params:\n{json.dumps(step_info['params'], indent=2)}\n\n"
+                                f"{prior_results_str}\n"
+                                "CRITICAL: If prior step results contain a file path, use that EXACT path. DO NOT invent paths.\n"
                                 "Output ONLY a raw JSON object with the corrected parameters. "
                                 "Do NOT include any markdown formatting."
                             )

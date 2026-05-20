@@ -2,7 +2,7 @@
 AERIS — Project Builder System (PBS) v2
 ================================================
 Coordinates the Multi-Agent Swarm to architect, generate, and save
-entire projects to the ~/AERIS_Projects/ directory.
+entire projects to the workspace directory.
 
 KEY DESIGN DECISIONS:
   • Runs synchronously from the tool registry (no nested asyncio issues)
@@ -39,7 +39,7 @@ class ProjectBuilderSystem:
         self.doc_agent = DocumentationAgent()
 
         # Determine base directory
-        self.base_dir = Path(os.path.expanduser("~/AERIS_Projects")).resolve()
+        self.base_dir = (Path(__file__).resolve().parent.parent.parent / "workspace").resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def build_project(self, objective: str) -> Dict[str, Any]:
@@ -151,7 +151,7 @@ class ProjectBuilderSystem:
     def _generate_flowchart(self, blueprint, project_name: str) -> str:
         """Generate a flowchart description (gracefully optional)."""
         try:
-            from diagram_generator import DiagramGenerator
+            from generation.diagram_generator import DiagramGenerator
             diag_gen = DiagramGenerator()
 
             framework = getattr(blueprint.tech_stack, "framework", "Web")

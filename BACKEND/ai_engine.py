@@ -6,8 +6,11 @@ Includes automatic key rotation and fallback between providers.
 
 import asyncio
 import logging
+import os
 import random
 from typing import Optional
+
+import httpx
 
 from groq import AsyncGroq
 from google import genai
@@ -32,9 +35,13 @@ class AIEngine:
         if settings.has_gemini:
             self._gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
+        # --- Cohere (final fallback) ---
+        self._cohere_api_key: str = settings.COHERE_API_KEY
+
         logger.info(
             f"AIEngine initialized — Groq clients: {len(self._groq_clients)}, "
-            f"Gemini: {'ready' if self._gemini_client else 'unavailable'}"
+            f"Gemini: {'ready' if self._gemini_client else 'unavailable'}, "
+            f"Cohere: {'ready' if self._cohere_api_key else 'unavailable'}"
         )
 
     # ──────────────────────────── Groq ────────────────────────────
@@ -53,6 +60,7 @@ class AIEngine:
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
+        response_format: Optional[dict] = None,
     ) -> str:
         """
         Fast chat completion via Groq.
@@ -65,12 +73,21 @@ class AIEngine:
         for attempt in range(len(self._groq_clients)):
             try:
                 client = self._next_groq()
-                response = await client.chat.completions.create(
-                    model=target_model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
+                if response_format:
+                    response = await client.chat.completions.create(
+                        model=target_model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        response_format=response_format,
+                    )
+                else:
+                    response = await client.chat.completions.create(
+                        model=target_model,
+                        messages=messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
                 return response.choices[0].message.content or ""
             except Exception as e:
                 last_error = e
@@ -85,9 +102,16 @@ class AIEngine:
             return await self._gemini_generate(
                 self._messages_to_prompt(messages)
             )
-        except Exception as e:
-            logger.error(f"Gemini fallback also failed: {e}")
-            raise RuntimeError(f"All LLM providers failed. Last error: {last_error}")
+        except Exception as gemini_err:
+            logger.warning(f"Gemini fallback failed: {gemini_err}")
+
+        # Final fallback to Cohere
+        logger.info("Gemini failed, falling back to Cohere Command R+")
+        try:
+            return await self._cohere_chat(messages, temperature)
+        except Exception as cohere_err:
+            logger.error(f"Cohere fallback also failed: {cohere_err}")
+            raise RuntimeError(f"All LLM providers failed. Last Groq: {last_error}, Cohere: {cohere_err}")
 
     # ──────────────────────────── Gemini ────────────────────────────
 
@@ -184,6 +208,63 @@ class AIEngine:
             temperature=0.3,
             max_tokens=1024,
         )
+
+    # ──────────────────────────── Cohere ────────────────────────────
+
+    async def _cohere_chat(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+    ) -> str:
+        """
+        Final-fallback chat via Cohere Command R+.
+        Uses the raw HTTP API so no extra pip package is needed.
+        """
+        if not self._cohere_api_key:
+            raise RuntimeError("Cohere API key not configured")
+
+        # Separate system preamble, chat history, and the latest user message
+        preamble = ""
+        chat_history: list[dict] = []
+        user_message = ""
+
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                preamble += content + "\n"
+            elif role == "assistant":
+                chat_history.append({"role": "CHATBOT", "message": content})
+            elif role == "user":
+                # All user messages except the last go into history
+                if user_message:  # push previous user msg to history
+                    chat_history.append({"role": "USER", "message": user_message})
+                user_message = content
+
+        if not user_message:
+            user_message = "Hello"
+
+        payload: dict = {
+            "message": user_message,
+            "model": "command-r-plus",
+            "temperature": temperature,
+        }
+        if chat_history:
+            payload["chat_history"] = chat_history
+        if preamble.strip():
+            payload["preamble"] = preamble.strip()
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.cohere.ai/v1/chat",
+                headers={
+                    "Authorization": f"Bearer {self._cohere_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json().get("text", "")
 
     # ──────────────────────────── Helpers ────────────────────────────
 

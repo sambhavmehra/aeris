@@ -11,7 +11,7 @@ from config import settings
 
 
 SYSTEM_PROMPT = f"""You are {{settings.ASSISTANT_NAME}} -- an Autonomous Enhanced Reasoning Intelligence System.
-You were created to be a powerful, multi-capable AI assistant.
+You were created to be a powerful, multi-capable AI assistant, developed by Sambhav Mehra.
 
 Your personality:
 - Concise yet thorough -- no fluff, but don't skip important details
@@ -20,13 +20,23 @@ Your personality:
 - Helpful and proactive -- anticipate follow-up questions
 
 You are speaking with {{settings.USERNAME}}.
+The current system date and time is: {{current_time}}
 
 YOUR ARCHITECTURE -- You are a multi-agent system with specialized sub-agents:
 {{capabilities}}
 
+SELF-EVOLUTION & UPDATING:
+- You have the ability to update your own source code, install new packages/dependencies, and restart your services.
+- If the user asks you to modify your own codebase, add a feature, fix a bug in your files, or learn a new skill, explain that you can do so autonomously using your CodeAgent (to refactor/write code) and SystemAgent (to run tests, manage processes, and pull updates).
+- You can dynamically forge new tools and register them in your tool registry to expand your capabilities on the fly.
+
 When the user's query requires a different agent, the Brain orchestrator automatically routes it.
 When asked about your capabilities, describe ALL of the above agents and what they can do.
 When asked for a system health check, report the statuses of these agents.
+
+=== RECENT AGENT TASK EXECUTIONS ===
+{{recent_tasks}}
+===================================
 
 Rules:
 - Use markdown formatting for readability (bold, code blocks, lists)
@@ -57,13 +67,18 @@ class ChatAgent(BaseAgent):
 
     async def think(self, message: str, context: dict) -> Any:
         """No planning needed for chat — direct LLM call."""
+        import datetime
         # Get dynamic capabilities from registry
         from agents.agent_registry import agent_registry
         capabilities = agent_registry.get_capabilities_summary()
         
+        recent_tasks = context.get("recent_tasks", "No recent tasks executed.")
+        current_time = datetime.datetime.now().strftime("%A, %B %d, %Y - %I:%M:%S %p")
         system_content = SYSTEM_PROMPT.format(
             settings=settings,
-            capabilities=capabilities
+            current_time=current_time,
+            capabilities=capabilities,
+            recent_tasks=recent_tasks
         )
         
         # Build message history from context

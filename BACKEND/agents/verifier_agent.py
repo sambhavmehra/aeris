@@ -56,6 +56,7 @@ class VerificationReport:
     llm_review: str = ""
     files_checked: int = 0
     verification_time_sec: float = 0.0
+    sandbox_engine: str = "local"  # "docker" or "local"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -67,6 +68,7 @@ class VerificationReport:
             "llm_review": self.llm_review,
             "files_checked": self.files_checked,
             "verification_time_sec": round(self.verification_time_sec, 2),
+            "sandbox_engine": self.sandbox_engine,
         }
 
 
@@ -143,7 +145,9 @@ class VerifierAgent(BaseAgent):
         """Format verification report as human-readable text."""
         if isinstance(results, VerificationReport):
             icon = "✅" if results.passed else "❌"
+            engine_icon = "🐳" if results.sandbox_engine == "docker" else "💻"
             parts = [f"{icon} **Verification {'PASSED' if results.passed else 'FAILED'}**"]
+            parts.append(f"{engine_icon} Sandbox Engine: **{results.sandbox_engine.upper()}**")
             parts.append(f"Files checked: {results.files_checked}")
 
             if results.syntax_errors:
@@ -153,7 +157,7 @@ class VerifierAgent(BaseAgent):
 
             if results.runtime_output:
                 output_preview = results.runtime_output[:500]
-                parts.append(f"\n**Runtime Output:**\n```\n{output_preview}\n```")
+                parts.append(f"\n**Runtime Output ({results.sandbox_engine}):**\n```\n{output_preview}\n```")
 
             if results.runtime_error:
                 parts.append(f"\n**Runtime Error:**\n```\n{results.runtime_error[:500]}\n```")
@@ -195,9 +199,10 @@ class VerifierAgent(BaseAgent):
 
         # 2 — Sandbox execution
         logger.info(f"[VerifierAgent] Step 2: Sandbox execution of {entry_point}")
-        runtime_output, runtime_error, exit_code = await self._sandbox_run(
+        runtime_output, runtime_error, exit_code, sandbox_engine = await self._sandbox_run(
             workspace, entry_point, language
         )
+        logger.info(f"[VerifierAgent] Sandbox engine used: {sandbox_engine}")
 
         # 3 — LLM review
         logger.info("[VerifierAgent] Step 3: LLM code review")
@@ -213,7 +218,7 @@ class VerifierAgent(BaseAgent):
         elapsed = time.time() - t0
         logger.info(
             f"[VerifierAgent] Verification {'PASSED' if passed else 'FAILED'} "
-            f"in {elapsed:.1f}s ({files_checked} files)"
+            f"in {elapsed:.1f}s ({files_checked} files, engine={sandbox_engine})"
         )
 
         return VerificationReport(
@@ -225,6 +230,7 @@ class VerifierAgent(BaseAgent):
             llm_review=llm_review,
             files_checked=files_checked,
             verification_time_sec=elapsed,
+            sandbox_engine=sandbox_engine,
         )
 
     # ── Syntax checking ─────────────────────────────────────────────────
@@ -308,24 +314,46 @@ class VerifierAgent(BaseAgent):
 
     async def _sandbox_run(
         self, workspace: Path, entry_point: str, language: str
-    ) -> Tuple[str, str, int]:
+    ) -> Tuple[str, str, int, str]:
         """
-        Execute the project entry point in a sandboxed subprocess.
-        Returns (stdout, stderr, exit_code).
+        Execute the project entry point in a sandboxed subprocess (via Docker if available).
+        Returns (stdout, stderr, exit_code, sandbox_engine).
         """
         entry_file = workspace / entry_point
         if not entry_file.exists():
-            return "", f"Entry point not found: {entry_point}", 1
+            return "", f"Entry point not found: {entry_point}", 1, "local"
+
+        # Check if Docker is available and daemon is running
+        has_docker = False
+        try:
+            docker_check = subprocess.run(["docker", "info"], capture_output=True, timeout=3)
+            if docker_check.returncode == 0:
+                has_docker = True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            has_docker = False
+
+        engine = "docker" if has_docker else "local"
+        logger.info(f"[VerifierAgent] Sandbox engine selected: {engine}")
 
         # Build command based on language
         if language.lower() in ("python", "py"):
-            cmd = ["python", "-u", str(entry_file)]
+            if has_docker:
+                # Docker path on Windows/Linux mounts correctly with absolute path
+                cmd = ["docker", "run", "--rm", "-v", f"{workspace.resolve()}:/app", "-w", "/app", "python:3.10-slim", "python", "-u", entry_point]
+            else:
+                cmd = ["python", "-u", str(entry_file)]
         elif language.lower() in ("javascript", "js"):
-            cmd = ["node", str(entry_file)]
+            if has_docker:
+                cmd = ["docker", "run", "--rm", "-v", f"{workspace.resolve()}:/app", "-w", "/app", "node:18-slim", "node", entry_point]
+            else:
+                cmd = ["node", str(entry_file)]
         elif language.lower() in ("typescript", "ts"):
-            cmd = ["npx", "ts-node", str(entry_file)]
+            if has_docker:
+                cmd = ["docker", "run", "--rm", "-v", f"{workspace.resolve()}:/app", "-w", "/app", "node:18-slim", "npx", "ts-node", entry_point]
+            else:
+                cmd = ["npx", "ts-node", str(entry_file)]
         else:
-            return "", f"Unsupported language for sandbox: {language}", 1
+            return "", f"Unsupported language for sandbox: {language}", 1, "local"
 
         # Run in a separate thread to avoid blocking the event loop
         loop = asyncio.get_event_loop()
@@ -339,14 +367,36 @@ class VerifierAgent(BaseAgent):
             ))
             stdout = result.stdout.decode(errors="replace")[:MAX_OUTPUT_CHARS]
             stderr = result.stderr.decode(errors="replace")[:MAX_OUTPUT_CHARS]
-            return stdout, stderr, result.returncode
+            
+            # If docker run failed due to a daemon issue not caught by docker info, fallback
+            if has_docker and result.returncode != 0 and ("error during connect" in stderr.lower() or "daemon" in stderr.lower()):
+                logger.warning("[VerifierAgent] Docker execution failed (daemon error), falling back to local execution.")
+                engine = "local"
+                if language.lower() in ("python", "py"):
+                    fallback_cmd = ["python", "-u", str(entry_file)]
+                elif language.lower() in ("javascript", "js"):
+                    fallback_cmd = ["node", str(entry_file)]
+                else:
+                    fallback_cmd = ["npx", "ts-node", str(entry_file)]
+                    
+                result = await loop.run_in_executor(None, lambda: subprocess.run(
+                    fallback_cmd,
+                    capture_output=True,
+                    timeout=SANDBOX_TIMEOUT_SEC,
+                    cwd=str(workspace),
+                    env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+                ))
+                stdout = result.stdout.decode(errors="replace")[:MAX_OUTPUT_CHARS]
+                stderr = result.stderr.decode(errors="replace")[:MAX_OUTPUT_CHARS]
+
+            return stdout, stderr, result.returncode, engine
         except subprocess.TimeoutExpired:
             # Timeout is actually OK for servers — they run indefinitely
-            return "(process timed out — likely a server/long-running app)", "", 0
+            return "(process timed out — likely a server/long-running app)", "", 0, engine
         except FileNotFoundError:
-            return "", f"Runtime not found for language: {language}", 1
+            return "", f"Runtime not found for language: {language}", 1, engine
         except Exception as e:
-            return "", f"Sandbox execution error: {str(e)}", 1
+            return "", f"Sandbox execution error: {str(e)}", 1, engine
 
     # ── LLM review ──────────────────────────────────────────────────────
 

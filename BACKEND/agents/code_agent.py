@@ -30,12 +30,15 @@ import hashlib
 import json
 import logging
 import random
+import re
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+from pathlib import Path
 
 from agents.base_agent import BaseAgent
 from ai_engine import ai_engine
@@ -218,28 +221,24 @@ class _Metrics:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _BASE_SYSTEM = """\
-You are AERIS's llama-3.3-70b-versatile — a specialised AI programmer embedded in a
+You are AERIS's Code Agent — a specialised AI programmer embedded in a
 multi-agent orchestration system.
 
 CORE RULES (non-negotiable):
-1. Output ONLY valid JSON matching the schema below — no prose outside JSON.
-2. Every code block must be COMPLETE and EXECUTABLE as-is.
-3. Include ALL imports, dependencies, and type hints.
-4. Use idiomatic style for the target language.
-5. Apply proper error handling and input validation.
-6. If context from other agents is provided, actively incorporate it.
-7. Do NOT truncate code with comments like "# ... rest of function ...".
+1. Every code block must be COMPLETE and EXECUTABLE as-is.
+2. Include ALL imports, dependencies, and type hints.
+3. Use idiomatic style for the target language.
+4. Apply proper error handling and input validation.
+5. If context from other agents is provided, actively incorporate it.
+6. Do NOT truncate code with comments like "# ... rest of function ...".
+7. Write PRODUCTION-QUALITY code — no placeholders, no shortcuts.
 
-OUTPUT SCHEMA (always return exactly this JSON shape):
-{{
-  "analysis":       "<string — findings, complexity notes, root cause>",
-  "suggestion":     "<string — high-level recommendation>",
-  "code":           "<string — inline snippet or empty string>",
-  "diff":           "<string — unified diff or empty string>",
-  "files":          [{{"path": "<filename>", "content": "<full source>", "language": "<lang>"}}],
-  "tests":          "<string — test code or empty string>",
-  "security_notes": ["<issue>", ...]
-}}
+OUTPUT FORMAT (use plain Markdown — NOT JSON):
+- Start with a brief 1-2 sentence analysis of what you are building.
+- For EACH file, write the filename as a bold header: **`filename.ext`**
+- Immediately after the header, write the COMPLETE code in a fenced code block with language tag.
+- If there are security concerns, end with: **Security:** followed by the notes.
+- Do NOT wrap the output in JSON.
 """
 
 _LANG_HINTS: Dict[str, str] = {
@@ -278,7 +277,7 @@ _LANG_HINTS: Dict[str, str] = {
 _TASK_ADDENDA: Dict[TaskKind, str] = {
     TaskKind.GENERATE: (
         "Generate complete, production-ready code. "
-        "Output one file per logical module in the `files` array."
+        "Output one file per logical module, each with a **`filename.ext`** header."
     ),
     TaskKind.ANALYSE: (
         "Identify bugs, code smells, performance bottlenecks, and "
@@ -436,6 +435,27 @@ def _command_available(cmd: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Language → File Extension Mapper
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LANG_TO_EXT: Dict[str, str] = {
+    "python": "py", "py": "py", "javascript": "js", "js": "js",
+    "typescript": "ts", "ts": "ts", "go": "go", "golang": "go",
+    "rust": "rs", "rs": "rs", "java": "java", "kotlin": "kt",
+    "swift": "swift", "c": "c", "cpp": "cpp", "c++": "cpp",
+    "csharp": "cs", "c#": "cs", "sql": "sql",
+    "bash": "sh", "shell": "sh", "sh": "sh",
+    "ruby": "rb", "rb": "rb", "php": "php",
+    "html": "html", "css": "css",
+}
+
+
+def _lang_to_ext(lang: str) -> str:
+    """Map a language identifier to a file extension."""
+    return _LANG_TO_EXT.get(lang.lower(), lang.lower() or "txt")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Diff Generator
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -551,28 +571,79 @@ class CodingAgent(BaseAgent):
         return await self.process_async(req)
 
     async def report(self, results: Any) -> str:
-        """Format CodingResult into a human-readable response."""
+        """Format CodingResult into a clean Markdown response; auto-save files."""
         if isinstance(results, CodingResult):
-            parts = []
+            saved_files: List[str] = []
+            workspace = self._get_workspace()
+
+            # ── Auto-save generated files ─────────────────────────────────────
+            for cf in results.files:
+                if cf.content and len(cf.content.strip()) > 10:
+                    try:
+                        file_path = workspace / cf.path
+                        file_path.parent.mkdir(parents=True, exist_ok=True)
+                        file_path.write_text(cf.content, encoding="utf-8")
+                        saved_files.append(cf.path)
+                        self.log(f"Saved generated file: {file_path}")
+                    except Exception as exc:
+                        self.log(f"Failed to save {cf.path}: {exc}", "ERROR")
+
+            parts: List[str] = []
+
+            # ── Analysis ──────────────────────────────────────────────────────
             if results.analysis:
-                parts.append(results.analysis)
-            if results.suggestion:
-                parts.append(f"**Suggestion:** {results.suggestion}")
-            if results.code:
-                parts.append(f"```\n{results.code}\n```")
+                a = results.analysis.strip()
+                # Suppress raw JSON blobs
+                if a.startswith("{") or a.startswith("["):
+                    pass
+                elif "```" in a:
+                    # LLM replied with markdown — render as-is
+                    parts.append(a)
+                else:
+                    sentences = a.split(". ")
+                    brief = ". ".join(sentences[:3]).strip()
+                    if brief and not brief.endswith("."):
+                        brief += "."
+                    if brief:
+                        parts.append(brief)
+
+            # ── Suggestion ────────────────────────────────────────────────────
+            if results.suggestion and not results.suggestion.strip().startswith("{"):
+                parts.append(f"\n**Suggestion:** {results.suggestion}")
+
+            # ── Code output (always rendered inline for the UI) ──────────────
             if results.files:
-                for f in results.files:
-                    parts.append(f"**{f.path}**\n```{f.language}\n{f.content}\n```")
+                for cf in results.files:
+                    if cf.content and len(cf.content.strip()) > 10:
+                        lang = (cf.language or results.language or "text").strip()
+                        header = f"\n**`{cf.path}`**" if cf.path else ""
+                        parts.append(
+                            f"{header}\n```{lang}\n{cf.content.rstrip()}\n```"
+                        )
+                if saved_files:
+                    parts.append(f"\n> 📂 Saved to `{workspace}`")
+            elif results.code and len(results.code.strip()) > 10:
+                lang = (results.language or "python").strip()
+                parts.append(f"```{lang}\n{results.code.rstrip()}\n```")
+
+            # ── Diff ─────────────────────────────────────────────────────────
             if results.diff:
-                parts.append(f"**Diff:**\n```diff\n{results.diff}\n```")
+                parts.append(f"\n**Diff:**\n```diff\n{results.diff}\n```")
+
+            # ── Tests ─────────────────────────────────────────────────────────
             if results.tests:
-                parts.append(f"**Tests:**\n```\n{results.tests}\n```")
+                parts.append(f"\n**Tests:**\n```\n{results.tests}\n```")
+
+            # ── Security notes ────────────────────────────────────────────────
             if results.security_notes:
-                notes = "\n".join(f"  • {n}" for n in results.security_notes)
-                parts.append(f"**Security Notes:**\n{notes}")
+                notes = "\n".join(f"  ⚠️ {n}" for n in results.security_notes)
+                parts.append(f"\n**🔒 Security Notes:**\n{notes}")
+
+            # ── Error ─────────────────────────────────────────────────────────
             if results.error:
-                parts.append(f"⚠️ **Error:** {results.error}")
-            return "\n\n".join(parts) if parts else "Code task completed."
+                parts.append(f"\n**Error:** {results.error}")
+
+            return "\n".join(parts) if parts else "✅ Code task completed."
         return str(results)
 
     # ── Public Sync API (backward-compatible) ────────────────────────────────
@@ -834,16 +905,17 @@ class CodingAgent(BaseAgent):
         return None
 
     def _parse_response(self, raw: str) -> Dict[str, Any]:
-        """Strip code fences, then parse JSON. Fall back to raw-text wrapping."""
+        """Parse LLM response — tries JSON first, then extracts Markdown code blocks."""
         cleaned = raw.strip()
 
-        # Strip markdown code fences
+        # Strip outer markdown code fences (```json ... ```)
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
-            cleaned = "\n".join(lines[1:])            # drop opening fence line
+            cleaned = "\n".join(lines[1:])
             if cleaned.rstrip().endswith("```"):
                 cleaned = cleaned.rstrip()[:-3].strip()
 
+        # 1. Try JSON parsing (backward compatibility)
         try:
             parsed = json.loads(cleaned)
             if isinstance(parsed, dict):
@@ -851,15 +923,53 @@ class CodingAgent(BaseAgent):
         except json.JSONDecodeError:
             pass
 
-        # Graceful degradation: wrap raw text in schema shape
+        # 2. Extract Markdown code blocks with optional filename headers
+        files: List[Dict[str, str]] = []
+        # Pattern: **`filename.ext`** or ### filename.ext followed by ```lang\ncode\n```
+        named_pattern = r'(?:\*\*`?([^`*\n]+\.\w+)`?\*\*|###\s+([^\n]+\.\w+))\s*\n```(\w*)\n(.*?)```'
+        for match in re.finditer(named_pattern, cleaned, re.DOTALL):
+            fname = (match.group(1) or match.group(2)).strip()
+            lang = match.group(3) or ""
+            content = match.group(4).rstrip()
+            if content:
+                files.append({"path": fname, "content": content, "language": lang})
+
+        # 3. If no named files found, extract any code block as a standalone file
+        if not files:
+            anon_pattern = r'```(\w+)\n(.*?)```'
+            for match in re.finditer(anon_pattern, cleaned, re.DOTALL):
+                lang = match.group(1)
+                content = match.group(2).rstrip()
+                if content and len(content) > 10:
+                    ext = _lang_to_ext(lang)
+                    fname = f"generated_code.{ext}"
+                    files.append({"path": fname, "content": content, "language": lang})
+
+        # 4. Extract analysis text (everything before the first code block)
+        analysis = ""
+        first_fence = cleaned.find("```")
+        if first_fence > 0:
+            analysis = cleaned[:first_fence].strip()
+            analysis = re.sub(r'\*\*`?[^`*\n]+\.\w+`?\*\*', '', analysis).strip()
+        elif not files:
+            analysis = cleaned
+
+        # 5. Extract security notes
+        security_notes: List[str] = []
+        sec_match = re.search(r'\*\*(?:Security|🔒)[:\s]*\*\*\s*(.*?)(?:\n\n|\Z)', cleaned, re.DOTALL)
+        if sec_match:
+            note = sec_match.group(1).strip()
+            if note and note.lower() not in ("no issues found", "none", "n/a", "no issues found."):
+                security_notes.append(note)
+
         return {
-            "analysis":       cleaned,
+            "analysis":       analysis,
             "suggestion":     "",
             "code":           "",
             "diff":           "",
-            "files":          [],
+            "files":          files,
             "tests":          "",
-            "security_notes": [],
+            "security_notes": security_notes,
         }
 
     def _build_result(self, parsed: Dict[str, Any],
@@ -930,6 +1040,13 @@ class CodingAgent(BaseAgent):
             "retries":      self._metrics.retries,
             "from_cache":   False,
         }
+
+    def _get_workspace(self) -> Path:
+        """Get the workspace directory for saving generated code files."""
+        base = Path(__file__).resolve().parent.parent.parent
+        workspace = base / "workspace"
+        workspace.mkdir(exist_ok=True)
+        return workspace
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -97,7 +97,7 @@ export default function CodePipelinePage() {
         } catch {}
       };
       ws.onerror = () => { setStage('error'); setError('WebSocket connection failed'); stopTimer(); };
-      ws.onclose = () => { if (stage !== 'complete' && stage !== 'error') {} };
+      ws.onclose = () => {};
     } catch (e: any) {
       setStage('error'); setError(e.message); stopTimer();
     }

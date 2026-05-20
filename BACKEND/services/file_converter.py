@@ -73,6 +73,8 @@ class FileConverter:
                 "doc_to_pdf": self._docx_to_pdf,
                 "pdf_to_docx": self._pdf_to_docx,
                 "pdf_to_doc": self._pdf_to_docx,
+                "docx_to_doc": self._doc_copy,
+                "doc_to_docx": self._doc_copy,
                 "pdf_to_txt": self._pdf_to_txt,
                 "pdf_to_json": self._pdf_to_json,
                 "txt_to_pdf": self._txt_to_pdf,
@@ -127,6 +129,15 @@ class FileConverter:
     # ═════════════════════════════════════════════════════════════════
     #  DOCUMENT CONVERTERS
     # ═════════════════════════════════════════════════════════════════
+
+    def _doc_copy(self, src: Path, out: Path) -> dict:
+        """Handle copy/rename between DOC and DOCX formats."""
+        import shutil
+        try:
+            shutil.copy2(src, out)
+            return {"success": True, "output_path": str(out), "method": "copy", "size_bytes": out.stat().st_size}
+        except Exception as e:
+            return {"success": False, "error": f"Document copy failed: {e}"}
 
     def _docx_to_pdf(self, src: Path, out: Path) -> dict:
         """Convert DOCX/DOC to PDF using python-docx + reportlab, or LibreOffice fallback."""

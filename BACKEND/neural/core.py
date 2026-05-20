@@ -1,5 +1,5 @@
 """
-AERIS Neural Core — Manages local PyTorch models and text preprocessing.
+AERIS Neural Core -- Manages local PyTorch models and text preprocessing.
 Provides fast, zero-latency intent classification and anomaly detection
 without requiring external API calls.
 """
@@ -19,48 +19,119 @@ from neural.models import IntentClassifierNet, AnomalyDetectorNet
 
 logger = logging.getLogger("aeris.neural.core")
 
-# ─────────────────────── Training Data ───────────────────────
-# Sample phrases for each intent class used to bootstrap the model on startup.
-# The Brain can retrain later with real user data for improved accuracy.
+# --------------- Intent Labels (aligned with Brain.VALID_INTENTS) ---------------
+INTENT_LABELS = [
+    "chat", "security", "system", "research", "search",
+    "code", "image", "diagram", "codepipeline", "analyze",
+]
 
-INTENT_LABELS = ["chat", "realtime", "os_engine"]
-
+# --------------- Training Data ---------------
 TRAINING_DATA: List[Tuple[str, str]] = [
-    # ── Chat ──
-    ("hello", "chat"),
-    ("hi there", "chat"),
-    ("how are you", "chat"),
-    ("tell me a joke", "chat"),
-    ("who are you", "chat"),
-    ("what is 2+2", "chat"),
-    ("what is photosynthesis", "chat"),
-    ("good morning", "chat"),
-    ("goodbye", "chat"),
-    ("define gravity", "chat"),
-
-    # ── Realtime ──
-    ("latest ipl score", "realtime"),
-    ("aaj ka mausam", "realtime"),
-    ("bitcoin price", "realtime"),
-    ("who won the election", "realtime"),
-    ("react latest version", "realtime"),
-    ("today's news", "realtime"),
-    ("current stock price of apple", "realtime"),
-    ("trending topics on twitter", "realtime"),
-    ("weather in london right now", "realtime"),
-    ("latest updates on ai", "realtime"),
-
-    # ── OS Engine ──
-    ("open chrome", "os_engine"),
-    ("take a screenshot", "os_engine"),
-    ("write a python script", "os_engine"),
-    ("convert pdf to word", "os_engine"),
-    ("check running processes", "os_engine"),
-    ("shutdown computer", "os_engine"),
-    ("create a new folder", "os_engine"),
-    ("generate a diagram", "os_engine"),
-    ("scan my screen", "os_engine"),
-    ("delete this file", "os_engine"),
+    # -- chat --
+    ("hello", "chat"), ("hi there", "chat"), ("how are you", "chat"),
+    ("tell me a joke", "chat"), ("who are you", "chat"), ("what is 2+2", "chat"),
+    ("what is photosynthesis", "chat"), ("good morning", "chat"),
+    ("goodbye", "chat"), ("define gravity", "chat"),
+    ("kya haal hai", "chat"), ("tera naam kya hai", "chat"),
+    ("thanks a lot", "chat"), ("tell me something interesting", "chat"),
+    ("what does AI mean", "chat"),
+    # -- security --
+    ("scan this website for vulnerabilities", "security"),
+    ("run nmap on 192.168.1.1", "security"),
+    ("check ssl certificate for google.com", "security"),
+    ("do a dns lookup", "security"), ("find subdomains of example.com", "security"),
+    ("whois lookup for github.com", "security"),
+    ("vapt scan on my server", "security"), ("check http headers", "security"),
+    ("is this site vulnerable to xss", "security"),
+    ("zero day vulnerability analysis", "security"),
+    ("port scan karo", "security"), ("website ki security check karo", "security"),
+    # -- system --
+    ("open chrome", "system"), ("take a screenshot", "system"),
+    ("check running processes", "system"), ("shutdown computer", "system"),
+    ("create a new folder", "system"), ("scan my screen", "system"),
+    ("delete this file", "system"), ("open notepad", "system"),
+    ("list files in downloads", "system"), ("system info dikhao", "system"),
+    ("volume up karo", "system"), ("restart the computer", "system"),
+    ("open youtube and play music", "system"), ("search on browser", "system"),
+    ("play a song on youtube", "system"), ("kill this process", "system"),
+    # -- research --
+    ("deep research on transformer architecture", "research"),
+    ("compare react vs angular in depth", "research"),
+    ("academic research on quantum computing", "research"),
+    ("synthesize findings on climate change", "research"),
+    ("write a literature review on blockchain", "research"),
+    ("in-depth analysis of microservices patterns", "research"),
+    ("research paper on neural networks", "research"),
+    ("technical research on kubernetes scaling", "research"),
+    ("thesis topic suggestions for machine learning", "research"),
+    ("research karo AI trends pe", "research"),
+    # -- search (replaces old 'realtime') --
+    ("latest ipl score", "search"), ("aaj ka mausam", "search"),
+    ("bitcoin price", "search"), ("who won the election", "search"),
+    ("react latest version", "search"), ("today's news", "search"),
+    ("current stock price of apple", "search"),
+    ("trending topics on twitter", "search"),
+    ("weather in london right now", "search"),
+    ("latest updates on ai", "search"),
+    ("what happened in the world today", "search"),
+    ("breaking news", "search"), ("where am i right now", "search"),
+    ("my location batao", "search"), ("search for best laptops 2025", "search"),
+    # -- code --
+    ("write a python script", "code"), ("debug this function", "code"),
+    ("write a flask api endpoint", "code"), ("refactor this code", "code"),
+    ("explain this javascript function", "code"),
+    ("generate a class for user authentication", "code"),
+    ("fix this code error", "code"), ("write a sorting algorithm", "code"),
+    ("code likho python mein", "code"), ("game banao javascript mein", "code"),
+    ("function banao for login", "code"), ("api banao flask mein", "code"),
+    ("convert pdf to word script", "code"),
+    # -- image --
+    ("generate an image of a sunset", "image"),
+    ("create a picture of a robot", "image"),
+    ("draw a cat wearing a hat", "image"),
+    ("make an image of a futuristic city", "image"),
+    ("generate photo of mountains", "image"), ("picture of a spaceship", "image"),
+    ("photo bana ek dragon ki", "image"), ("image bana sunset wali", "image"),
+    ("create art of a samurai", "image"), ("tasveer bana ek jungle ki", "image"),
+    # -- diagram --
+    ("create a flowchart for login flow", "diagram"),
+    ("generate a system architecture diagram", "diagram"),
+    ("make a mind map for project planning", "diagram"),
+    ("draw an er diagram for database", "diagram"),
+    ("sequence diagram for api calls", "diagram"),
+    ("class diagram banao", "diagram"),
+    ("network diagram for infrastructure", "diagram"),
+    ("chart banao sales data ka", "diagram"),
+    ("widget bana do for dashboard", "diagram"),
+    ("visualize the data pipeline", "diagram"),
+    ("flow banao user registration ka", "diagram"),
+    # -- codepipeline --
+    ("build me a full react app", "codepipeline"),
+    ("create a complete project for todo app", "codepipeline"),
+    ("scaffold a new workspace for ecommerce", "codepipeline"),
+    ("generate a full codebase for chat application", "codepipeline"),
+    ("build an entire flask backend", "codepipeline"),
+    ("autonomous code generation for portfolio site", "codepipeline"),
+    ("project banao ek blog website ka", "codepipeline"),
+    ("full project bana do python mein", "codepipeline"),
+    ("app bana do weather tracker", "codepipeline"),
+    ("code pipeline run for inventory system", "codepipeline"),
+    # -- analyze --
+    ("analyze this file for me", "analyze"),
+    ("analyze my log file", "analyze"),
+    ("inspect the error log", "analyze"),
+    ("read this file and tell me what it does", "analyze"),
+    ("analyze the output of this command", "analyze"),
+    ("check this data for patterns", "analyze"),
+    ("find issues in my config file", "analyze"),
+    ("summarize the contents of readme.md", "analyze"),
+    ("diagnose the system state", "analyze"),
+    ("parse this json and explain it", "analyze"),
+    ("meri file analyze karo", "analyze"),
+    ("ye file check karo kya hai isme", "analyze"),
+    ("is log file me kya error hai", "analyze"),
+    ("isko analyze karke batao", "analyze"),
+    ("ye data dekhke batao", "analyze"),
 ]
 
 
@@ -74,7 +145,7 @@ class NeuralCore:
     def __init__(self, model_dir: str = "data/models"):
         self.model_dir = model_dir
 
-        # ── Device selection ──
+        # -- Device selection --
         if torch.cuda.is_available():
             self.device = torch.device("cuda")
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -82,55 +153,45 @@ class NeuralCore:
         else:
             self.device = torch.device("cpu")
 
-        # ── Models ──
+        # -- Models --
         self.intent_model: Optional[IntentClassifierNet] = None
         self.anomaly_model: Optional[AnomalyDetectorNet] = None
 
-        # ── Text preprocessing ──
+        # -- Text preprocessing --
         self.vectorizer: Optional[TfidfVectorizer] = None
         self.intent_labels: List[str] = INTENT_LABELS
-        self._input_dim: int = 0  # Set after vectorizer fitting
+        self._input_dim: int = 0
 
-        # ── State ──
+        # -- State --
         self.is_intent_ready: bool = False
         self.is_anomaly_ready: bool = False
 
         logger.info(f"NeuralCore initialized. Device: {self.device}")
         os.makedirs(self.model_dir, exist_ok=True)
 
-    # ═══════════════════════ Intent Classification ═══════════════════════
+    # ======================= Intent Classification =======================
 
     def train_initial_intent_model(self, epochs: int = 150, lr: float = 0.01) -> None:
-        """
-        Bootstrap the intent classifier using built-in training phrases.
-        Uses TF-IDF to vectorize text and trains an MLP with cross-entropy loss.
-        Called once at server startup.
-        """
+        """Bootstrap the intent classifier using built-in training phrases."""
         vectorizer_path = os.path.join(self.model_dir, "tfidf_vectorizer.pkl")
         model_path = os.path.join(self.model_dir, "intent_model.pth")
 
         texts = [t[0] for t in TRAINING_DATA]
         labels = [self.intent_labels.index(t[1]) for t in TRAINING_DATA]
 
-        # ── Fit TF-IDF ──
-        self.vectorizer = TfidfVectorizer(max_features=128, ngram_range=(1, 2))
+        self.vectorizer = TfidfVectorizer(max_features=256, ngram_range=(1, 2))
         X = self.vectorizer.fit_transform(texts).toarray().astype(np.float32)
         y = np.array(labels, dtype=np.int64)
 
         self._input_dim = X.shape[1]
         num_classes = len(self.intent_labels)
 
-        # ── Build model ──
         self.intent_model = IntentClassifierNet(
-            input_dim=self._input_dim,
-            hidden_dim=256,
-            num_classes=num_classes,
+            input_dim=self._input_dim, hidden_dim=256, num_classes=num_classes,
         ).to(self.device)
 
-        # ── Train ──
         X_tensor = torch.tensor(X).to(self.device)
         y_tensor = torch.tensor(y).to(self.device)
-
         optimizer = optim.Adam(self.intent_model.parameters(), lr=lr)
         criterion = nn.CrossEntropyLoss()
 
@@ -144,7 +205,6 @@ class NeuralCore:
 
         self.intent_model.eval()
 
-        # ── Persist weights & vectorizer ──
         torch.save(self.intent_model.state_dict(), model_path)
         with open(vectorizer_path, "wb") as f:
             pickle.dump(self.vectorizer, f)
@@ -153,55 +213,85 @@ class NeuralCore:
         final_loss = loss.item()
         logger.info(
             f"Intent model trained ({epochs} epochs, loss={final_loss:.4f}). "
-            f"Saved to {model_path}"
+            f"Classes: {num_classes}, InputDim: {self._input_dim}. Saved to {model_path}"
         )
 
     def load_intent_model(
-        self,
-        input_dim: int = 0,
-        hidden_dim: int = 256,
-        num_classes: int = 0,
-        model_path: Optional[str] = None,
+        self, input_dim: int = 0, hidden_dim: int = 256,
+        num_classes: int = 0, model_path: Optional[str] = None,
     ) -> None:
-        """Load a previously trained intent model + vectorizer from disk."""
+        """
+        Load a previously trained intent model + vectorizer from disk.
+        Detects incompatible saved weights and automatically retrains.
+        """
         model_file = model_path or os.path.join(self.model_dir, "intent_model.pth")
         vectorizer_file = os.path.join(self.model_dir, "tfidf_vectorizer.pkl")
 
         # Load vectorizer
         if os.path.exists(vectorizer_file):
-            with open(vectorizer_file, "rb") as f:
-                self.vectorizer = pickle.load(f)
-            self._input_dim = len(self.vectorizer.get_feature_names_out())
-            logger.info(f"Loaded TF-IDF vectorizer (dim={self._input_dim})")
+            try:
+                with open(vectorizer_file, "rb") as f:
+                    self.vectorizer = pickle.load(f)
+                self._input_dim = len(self.vectorizer.get_feature_names_out())
+                logger.info(f"Loaded TF-IDF vectorizer (dim={self._input_dim})")
+            except Exception as e:
+                logger.warning(f"Failed to load vectorizer ({e}). Retraining...")
+                self.train_initial_intent_model()
+                return
         else:
-            logger.warning("No vectorizer found. Call train_initial_intent_model() first.")
+            logger.warning("No vectorizer found. Retraining...")
+            self.train_initial_intent_model()
             return
 
         dim = input_dim or self._input_dim
         classes = num_classes or len(self.intent_labels)
-        self.intent_model = IntentClassifierNet(dim, hidden_dim, classes).to(self.device)
 
-        if os.path.exists(model_file):
-            self.intent_model.load_state_dict(
-                torch.load(model_file, map_location=self.device, weights_only=True)
-            )
+        if not os.path.exists(model_file):
+            logger.warning(f"No weights at {model_file}. Retraining...")
+            self.train_initial_intent_model()
+            return
+
+        # Try to load -- detect shape mismatches
+        try:
+            saved_state = torch.load(model_file, map_location=self.device, weights_only=True)
+
+            # Detect class count mismatch (output layer)
+            weight_keys = [k for k in saved_state if k.endswith(".weight")]
+            if weight_keys:
+                last_key = weight_keys[-1]
+                saved_out = saved_state[last_key].shape[0]
+                if saved_out != classes:
+                    logger.warning(
+                        f"Saved model has {saved_out} classes, need {classes}. Retraining..."
+                    )
+                    self.train_initial_intent_model()
+                    return
+
+                first_key = weight_keys[0]
+                saved_in = saved_state[first_key].shape[1]
+                if saved_in != dim:
+                    logger.warning(
+                        f"Saved model input dim={saved_in}, vectorizer dim={dim}. Retraining..."
+                    )
+                    self.train_initial_intent_model()
+                    return
+
+            self.intent_model = IntentClassifierNet(dim, hidden_dim, classes).to(self.device)
+            self.intent_model.load_state_dict(saved_state)
             self.intent_model.eval()
             self.is_intent_ready = True
             logger.info(f"Loaded IntentClassifierNet weights from {model_file}")
-        else:
-            logger.warning(f"No weights at {model_file}. Model is randomly initialized.")
+
+        except (RuntimeError, Exception) as e:
+            logger.warning(f"Failed to load intent model ({e}). Retraining...")
+            self.train_initial_intent_model()
 
     def predict_intent_from_text(self, text: str) -> Tuple[str, float]:
-        """
-        Classify a raw text message into an intent label.
-        Returns (intent_label, confidence) — e.g. ("security", 0.93).
-        """
+        """Classify raw text into an intent label. Returns (label, confidence)."""
         if not self.is_intent_ready or not self.vectorizer or not self.intent_model:
             raise ValueError("Intent model not ready. Train or load it first.")
 
-        # Vectorize
         features = self.vectorizer.transform([text]).toarray().astype(np.float32)
-
         with torch.no_grad():
             tensor = torch.tensor(features).to(self.device)
             self.intent_model.eval()
@@ -213,10 +303,7 @@ class NeuralCore:
         return label, confidence.item()
 
     def predict_intent(self, features: List[float]) -> torch.Tensor:
-        """
-        Run inference for intent classification from pre-computed features.
-        Returns a tensor of probabilities for each class.
-        """
+        """Run inference from pre-computed features. Returns probability tensor."""
         if not self.intent_model:
             raise ValueError("Intent model not loaded.")
 
@@ -227,7 +314,7 @@ class NeuralCore:
             probs = torch.softmax(logits, dim=1)
             return probs.squeeze(0)
 
-    # ═══════════════════════ Anomaly Detection ═══════════════════════
+    # ======================= Anomaly Detection =======================
 
     def load_anomaly_model(
         self, input_dim: int, latent_dim: int, model_path: Optional[str] = None
@@ -248,11 +335,7 @@ class NeuralCore:
         self.is_anomaly_ready = True
 
     def detect_anomaly(self, features: List[float]) -> float:
-        """
-        Run inference for anomaly detection.
-        Returns the Mean Squared Error (reconstruction error).
-        High MSE → Likely an anomaly.
-        """
+        """Run anomaly detection. Returns MSE (high = anomaly)."""
         if not self.anomaly_model:
             raise ValueError("Anomaly model not loaded. Call load_anomaly_model() first.")
 
@@ -263,7 +346,7 @@ class NeuralCore:
             mse_loss = torch.nn.functional.mse_loss(reconstructed, tensor_features)
             return mse_loss.item()
 
-    # ═══════════════════════ Initialization ═══════════════════════
+    # ======================= Initialization =======================
 
     def initialize(self) -> None:
         """
@@ -274,18 +357,30 @@ class NeuralCore:
         vectorizer_path = os.path.join(self.model_dir, "tfidf_vectorizer.pkl")
 
         if os.path.exists(model_path) and os.path.exists(vectorizer_path):
-            logger.info("Found existing neural weights — loading from disk.")
+            logger.info("Found existing neural weights -- loading from disk.")
             self.load_intent_model()
         else:
-            logger.info("No existing weights — training initial intent model...")
+            logger.info("No existing weights -- training initial intent model...")
             self.train_initial_intent_model()
+
+        # Sanity check: verify the loaded model can predict correctly
+        if self.is_intent_ready:
+            try:
+                label, conf = self.predict_intent_from_text("hello")
+                if label not in self.intent_labels:
+                    raise ValueError(f"Unknown label: {label}")
+                logger.info(f"Sanity check passed (test='hello' -> '{label}', conf={conf:.2f})")
+            except Exception as e:
+                logger.warning(f"Sanity check failed ({e}). Retraining...")
+                self.train_initial_intent_model()
 
         # Initialize anomaly detector with reasonable defaults
         self.load_anomaly_model(input_dim=32, latent_dim=8)
 
         logger.info(
-            f"Neural Engine ready. Intent: {'✓' if self.is_intent_ready else '✗'}, "
-            f"Anomaly: {'✓' if self.is_anomaly_ready else '✗'}"
+            f"Neural Engine ready. "
+            f"Intent: {'OK' if self.is_intent_ready else 'FAIL'}, "
+            f"Anomaly: {'OK' if self.is_anomaly_ready else 'FAIL'}"
         )
 
 

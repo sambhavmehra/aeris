@@ -9,6 +9,8 @@ from agents.code_agent import CodingAgent as CodeAgent, CodingAgent
 from agents.audit_agent import AuditAgent
 from agents.image_agent import ImageAgent
 from agents.observer_agent import ObserverAgent
+from agents.search_agent import SearchAgent
+from agents.analyzer_agent import AnalyzerAgent
 
 __all__ = [
     "BaseAgent",
@@ -16,9 +18,11 @@ __all__ = [
     "SecurityAgent",
     "SystemAgent",
     "ResearchAgent",
+    "SearchAgent",
     "CodeAgent",
     "CodingAgent",
     "AuditAgent",
     "ImageAgent",
     "ObserverAgent",
+    "AnalyzerAgent",
 ]

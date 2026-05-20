@@ -226,6 +226,13 @@ async def get_status():
     }
 
 
+@app.get("/api/greeting")
+async def api_greeting():
+    from services.greeting_service import generate_dynamic_greeting
+
+    return generate_dynamic_greeting()
+
+
 @app.post("/api/chat")
 async def chat_endpoint(req: ChatRequest):
     try:
@@ -745,6 +752,62 @@ async def api_trigger_scan():
     return {"success": True}
 
 
+# ── Voice Endpoints ─────────────────────────────────────────────────────────
+
+class VoiceProcessRequest(BaseModel):
+    transcript: str
+    speak: bool = True  # Whether to auto-speak the response via TTS
+
+
+@app.post("/api/voice/process")
+async def api_voice_process(req: VoiceProcessRequest):
+    """
+    Process a voice command transcript from the frontend.
+    The frontend handles STT via Web Speech API and sends the text here.
+    The backend routes it through Brain and optionally speaks the response.
+    """
+    if not req.transcript.strip():
+        raise HTTPException(status_code=400, detail="Transcript cannot be empty")
+
+    try:
+        from services.voice_orchestrator import get_voice_orchestrator
+
+        orchestrator = get_voice_orchestrator()
+        result = await orchestrator.process_voice(
+            transcript=req.transcript,
+            speak_response=req.speak,
+        )
+        return result.to_dict()
+    except Exception as e:
+        logger.exception("Voice process error")
+        return {"success": False, "error": str(e), "transcript": req.transcript}
+
+
+@app.post("/api/voice/stop")
+async def api_voice_stop():
+    """Instantly stop TTS playback."""
+    try:
+        from services.texttospeech import stop_speaking
+
+        stop_speaking()
+        return {"success": True, "message": "TTS stop signal sent"}
+    except Exception as e:
+        logger.warning(f"Voice stop error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/voice/status")
+async def api_voice_status():
+    """Return current voice engine status (speaking, echo cooldown, etc.)."""
+    try:
+        from services.texttospeech import is_currently_speaking
+
+        speaking = is_currently_speaking()
+        return {"success": True, "is_speaking": speaking}
+    except Exception as e:
+        return {"success": True, "is_speaking": False, "note": str(e)}
+
+
 # ── Code Pipeline Endpoints ─────────────────────────────────────────────────
 
 class CodePipelineRequest(BaseModel):
@@ -824,7 +887,7 @@ async def _run_pipeline(pipeline_id: str, objective: str, language: str):
             )
 
             try:
-                result = coder.generate_code(
+                result = await coder.generate_code_async(
                     request=file_objective,
                     language=file_spec.language or language,
                 )
@@ -922,7 +985,7 @@ async def codepipeline_ws(websocket: WebSocket, pipeline_id: str):
 @app.get("/api/codepipeline/workspaces")
 async def list_codepipeline_workspaces():
     """List all generated project directories."""
-    base = Path(os.path.expanduser("~/AERIS_Projects"))
+    base = (Path(__file__).resolve().parent.parent / "workspace").resolve()
     if not base.exists():
         return {"workspaces": []}
     projects = []
