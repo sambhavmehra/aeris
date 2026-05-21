@@ -264,6 +264,16 @@ class SystemAgent(BaseAgent):
         return {"explanation": plan.get("explanation", ""), "results": results}
 
     async def report(self, results: Any) -> str:
+        # Check if any step returned a __ui_action__ JSON
+        for r in results.get("results", []):
+            if r.get("status") == "success" and isinstance(r.get("result"), str):
+                try:
+                    parsed = json.loads(r["result"])
+                    if isinstance(parsed, dict) and "__ui_action__" in parsed:
+                        return r["result"]
+                except Exception:
+                    pass
+
         explanation = results.get("explanation", "")
         raw = json.dumps(results.get("results", []), indent=2, default=str)
 

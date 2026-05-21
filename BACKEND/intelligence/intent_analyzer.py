@@ -10,7 +10,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from api_gateway import get_gateway
 from tools.universal_registry import get_universal_registry
 
 logger = logging.getLogger("AerisIntentAnalyzer")
@@ -42,7 +41,6 @@ class IntentAnalyzer:
     Prevents hallucinated tools and execution attempts when incapable.
     """
     def __init__(self):
-        self._gateway = get_gateway()
         self._registry = get_universal_registry()
 
     # ── Fast-path rule table: intent keyword → (tool, task_type) ──────
@@ -192,7 +190,23 @@ RULES:
         ]
 
         try:
-            raw_response = self._gateway.plan(messages, json_mode=True, temperature=0.1, max_tokens=512)
+            from ai_engine import ai_engine
+            import asyncio
+            
+            def run_sync(coro):
+                try:
+                    return asyncio.run(coro)
+                except RuntimeError:
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    return asyncio.run(coro)
+
+            raw_response = run_sync(ai_engine.chat(
+                messages,
+                temperature=0.1,
+                max_tokens=512,
+                response_format={"type": "json_object"}
+            ))
             
             # Clean JSON
             cleaned = raw_response.strip()

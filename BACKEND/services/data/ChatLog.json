@@ -1,0 +1,18 @@
+[
+  {
+    "role": "user",
+    "content": "tu chutiya hai kya"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir! Aapka mood kaisa hai? Main samajh nahi paa raha hoon ki kya problem hai. Agar aap mood mein nahi hain, to main kuchh achha kar sakta hoon. Chai pi sakte hain, ya kuchh music listen kar sakte hain. Sir, kuchh bataiye kya aapka problem hai?"
+  },
+  {
+    "role": "user",
+    "content": "kitne agent hai number me bata"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, aapka request hai. AERIS ke Multi-Agent Swarm mein 27 sub-agents hain, jo aapke request ko fulfill karne ke liye uplabdh hain. Yeh agents aapke request ke anusaar kaam karte hain, jaise ki Coding, Research, Vulnerability Scanning, Tool Generation, aur Web Intelligence. Sir, aapko koi specific agent ke baare mein janna chahein, to main aapko vishayavaree jaankari pradaan kar sakta hoon."
+  }
+]

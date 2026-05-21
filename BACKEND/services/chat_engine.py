@@ -304,8 +304,16 @@ def _memory_context() -> str:
 def chat(query: str) -> str:
     """Send a query to Groq LLM and return the response."""
     try:
-        from core.api_gateway import get_gateway
-        gw = get_gateway()
+        from ai_engine import ai_engine
+        import asyncio
+        
+        def run_sync(coro):
+            try:
+                return asyncio.run(coro)
+            except RuntimeError:
+                import nest_asyncio
+                nest_asyncio.apply()
+                return asyncio.run(coro)
         
         messages = _load_chat_log()
         messages.append({"role": "user", "content": query})
@@ -319,9 +327,9 @@ def chat(query: str) -> str:
             all_messages.append({"role": "system", "content": mem_ctx})
         all_messages.extend(messages[-20:])
 
-        # Use gw.chat() which properly extracts text from ChatCompletion
+        # Use ai_engine.chat
         # max_tokens=300 enforces crisp 1-3 line responses (prevents verbose rambling)
-        answer = gw.chat(all_messages, temperature=0.7, max_tokens=300)
+        answer = run_sync(ai_engine.chat(all_messages, temperature=0.7, max_tokens=300))
         
         # Clean answer and save
         answer = answer.replace("</s>", "").strip()
@@ -339,8 +347,16 @@ def decide(query: str) -> list[str]:
     Returns a list of decisions like ["open whatsapp", "general how are you"].
     """
     try:
-        from core.api_gateway import get_gateway
-        gw = get_gateway()
+        from ai_engine import ai_engine
+        import asyncio
+        
+        def run_sync(coro):
+            try:
+                return asyncio.run(coro)
+            except RuntimeError:
+                import nest_asyncio
+                nest_asyncio.apply()
+                return asyncio.run(coro)
         
         messages = (
             [{"role": "system", "content": DECISION_PROMPT}]
@@ -348,9 +364,7 @@ def decide(query: str) -> list[str]:
             + [{"role": "user", "content": query}]
         )
 
-        # Use gw.plan() which properly extracts text from ChatCompletion
-        response = gw.plan(messages, json_mode=False,
-                           temperature=0.3, max_tokens=256)
+        response = run_sync(ai_engine.chat(messages, temperature=0.3, max_tokens=256))
         
         response = response.replace("\n", "").strip()
         decisions = [d.strip() for d in response.split(",") if d.strip()]

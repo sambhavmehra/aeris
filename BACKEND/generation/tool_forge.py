@@ -363,19 +363,24 @@ The tool must return a dictionary with at least a boolean 'success' key, and str
 Only return the pure python code text, with NO MARKDOWN formatting, NO ```python blocks. Your entire response will be saved directly into a .py file. Do not provide any explanation.'''
 
         try:
-            from core.api_gateway.gateway import get_gateway
-            from core.api_gateway.providers import TaskType
+            from ai_engine import ai_engine
+            import asyncio
+            
+            def run_sync(coro):
+                try:
+                    return asyncio.run(coro)
+                except RuntimeError:
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    return asyncio.run(coro)
             
             messages = [
                 {"role": "system", "content": "You are an expert Python developer."},
                 {"role": "user", "content": prompt}
             ]
             
-            gateway = get_gateway()
-            
-            # Use gateway.call to get raw text back for the code generation
-            code = gateway.call(TaskType.CODE, messages=messages, temperature=0.1, max_tokens=2048)
-            code = gateway._extract_text(code)
+            # Use ai_engine.chat to get raw text back for the code generation
+            code = run_sync(ai_engine.chat(messages, temperature=0.1, max_tokens=2048))
                 
             # Strip markdown logic
             if "```python" in code:

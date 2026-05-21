@@ -193,6 +193,23 @@ class ThreatIntelRequest(BaseModel):
     query: str = ""
 
 
+class MemoryUpdateRequest(BaseModel):
+    action: Optional[str] = None  # "clear", "add_fact", "remove_fact", "update_summary", "update_project_memory"
+    fact: Optional[str] = None
+    summary: Optional[str] = None
+    key: Optional[str] = None
+    value: Any = None
+
+
+class ProfileUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    language_preference: Optional[str] = None
+    tone_preference: Optional[str] = None
+    common_tasks: Optional[list[str]] = None
+    preferred_response_style: Optional[str] = None
+
+
+
 def _get_rag_engine():
     global _rag_engine
     if _rag_engine is None:
@@ -282,6 +299,62 @@ async def clear_chat():
 
     memory_store.clear_history()
     return {"status": "success", "message": "Chat history cleared"}
+
+
+@app.get("/api/memory")
+async def get_memory():
+    from memory.store import memory_store
+    return {
+        "short_term_summary": memory_store.short_term_summary,
+        "long_term_facts": memory_store.long_term_facts,
+        "project_memory": memory_store.project_memory,
+        "vector_hooks": memory_store.vector_hooks
+    }
+
+
+@app.post("/api/memory")
+async def update_memory(req: MemoryUpdateRequest):
+    from memory.store import memory_store
+    action = req.action
+    if action == "clear":
+        memory_store.clear_all()
+        return {"success": True, "message": "All memory cleared"}
+    elif action == "add_fact":
+        if not req.fact:
+            raise HTTPException(status_code=400, detail="fact is required for add_fact action")
+        added = memory_store.add_fact(req.fact)
+        return {"success": added, "message": "Fact added" if added else "Fact not added (duplicate or sensitive)"}
+    elif action == "remove_fact":
+        if not req.fact:
+            raise HTTPException(status_code=400, detail="fact is required for remove_fact action")
+        removed = memory_store.remove_fact(req.fact)
+        return {"success": removed, "message": "Fact removed" if removed else "Fact not found"}
+    elif action == "update_summary":
+        if req.summary is None:
+            raise HTTPException(status_code=400, detail="summary is required for update_summary action")
+        memory_store.update_summary(req.summary)
+        return {"success": True, "message": "Summary updated"}
+    elif action == "update_project_memory":
+        if not req.key:
+            raise HTTPException(status_code=400, detail="key is required for update_project_memory action")
+        memory_store.update_project_memory(req.key, req.value)
+        return {"success": True, "message": f"Project memory for {req.key} updated"}
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported action: {action}")
+
+
+@app.get("/api/profile")
+async def get_profile():
+    from memory.user_profile import user_profile_store
+    return user_profile_store.get_profile()
+
+
+@app.post("/api/profile")
+async def update_profile(req: ProfileUpdateRequest):
+    from memory.user_profile import user_profile_store
+    update_data = {k: v for k, v in req.dict(exclude_unset=True).items() if v is not None}
+    updated = user_profile_store.update_profile(**update_data)
+    return {"success": True, "profile": updated}
 
 
 @app.post("/api/os/execute")
@@ -956,6 +1029,33 @@ def _extract_best_code(result: dict, target_path: str) -> str:
     if "import " in analysis or "def " in analysis or "function " in analysis:
         return analysis
     return ""
+
+
+class MCPConnectRequest(BaseModel):
+    server_name: str
+    env_vars: Optional[dict[str, str]] = None
+    extra_args: Optional[list[str]] = None
+
+
+@app.post("/api/mcp/connect")
+async def mcp_connect(req: MCPConnectRequest):
+    try:
+        from starlette.concurrency import run_in_threadpool
+        from tools.mcp_installer import install_mcp_server
+        
+        res_str = await run_in_threadpool(
+            install_mcp_server,
+            server_name=req.server_name,
+            env_vars=req.env_vars,
+            extra_args=req.extra_args
+        )
+        
+        import json
+        result = json.loads(res_str)
+        return result
+    except Exception as e:
+        logger.exception("MCP connection endpoint error")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.websocket("/ws/codepipeline/{pipeline_id}")

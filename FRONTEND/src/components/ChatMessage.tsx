@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -13,6 +13,223 @@ export interface Message {
   agent?: string;
   intent?: string;
 }
+
+interface FormField {
+  name: string;
+  label: string;
+  type: string;
+  placeholder?: string;
+  required?: boolean;
+}
+
+interface FormConfig {
+  __ui_action__: string;
+  title: string;
+  description: string;
+  server_name: string;
+  fields: FormField[];
+  submit_endpoint: string;
+}
+
+function DynamicForm({ config }: { config: FormConfig }) {
+  const [formData, setFormData] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  const [discoveredTools, setDiscoveredTools] = useState<any[]>([]);
+
+  const handleInputChange = (name: string, value: string) => {
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+    setStatus('loading');
+    setErrorMsg('');
+
+    try {
+      const res = await fetch(`http://localhost:8000${config.submit_endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          server_name: config.server_name,
+          env_vars: formData
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error('Server connection request failed.');
+      }
+
+      const data = await res.json();
+      if (data.success) {
+        setStatus('success');
+        setDiscoveredTools(data.discovered_tools || []);
+      } else {
+        setStatus('error');
+        setErrorMsg(data.error || 'Failed to verify connection.');
+      }
+    } catch (err: any) {
+      setStatus('error');
+      setErrorMsg(err.message || 'Error communicating with backend.');
+    }
+  };
+
+  if (status === 'success') {
+    return (
+      <div style={{
+        background: 'rgba(16,185,129,0.06)',
+        border: '1px solid rgba(16,185,129,0.3)',
+        borderRadius: '12px',
+        padding: '16px',
+        marginTop: '8px',
+        color: '#a7f3d0',
+        animation: 'msg-appear 0.4s ease',
+        width: '100%',
+        minWidth: '280px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+          <span style={{ fontSize: '18px' }}>✅</span>
+          <strong style={{ fontSize: '14px', color: '#34d399' }}>Connection Verified!</strong>
+        </div>
+        <p style={{ fontSize: '12.5px', margin: '0 0 12px 0', lineHeight: '1.5' }}>
+          Successfully connected to the <strong>{config.server_name}</strong> MCP server.
+          The following {discoveredTools.length} tools have been dynamically registered and are ready to use:
+        </p>
+        <div style={{
+          maxHeight: '120px',
+          overflowY: 'auto',
+          background: 'rgba(0,0,0,0.2)',
+          padding: '8px 12px',
+          borderRadius: '8px',
+          fontSize: '11px',
+          fontFamily: 'monospace'
+        }}>
+          {discoveredTools.map((t: any) => (
+            <div key={t.name} style={{ margin: '4px 0', color: '#6ee7b7' }}>
+              • {t.name}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{
+      background: 'rgba(3,9,25,0.6)',
+      border: '1px solid rgba(0,212,255,0.15)',
+      borderRadius: '12px',
+      padding: '16px',
+      marginTop: '8px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '12px',
+      width: '100%',
+      minWidth: '280px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+      animation: 'msg-appear 0.4s ease'
+    }}>
+      <div>
+        <h4 style={{
+          fontSize: '14px',
+          fontWeight: 600,
+          margin: '0 0 4px 0',
+          color: 'rgba(0, 220, 255, 0.95)'
+        }}>{config.title}</h4>
+        <p style={{
+          fontSize: '11.5px',
+          margin: 0,
+          color: 'rgba(200, 240, 255, 0.6)',
+          lineHeight: '1.4'
+        }}>{config.description}</p>
+      </div>
+
+      {config.fields.map(field => (
+        <div key={field.name} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <label style={{
+            fontSize: '11px',
+            fontWeight: 500,
+            color: 'rgba(200, 240, 255, 0.8)',
+            letterSpacing: '0.5px'
+          }}>
+            {field.label} {field.required && <span style={{ color: '#ef4444' }}>*</span>}
+          </label>
+          <input
+            type={field.type || 'text'}
+            placeholder={field.placeholder}
+            required={field.required}
+            value={formData[field.name] || ''}
+            onChange={e => handleInputChange(field.name, e.target.value)}
+            disabled={status === 'loading'}
+            style={{
+              background: 'rgba(0,212,255,0.03)',
+              border: '1px solid rgba(0,212,255,0.15)',
+              borderRadius: '6px',
+              padding: '8px 12px',
+              fontSize: '12.5px',
+              color: 'rgba(200,240,255,0.9)',
+              outline: 'none',
+              transition: 'border-color 0.2s',
+            }}
+          />
+        </div>
+      ))}
+
+      {status === 'error' && (
+        <div style={{
+          background: 'rgba(239,68,68,0.06)',
+          border: '1px solid rgba(239,68,68,0.3)',
+          borderRadius: '8px',
+          padding: '10px 12px',
+          fontSize: '12px',
+          color: '#fca5a5',
+          lineHeight: '1.4'
+        }}>
+          ⚠️ {errorMsg}
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={status === 'loading'}
+        style={{
+          background: status === 'loading'
+            ? 'rgba(0,200,255,0.1)'
+            : 'linear-gradient(135deg, rgba(0,200,255,0.25), rgba(0,140,200,0.2))',
+          border: '1px solid rgba(0,200,255,0.35)',
+          color: 'rgba(0,220,255,0.95)',
+          borderRadius: '8px',
+          padding: '9px',
+          fontSize: '13px',
+          fontWeight: 500,
+          cursor: status === 'loading' ? 'not-allowed' : 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          transition: 'all 0.2s'
+        }}
+      >
+        {status === 'loading' ? (
+          <>
+            <span style={{
+              width: '12px',
+              height: '12px',
+              border: '2px solid rgba(0,220,255,0.3)',
+              borderTopColor: 'rgba(0,220,255,0.95)',
+              borderRadius: '50%',
+              animation: 'spin 0.8s linear infinite'
+            }} />
+            Verifying Connection...
+          </>
+        ) : (
+          'Connect Server'
+        )}
+      </button>
+    </form>
+  );
+}
+
 
 // Intent -> icon + color mapping
 const INTENT_META: Record<string, { icon: string; color: string; label: string }> = {
@@ -476,8 +693,21 @@ interface ChatMessageProps {
   onStreamDone?: () => void;
 }
 
-export default function ChatMessage({ message, onStreamDone }: ChatMessageProps) {
+const ChatMessage = memo(function ChatMessage({ message, onStreamDone }: ChatMessageProps) {
   const isAI = message.role === 'ai';
+
+  // Check if this AI message represents a form request UI Action
+  let formConfig: FormConfig | null = null;
+  if (isAI && !message.streaming && message.content.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(message.content);
+      if (parsed && parsed.__ui_action__ === 'request_form') {
+        formConfig = parsed;
+      }
+    } catch (e) {
+      // not a UI action JSON
+    }
+  }
 
   return (
     <div
@@ -534,7 +764,9 @@ export default function ChatMessage({ message, onStreamDone }: ChatMessageProps)
         {/* Agent badge for AI messages */}
         {isAI && <AgentBadge agent={message.agent} intent={message.intent} />}
 
-        {isAI && message.streaming && onStreamDone ? (
+        {formConfig ? (
+          <DynamicForm config={formConfig} />
+        ) : isAI && message.streaming && onStreamDone ? (
           <StreamingBubble content={message.content} onDone={onStreamDone} />
         ) : (
           renderContent(message.content)
@@ -542,4 +774,14 @@ export default function ChatMessage({ message, onStreamDone }: ChatMessageProps)
       </div>
     </div>
   );
-}
+}, (prev, next) => {
+  return (
+    prev.message.id === next.message.id &&
+    prev.message.content === next.message.content &&
+    prev.message.streaming === next.message.streaming &&
+    prev.message.agent === next.message.agent &&
+    prev.message.intent === next.message.intent
+  );
+});
+
+export default ChatMessage;

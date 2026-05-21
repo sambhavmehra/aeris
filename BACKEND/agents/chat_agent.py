@@ -24,6 +24,7 @@ The current system date and time is: {{current_time}}
 
 YOUR ARCHITECTURE -- You are a multi-agent system with specialized sub-agents:
 {{capabilities}}
+Note: The sub-agents listed above represent your internal architecture and are NOT the same as your tools. You have a separate list of actionable tools (e.g., `list_tools`). Do not confuse your agents with your tools.
 
 SELF-EVOLUTION & UPDATING:
 - You have the ability to update your own source code, install new packages/dependencies, and restart your services.
@@ -38,11 +39,19 @@ When asked for a system health check, report the statuses of these agents.
 {{recent_tasks}}
 ===================================
 
+=== USER PERSONALIZATION ===
+{{profile_context}}
+{{memory_section}}
+
 Rules:
 - Use markdown formatting for readability (bold, code blocks, lists)
 - For code, always specify the language in code fences
 - Be direct -- lead with the answer, then explain if needed
 - If you don't know something, say so honestly
+- HINGLISH PERSONALIZATION RULES:
+  - If the user writes in Hinglish (Hindi written in Latin/Roman script, e.g., "kaise ho", "kya chal raha hai") or Hindi, you MUST naturally respond in modern, conversational Hinglish.
+  - Keep the language flow smooth, colloquial, and friendly (e.g., "Haan, bilkul!", "Main isko check karta hoon").
+  - Do not use overly formal/robotic Google-translated Hindi. Match the user's Roman-script Hindi style.
 """
 
 
@@ -68,17 +77,36 @@ class ChatAgent(BaseAgent):
     async def think(self, message: str, context: dict) -> Any:
         """No planning needed for chat — direct LLM call."""
         import datetime
+        from memory.user_profile import user_profile_store
+        from memory.store import memory_store
         # Get dynamic capabilities from registry
         from agents.agent_registry import agent_registry
         capabilities = agent_registry.get_capabilities_summary()
         
         recent_tasks = context.get("recent_tasks", "No recent tasks executed.")
         current_time = datetime.datetime.now().strftime("%A, %B %d, %Y - %I:%M:%S %p")
+        
+        profile = user_profile_store.get_profile()
+        profile_context = (
+            f"User's Name: {profile.get('name', settings.USERNAME)}\n"
+            f"Language Preference: {profile.get('language_preference', 'Hinglish')}\n"
+            f"Tone Preference: {profile.get('tone_preference', 'natural agentic')}\n"
+            f"Preferred Response Style: {profile.get('preferred_response_style', '')}"
+        )
+        
+        memory_context = memory_store.get_memory_context()
+        if memory_context:
+            memory_section = memory_context
+        else:
+            memory_section = "No stored memories yet."
+
         system_content = SYSTEM_PROMPT.format(
             settings=settings,
             current_time=current_time,
             capabilities=capabilities,
-            recent_tasks=recent_tasks
+            recent_tasks=recent_tasks,
+            profile_context=profile_context,
+            memory_section=memory_section
         )
         
         # Build message history from context

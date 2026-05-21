@@ -139,9 +139,30 @@ class ResearchAgent(BaseAgent):
     # ── Internal Helpers ─────────────────────────────────────────────
 
     def _web_search(self, query: str) -> Dict[str, Any]:
-        """Search the web via APIGateway → Tavily."""
-        gw = self._get_gateway()
-        return gw.search(query=query)
+        """Search the web via Tavily directly."""
+        import os
+        import httpx
+        api_key = os.getenv("VITE_TAVILY_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("VITE_TAVILY_API_KEY not set in environment.")
+        
+        try:
+            with httpx.Client(timeout=20.0) as client:
+                resp = client.post(
+                    "https://api.tavily.com/search",
+                    json={
+                        "api_key": api_key,
+                        "query": query,
+                        "max_results": 5,
+                        "include_answer": True,
+                        "search_depth": "basic",
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as e:
+            self.log(f"Tavily search failed for '{query}': {e}", "ERROR")
+            return {"results": [], "answer": f"Error: {e}"}
 
     def _synthesise(self, objective: str, search_data: Dict[str, Any]) -> Any:
         """Use LLM to synthesise search results into structured research."""

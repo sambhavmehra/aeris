@@ -133,6 +133,8 @@ class UniversalToolDef:
     tags: List[str] = field(default_factory=list)
     version: str = "1.0.0"
     author: str = "aeris"
+    timeout: int = 30
+    approval_requirement: bool = False
     # Runtime metadata (populated after load)
     loaded_at: Optional[str] = None
     file_path: Optional[str] = None           # For file-based tools
@@ -156,6 +158,17 @@ class UniversalToolDef:
 
     # ── Serialisation ─────────────────────────────────────────────────
 
+    def to_json_schema(self) -> Dict[str, Any]:
+        """Expose the tool's details in a standard JSON Schema layout."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "args": self.input_schema.to_json_schema(),
+            "risk_level": self.risk_level.value,
+            "timeout": self.timeout,
+            "approval_requirement": self.approval_requirement,
+        }
+
     def to_metadata(self) -> Dict[str, Any]:
         """Compact metadata for the LLM planner (backwards-compatible)."""
         return {
@@ -164,6 +177,8 @@ class UniversalToolDef:
             "required_params": self.required_params,
             "risk_level": self.risk_level.value,
             "category": self.category,
+            "timeout": self.timeout,
+            "approval_requirement": self.approval_requirement,
         }
 
     def to_full_dict(self) -> Dict[str, Any]:
@@ -180,6 +195,8 @@ class UniversalToolDef:
             "tags": self.tags,
             "version": self.version,
             "author": self.author,
+            "timeout": self.timeout,
+            "approval_requirement": self.approval_requirement,
             "loaded_at": self.loaded_at,
             "file_path": self.file_path,
             "endpoint_url": self.endpoint_url,

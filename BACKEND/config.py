@@ -26,7 +26,12 @@ class Settings:
 
         # --- Identity ---
         self.USERNAME: str = os.getenv("Username", "User")
-        self.ASSISTANT_NAME: str = "AERIS"
+        self.ASSISTANT_NAME: str = os.getenv("Assistantname", "AERIS")
+
+        # --- External Services ---
+        self.NOTION_API_KEY: str = os.getenv("VITE_NOTION_API_KEY", "")
+        self.NOTION_DATABASE_ID: str = os.getenv("VITE_NOTION_DATABASE_ID", "")
+        self.BREVO_API_KEY: str = os.getenv("BREVO_API_KEY", "")
 
         # --- Server ---
         self.API_PORT: int = int(os.getenv("API_PORT", "8000"))
@@ -43,7 +48,7 @@ class Settings:
 
         # --- Model Defaults ---
         self.GROQ_PRIMARY_MODEL: str = "llama-3.3-70b-versatile"
-        self.GROQ_FALLBACK_MODEL: str = "mixtral-8x7b-32768"
+        self.GROQ_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
         self.GEMINI_MODEL: str = "gemini-2.5-flash"
 
     def _collect_groq_keys(self) -> list[str]:
@@ -72,13 +77,23 @@ class Settings:
     def has_cohere(self) -> bool:
         return bool(self.COHERE_API_KEY)
 
+    @property
+    def has_notion(self) -> bool:
+        return bool(self.NOTION_API_KEY and self.NOTION_DATABASE_ID)
+
+    @property
+    def has_brevo(self) -> bool:
+        return bool(self.BREVO_API_KEY)
+
     def __repr__(self) -> str:
         return (
             f"Settings(\n"
             f"  groq_keys={len(self.GROQ_API_KEYS)}, "
             f"gemini={'✓' if self.has_gemini else '✗'}, "
             f"tavily={'✓' if self.has_tavily else '✗'}, "
-            f"cohere={'✓' if self.has_cohere else '✗'}\n"
+            f"cohere={'✓' if self.has_cohere else '✗'}, "
+            f"notion={'✓' if self.has_notion else '✗'}, "
+            f"brevo={'✓' if self.has_brevo else '✗'}\n"
             f"  user={self.USERNAME}, assistant={self.ASSISTANT_NAME}\n"
             f"  port={self.API_PORT}\n"
             f")"

@@ -412,10 +412,13 @@ class MCPToolAdapter(ToolAdapter):
     def execute(self, tool: UniversalToolDef, **kwargs) -> ToolExecutionResult:
         start = time.perf_counter()
         try:
-            from mcp_bridge import get_mcp_registry
+            from tools.mcp_bridge import get_mcp_registry
             mcp = get_mcp_registry()
 
-            qualified_name = f"{tool.mcp_server_name}.{tool.name}" if tool.mcp_server_name else tool.name
+            real_tool_name = tool.name
+            if tool.mcp_server_name and tool.name.startswith(f"{tool.mcp_server_name}_"):
+                real_tool_name = tool.name[len(tool.mcp_server_name) + 1:]
+            qualified_name = f"{tool.mcp_server_name}.{real_tool_name}" if tool.mcp_server_name else tool.name
             mcp_result = mcp.dispatch(qualified_name, kwargs)
             elapsed = (time.perf_counter() - start) * 1000
 
@@ -442,7 +445,7 @@ class MCPToolAdapter(ToolAdapter):
 
     def health_check(self, tool: UniversalToolDef) -> bool:
         try:
-            from mcp_bridge import get_mcp_registry
+            from tools.mcp_bridge import get_mcp_registry
             mcp = get_mcp_registry()
             servers = mcp.list_servers()
             for s in servers:

@@ -1,0 +1,14 @@
+Flask==3.0.3
+waitress==3.0.0
+requests==2.32.3
+Werkzeug==3.0.4
+ddgs
+chromadb
+flask-socketio
+eventlet
+mitmproxy
+python-socketio[client]
+selenium
+webdriver-manager
+dnspython<2.0.0
+gevent

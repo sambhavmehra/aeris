@@ -96,9 +96,33 @@ class ToolPermissionSystem:
                 risk_level=tool.risk_level.value,
             )
 
-        # 2. Dangerous pattern scan
+        # 2. Command validation (empty commands or suspicious piping)
+        cmd_val = None
+        for key in ["command", "cmd", "script"]:
+            if key in params:
+                cmd_val = params[key]
+                break
+
+        if cmd_val is not None and isinstance(cmd_val, str):
+            stripped_cmd = cmd_val.strip()
+            if not stripped_cmd:
+                return PermissionDecision(
+                    allowed=False,
+                    reason="Command cannot be empty or whitespace only.",
+                    risk_level=tool.risk_level.value
+                )
+            import re
+            suspicious_pipe = re.search(r"\|\s*(bash|sh|powershell|pwsh|python|python3|cmd|wscript|cscript)", stripped_cmd, re.IGNORECASE)
+            if suspicious_pipe:
+                return PermissionDecision(
+                    allowed=False,
+                    reason=f"Suspicious shell pipe detected: '{suspicious_pipe.group(0)}'",
+                    risk_level="critical"
+                )
+
+        # 3. Dangerous pattern scan
         for pattern in BLOCKED_PATTERNS:
-            if pattern in params_str:
+            if pattern.lower() in params_str:
                 logger.warning(f"BLOCKED: destructive pattern '{pattern}' in params for {tool.name}")
                 return PermissionDecision(
                     allowed=False,
@@ -106,7 +130,7 @@ class ToolPermissionSystem:
                     risk_level="critical",
                 )
 
-        # 3. User whitelist — always allow
+        # 4. User whitelist — always allow
         if tool.name in self._user_whitelist:
             return PermissionDecision(
                 allowed=True,
@@ -114,7 +138,7 @@ class ToolPermissionSystem:
                 risk_level=tool.risk_level.value,
             )
 
-        # 4. Session auto-approve
+        # 5. Session auto-approve
         if tool.name in self._auto_approve_session:
             return PermissionDecision(
                 allowed=True,
@@ -122,7 +146,16 @@ class ToolPermissionSystem:
                 risk_level=tool.risk_level.value,
             )
 
-        # 5. Risk-level based policy
+        # 6. Explicit approval requirements for HIGH, CRITICAL, or approval_requirement=True
+        if tool.approval_requirement or tool.risk_level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+            return PermissionDecision(
+                allowed=False,
+                reason=f"Tool '{tool.name}' requires explicit user approval.",
+                requires_user_approval=True,
+                risk_level=tool.risk_level.value,
+            )
+
+        # 7. Risk-level based policy
         if tool.risk_level == RiskLevel.SAFE:
             return PermissionDecision(allowed=True, reason="Safe tool.", risk_level="safe")
 
@@ -130,28 +163,7 @@ class ToolPermissionSystem:
             return PermissionDecision(allowed=True, reason="Low-risk tool.", risk_level="low")
 
         if tool.risk_level == RiskLevel.MEDIUM:
-            return PermissionDecision(allowed=True, reason="Medium-risk tool (auto-approved in autonomous mode).", risk_level="medium")
-
-        if tool.risk_level == RiskLevel.HIGH:
-            # Cooldown check removed so intelligent retries in loop.py don't falsely trigger a security block.
-            # Auto-approve in autonomous mode (non-destructive high-risk like run_bash)
-            # but still log the decision
-            logger.info(f"High-risk tool '{tool.name}' auto-approved in autonomous mode.")
-            self._cooldowns[tool.name] = time.time()
-            return PermissionDecision(
-                allowed=True,
-                reason=f"High-risk tool '{tool.name}' auto-approved (non-destructive check passed).",
-                risk_level="high",
-            )
-
-        if tool.risk_level == RiskLevel.CRITICAL:
-            # CRITICAL always requires user approval
-            return PermissionDecision(
-                allowed=False,
-                reason=f"CRITICAL-risk tool '{tool.name}' requires explicit user approval.",
-                requires_user_approval=True,
-                risk_level="critical",
-            )
+            return PermissionDecision(allowed=True, reason="Medium-risk tool (auto-approved).", risk_level="medium")
 
         # Default: allow
         return PermissionDecision(allowed=True, reason="Default allow.", risk_level=tool.risk_level.value)

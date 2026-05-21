@@ -23,6 +23,7 @@ logger = logging.getLogger("aeris.neural.core")
 INTENT_LABELS = [
     "chat", "security", "system", "research", "search",
     "code", "image", "diagram", "codepipeline", "analyze",
+    "osint",
 ]
 
 # --------------- Training Data ---------------
@@ -54,6 +55,15 @@ TRAINING_DATA: List[Tuple[str, str]] = [
     ("volume up karo", "system"), ("restart the computer", "system"),
     ("open youtube and play music", "system"), ("search on browser", "system"),
     ("play a song on youtube", "system"), ("kill this process", "system"),
+    ("search sambhav mehra on google", "system"),
+    ("search on google for python tutorials", "system"),
+    ("google search cat videos", "system"),
+    ("open google and search for aeris", "system"),
+    ("google pe search karo backend development", "system"),
+    ("browser me search karo latest movies", "system"),
+    ("search youtube for coding videos", "system"),
+    ("youtube search for song", "system"),
+    ("open browser and search google", "system"),
     # -- research --
     ("deep research on transformer architecture", "research"),
     ("compare react vs angular in depth", "research"),
@@ -76,6 +86,11 @@ TRAINING_DATA: List[Tuple[str, str]] = [
     ("what happened in the world today", "search"),
     ("breaking news", "search"), ("where am i right now", "search"),
     ("my location batao", "search"), ("search for best laptops 2025", "search"),
+    ("what is the weather in Delhi", "search"),
+    ("latest stock price of microsoft", "search"),
+    ("who is the current prime minister of india", "search"),
+    ("trending news today", "search"),
+    ("current temperature in new york", "search"),
     # -- code --
     ("write a python script", "code"), ("debug this function", "code"),
     ("write a flask api endpoint", "code"), ("refactor this code", "code"),
@@ -132,6 +147,21 @@ TRAINING_DATA: List[Tuple[str, str]] = [
     ("is log file me kya error hai", "analyze"),
     ("isko analyze karke batao", "analyze"),
     ("ye data dekhke batao", "analyze"),
+    # -- osint --
+    ("perform osint on target", "osint"),
+    ("osint profile check", "osint"),
+    ("email lookup search", "osint"),
+    ("stalk username on web", "osint"),
+    ("trace social footprint of target", "osint"),
+    ("perom osint on sambhav mehra", "osint"),
+    ("perform osint on sambhav mehra", "osint"),
+    ("do osint on user", "osint"),
+    ("target intel compilation", "osint"),
+    ("stalk user", "osint"),
+    ("stalk target", "osint"),
+    ("profile check on username", "osint"),
+    ("who is this person osint", "osint"),
+    ("osint investigation", "osint"),
 ]
 
 

@@ -49,6 +49,8 @@ class UniversalToolRegistry:
         required_params: List[str] = None,
         risk_level: RiskLevel = RiskLevel.SAFE,
         category: str = "general",
+        timeout: int = 30,
+        approval_requirement: bool = False,
     ) -> UniversalToolDef:
         """Register a hardcoded Python function as a tool (backwards-compatible)."""
         required_params = required_params or []
@@ -63,6 +65,8 @@ class UniversalToolRegistry:
             category=category,
             source=ToolSource.BUILTIN,
             status=ToolStatus.ENABLED,
+            timeout=timeout,
+            approval_requirement=approval_requirement,
         )
         self._tools[name] = tool
         return tool
@@ -135,7 +139,9 @@ class UniversalToolRegistry:
 
     async def execute_async(self, name: str, **kwargs) -> Any:
         """Execute a tool dynamically, handling both sync and async functions."""
+        import asyncio
         import inspect
+
         tool = self.get_tool(name)
         if not tool:
             raise ValueError(f"Tool '{name}' not found in Universal Registry.")
@@ -149,8 +155,25 @@ class UniversalToolRegistry:
                 return await result
             return result
         else:
-            # Future extension point for ToolAdapters (API/MCP)
-            raise NotImplementedError(f"Execution of {tool.source.value} tool '{name}' without a local function is not yet fully implemented via execute_async.")
+            # Use the adapter system for non-callable tools (API, CLI, MCP, file-based)
+            from tools.tool_adapters import get_adapter_for
+            adapter = get_adapter_for(tool)
+            if adapter:
+                # Run the synchronous adapter.execute in a thread to stay async
+                loop = asyncio.get_event_loop()
+                exec_result = await loop.run_in_executor(
+                    None, lambda: adapter.execute(tool, **kwargs)
+                )
+                if exec_result.success:
+                    return exec_result.stdout or exec_result.to_dict()
+                else:
+                    raise RuntimeError(
+                        f"Tool '{name}' execution failed: {exec_result.stderr}"
+                    )
+            else:
+                raise NotImplementedError(
+                    f"No execution adapter found for {tool.source.value} tool '{name}'."
+                )
 
 
 
@@ -175,7 +198,9 @@ def get_universal_registry() -> UniversalToolRegistry:
                     func=tool_def.func,
                     required_params=tool_def.required_params,
                     risk_level=tool_def.risk_level,
-                    category=tool_def.category
+                    category=tool_def.category,
+                    timeout=getattr(tool_def, "timeout", 30),
+                    approval_requirement=getattr(tool_def, "approval_requirement", False),
                 )
             logger.info(f"Migrated {len(global_tool_registry._tools)} builtin tools to Universal Registry.")
         except Exception as e:

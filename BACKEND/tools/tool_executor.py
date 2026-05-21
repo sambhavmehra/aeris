@@ -23,7 +23,7 @@ import time
 from typing import Any, Dict
 
 from tools.tool_adapters import get_adapter_for
-from tools.tool_interface import ToolExecutionResult, ToolSource, UniversalToolDef
+from tools.tool_interface import RiskLevel, ToolExecutionResult, ToolSource, UniversalToolDef
 from tools.tool_permissions import get_permission_system
 from tools.universal_registry import get_universal_registry
 from engine.execution_validator import global_execution_validator
@@ -121,6 +121,34 @@ class ToolExecutorService:
                 error=error_msg,
                 elapsed_ms=(time.perf_counter() - start_time) * 1000,
             )
+
+        # Dry run check (for safe evaluations)
+        import os
+        if getattr(self, "dry_run", False) or os.environ.get("AERIS_EVAL_DRY_RUN") == "true":
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+            result = ToolExecutionResult(
+                tool_name=tool.name,
+                success=True,
+                stdout=f"Dry-run execution of '{tool.name}' succeeded with args: {kwargs}",
+                exit_code=0,
+                execution_time_ms=round(elapsed_ms, 2),
+                source=tool.source,
+                step_id=step_id,
+                parent_task_id=parent_task_id,
+                retry_count=retry_count,
+                tool_version=tool.version,
+            )
+            receipt = global_execution_validator.create_receipt(
+                task_id=task_id,
+                tool_name=tool.name,
+                tool_params=kwargs,
+                result=result.stdout,
+                status="success",
+                execution_time_ms=result.execution_time_ms,
+            )
+            result.receipt_id = receipt.receipt_id
+            self._update_global_state(tool.name)
+            return result
 
         # 6. Resolve Execution Adapter
         if tool.source == ToolSource.BUILTIN:
@@ -226,7 +254,26 @@ class ToolExecutorService:
             if not tool.func:
                 raise ValueError("Builtin tool has no function attached.")
             
+            import asyncio
+            import inspect
+
             output = tool.func(**kwargs)
+
+            # Handle async tool functions (e.g. smart_shell_generate)
+            if inspect.isawaitable(output):
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
+
+                if loop and loop.is_running():
+                    # We're inside an already-running event loop — schedule as a task
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                        output = pool.submit(asyncio.run, output).result(timeout=tool.timeout or 60)
+                else:
+                    output = asyncio.run(output)
+
             elapsed_ms = (time.perf_counter() - start_time) * 1000
             
             return ToolExecutionResult(

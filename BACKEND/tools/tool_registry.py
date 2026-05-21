@@ -48,6 +48,8 @@ class ToolDefinition:
         required_params: List[str],
         risk_level: RiskLevel = RiskLevel.SAFE,
         category: str = "general",
+        timeout: int = 30,
+        approval_requirement: bool = False,
     ):
         self.name = name
         self.description = description
@@ -55,6 +57,8 @@ class ToolDefinition:
         self.required_params = required_params
         self.risk_level = risk_level
         self.category = category
+        self.timeout = timeout
+        self.approval_requirement = approval_requirement
 
     def to_metadata(self) -> Dict[str, Any]:
         return {
@@ -63,6 +67,23 @@ class ToolDefinition:
             "required_params": self.required_params,
             "risk_level": self.risk_level.value,
             "category": self.category,
+            "timeout": self.timeout,
+            "approval_requirement": self.approval_requirement,
+        }
+
+    def to_json_schema(self) -> Dict[str, Any]:
+        properties = {p: {"type": "string", "description": ""} for p in self.required_params}
+        return {
+            "name": self.name,
+            "description": self.description,
+            "args": {
+                "type": "object",
+                "properties": properties,
+                "required": self.required_params,
+            },
+            "risk_level": self.risk_level.value,
+            "timeout": self.timeout,
+            "approval_requirement": self.approval_requirement,
         }
 
 
@@ -83,6 +104,8 @@ class ToolRegistry:
         required_params: List[str] = None,
         risk_level: RiskLevel = RiskLevel.SAFE,
         category: str = "general",
+        timeout: int = 30,
+        approval_requirement: bool = False,
     ):
         self._tools[name] = ToolDefinition(
             name=name,
@@ -91,6 +114,8 @@ class ToolRegistry:
             required_params=required_params or [],
             risk_level=risk_level,
             category=category,
+            timeout=timeout,
+            approval_requirement=approval_requirement,
         )
 
     def get_tool(self, name: str) -> Optional[ToolDefinition]:
@@ -255,10 +280,10 @@ def _register_all_tools():
         reg.register("read_file", "Read contents of a file.", read_file, ["path"], RiskLevel.SAFE, "file")
         reg.register("write_file", "Write FULL generated content to a file. DO NOT just write a single keyword. If asked for a poem, shayari, code, or essay, you MUST generate the complete actual text in the 'content' parameter.", write_file, ["path", "content"], RiskLevel.MEDIUM, "file")
         reg.register("edit_file", "Replace specific text in a file.", edit_file, ["path", "old_text", "new_text"], RiskLevel.MEDIUM, "file")
-        reg.register("delete_file", "Delete a file or directory.", delete_file, ["path"], RiskLevel.HIGH, "file")
+        reg.register("delete_file", "Delete a file or directory.", delete_file, ["path"], RiskLevel.HIGH, "file", approval_requirement=True)
         reg.register("list_dir", "List directory contents.", list_dir, ["path"], RiskLevel.SAFE, "file")
         reg.register("grep_search", "Search for text patterns in files.", grep_search, ["query", "path"], RiskLevel.SAFE, "file")
-        reg.register("run_bash", "Execute a terminal/shell command.", run_bash, ["command"], RiskLevel.HIGH, "system")
+        reg.register("run_bash", "Execute a terminal/shell command.", run_bash, ["command"], RiskLevel.HIGH, "system", approval_requirement=True)
         logger.info("Registered file & bash tools")
     except Exception as e:
         logger.warning(f"Failed to register file tools: {e}")
@@ -278,9 +303,9 @@ def _register_all_tools():
         reg.register("close_all_apps", "Close all background applications keeping system critical layers alive. Pass exceptions as comma-separated string if any.", close_all_apps, ["exceptions"], RiskLevel.MEDIUM, "automation")
         reg.register("play_youtube", "Play music/song/audio in background without opening browser visibly. Use this by default for 'play X' commands. This routes through the Chrome extension's background playback system.", play_music_background, ["query"], RiskLevel.LOW, "automation")
         reg.register("play_on_youtube_visible", "Open YouTube visibly in the browser and play a song/video. ONLY use this when the user EXPLICITLY says 'on YouTube' / 'YouTube pe' / 'YouTube par' / 'YouTube open karke'. Otherwise use play_youtube.", play_on_youtube_visible, ["query"], RiskLevel.LOW, "automation")
-        reg.register("google_search", "Open a Google search in the browser.", google_search, ["query"], RiskLevel.SAFE, "search")
-        reg.register("youtube_search", "Search YouTube in the browser.", youtube_search, ["query"], RiskLevel.SAFE, "search")
-        reg.register("system_control", "System controls: mute, volume, shutdown, restart, lock.", system_control, ["action"], RiskLevel.HIGH, "system")
+        reg.register("google_search", "Open a Google search in the browser.", google_search, ["query"], RiskLevel.SAFE, "automation")
+        reg.register("youtube_search", "Search YouTube in the browser.", youtube_search, ["query"], RiskLevel.SAFE, "automation")
+        reg.register("system_control", "System controls: mute, volume, shutdown, restart, lock.", system_control, ["action"], RiskLevel.HIGH, "system", approval_requirement=True)
         reg.register("take_screenshot", "Capture a screenshot of the screen and SAVE it to disk. Use this ONLY when user explicitly says 'take screenshot' or 'screenshot le lo'. Do NOT use this for screen analysis.", take_screenshot, [], RiskLevel.SAFE, "system")
         reg.register("write_content", "Generate AI-written content and save to file.", write_content, ["topic"], RiskLevel.LOW, "content")
         reg.register(
@@ -781,6 +806,7 @@ def _register_all_tools():
             ["task_description"],
             RiskLevel.CRITICAL,
             "generation",
+            approval_requirement=True,
         )
         logger.info("Registered dynamic tool forge tool")
     except Exception as e:
@@ -841,6 +867,11 @@ def _register_all_tools():
                 lines.append(f"  • {t.name}({params}): {t.description}")
             return "\n".join(lines)
 
+        def list_agents(**kwargs) -> str:
+            """List all active AI agents and their capabilities."""
+            from agents.agent_registry import agent_registry
+            return agent_registry.get_capabilities_summary()
+
         reg.register(
             "smart_shell_generate",
             "Generate the perfect shell/PowerShell/bash command from a natural language description and execute it. Use when user wants to do something on the system but doesn't give the exact command (e.g. 'find large files', 'kill node processes', 'show disk usage', 'list all running services'). The AI figures out the correct command automatically.",
@@ -891,8 +922,16 @@ def _register_all_tools():
         )
         reg.register(
             "list_tools",
-            "List all available tools in the system with their descriptions and parameters.",
+            "List all available executable tools (functions) in the system with their descriptions and parameters. This lists tools NOT agents. Do NOT use this when the user asks about agents — use list_agents instead.",
             list_tools,
+            [],
+            RiskLevel.SAFE,
+            "system",
+        )
+        reg.register(
+            "list_agents",
+            "List all AI agents (ChatAgent, CodeAgent, SecurityAgent, etc.), sub-agents, and their capabilities. Use this when the user asks 'kitne agent hai', 'agent ki list', 'how many agents', 'what agents do you have', or any question about AI agents. Do NOT confuse with list_tools.",
+            list_agents,
             [],
             RiskLevel.SAFE,
             "system",
@@ -940,6 +979,54 @@ def _register_all_tools():
     except Exception as e:
         logger.warning(f"Failed to register workflow/security/navigation tools: {e}")
 
+    # —— 16.5. Security Agent Gateway —— #
+    # Exposes SecurityAgent capabilities as a tool so the agentic loop
+    # can route security queries (SSL, port scan, DNS, recon, VAPT, etc.)
+    # through the correct agent instead of falling back to smart_shell_generate.
+    try:
+        import asyncio as _asyncio
+
+        def security_scan(request: str) -> str:
+            """Run a full security assessment through the SecurityAgent."""
+            from agents.security_agent import SecurityAgent as _SecAgent
+            from memory.store import memory_store as _mem
+
+            agent = _SecAgent()
+            context = {"chat_history": _mem.get_context(5)}
+
+            async def _run():
+                result = await agent.run(request, context)
+                return result.get("response", "Security scan completed but no output was returned.")
+
+            try:
+                loop = _asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    return pool.submit(_asyncio.run, _run()).result(timeout=120)
+            else:
+                return _asyncio.run(_run())
+
+        reg.register(
+            "security_scan",
+            "Run a cybersecurity assessment on a target domain, IP, or URL. Covers: SSL/TLS check, "
+            "port scanning, DNS lookup, subdomain enumeration, WHOIS, HTTP header analysis, "
+            "vulnerability assessment (VAPT), and zero-day detection. "
+            "Use this for ANY security-related request like 'check SSL for google.com', "
+            "'scan ports on 192.168.1.1', 'DNS lookup for example.com', 'full recon on target.com'. "
+            "Do NOT use smart_shell_generate for security tasks — use this tool instead.",
+            security_scan,
+            ["request"],
+            RiskLevel.SAFE,
+            "security",
+        )
+        logger.info("Registered SecurityAgent gateway tool")
+    except Exception as e:
+        logger.warning(f"Failed to register SecurityAgent gateway: {e}")
+
     # -- 17. Computer Use (Vision UI Automation) -- #
     try:
         from automation.computer_use import ComputerUseEngine
@@ -966,11 +1053,19 @@ def _register_all_tools():
             computer_use_task,
             ["instruction"],
             RiskLevel.HIGH,
-            "automation"
+            "automation",
+            approval_requirement=True,
         )
         logger.info("Registered Computer Use tool")
     except Exception as e:
         logger.warning(f"Failed to register Computer Use tool: {e}")
+
+    # —— 18. MCP Dynamic Installer —— #
+    try:
+        import tools.mcp_installer
+        logger.info("Registered MCP Installer tools")
+    except Exception as e:
+        logger.warning(f"Failed to register MCP Installer tools: {e}")
 
     logger.info(f"Tool registry initialized with {len(reg.get_tool_names())} tools.")
 

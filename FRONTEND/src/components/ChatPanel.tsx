@@ -180,26 +180,33 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const recognitionRef = useRef<any>(null);
 
   const toggleVoice = useCallback(() => {
-    // If already listening, stop
-    if (isListening && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      onSpeakingChange(false);
-      return;
-    }
-
-    // Check browser support
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       addAIMessage('Speech recognition is not supported in this browser. Please use Chrome or Edge.', false);
       return;
     }
 
+    // If already listening, stop (manual off)
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.onend = null;
+
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      setIsListening(false);
+      onSpeakingChange(false);
+      return;
+    }
+
     const recognition = new SpeechRecognition();
     recognition.lang = 'en-IN'; // Supports English + Hindi
-    recognition.continuous = false;
+
+    // Keep mic ON until user toggles off
+    recognition.continuous = true;
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
+
     recognitionRef.current = recognition;
 
     recognition.onstart = () => {
@@ -208,29 +215,45 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     };
 
     recognition.onresult = async (event: any) => {
-      const transcript = event.results[0]?.[0]?.transcript?.trim();
+      // Grab the latest final transcript from the batch
+      let transcript = '';
+      for (let i = event.results.length - 1; i >= 0; i--) {
+        const r = event.results[i];
+        const text = r?.[0]?.transcript?.trim?.();
+        if (text && r.isFinal) {
+          transcript = text;
+          break;
+        }
+      }
       if (!transcript) return;
 
-      setIsListening(false);
-      onSpeakingChange(false);
+      // Show user message (frontend only)
+      setMessages(prev => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'user',
+          content: transcript,
+        },
+      ]);
 
-      // Show user message in chat
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'user',
-        content: transcript,
-      }]);
+      // Enforce Hinglish for voice replies (minimal, affects routing less than rewriting everything)
+      const hinglishTranscript =
+        transcript.trim() +
+        '. Bas Hinglish mein jawab do.';
 
-      // Send to AERIS voice endpoint
       startThinking();
       try {
         const res = await fetch('http://localhost:8000/api/voice/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript, speak: true }),
+          body: JSON.stringify({ transcript: hinglishTranscript, speak: true }),
         });
+
+        if (!res.ok) throw new Error('Backend error');
         const data = await res.json();
         stopThinking();
+
         addAIMessage(
           data.response_text || data.response || 'No response received.',
           true,
@@ -245,16 +268,28 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
 
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
+      if (event?.error !== 'aborted' && event?.error !== 'no-speech') {
+        addAIMessage(`Voice error: ${event.error}. Try again.`, false);
+      }
       setIsListening(false);
       onSpeakingChange(false);
-      if (event.error !== 'aborted' && event.error !== 'no-speech') {
-        addAIMessage(`Voice error: ${event.error}. Please try again.`, false);
-      }
     };
 
     recognition.onend = () => {
-      setIsListening(false);
-      recognitionRef.current = null;
+      // Auto-restart only if mic is still ON (manual off should not restart)
+      if (recognitionRef.current === recognition && isListening) {
+        try {
+          recognition.start();
+        } catch {
+          setIsListening(false);
+          onSpeakingChange(false);
+          recognitionRef.current = null;
+        }
+      } else {
+        setIsListening(false);
+        recognitionRef.current = null;
+        onSpeakingChange(false);
+      }
     };
 
     recognition.start();

@@ -128,18 +128,23 @@ class DiagramGenerator:
     def generate_from_prompt(self, user_input: str) -> Dict[str, Any]:
         """Generate a diagram from natural language user input using LLM."""
         try:
-            from core.api_gateway.gateway import get_gateway
-            from core.api_gateway.providers import TaskType
-
-            gateway = get_gateway()
+            from ai_engine import ai_engine
+            import asyncio
+            
+            def run_sync(coro):
+                try:
+                    return asyncio.run(coro)
+                except RuntimeError:
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    return asyncio.run(coro)
 
             messages = [
                 {"role": "system", "content": DIAGRAM_SYSTEM_PROMPT},
                 {"role": "user", "content": f"Generate a visually structured, animation-ready React Flow diagram JSON for:\n\n{user_input}"},
             ]
 
-            raw = gateway.call(TaskType.CODE, messages=messages, temperature=0.1, max_tokens=2048)
-            raw = gateway._extract_text(raw)
+            raw = run_sync(ai_engine.chat(messages, temperature=0.1, max_tokens=2048))
 
             # Parse JSON
             raw = raw.strip()

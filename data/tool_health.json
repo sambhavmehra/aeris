@@ -1,11 +1,11 @@
 {
   "run_bash": {
-    "total_runs": 5,
+    "total_runs": 10,
     "successful_runs": 0,
-    "failed_runs": 5,
+    "failed_runs": 10,
     "success_rate": 0.0,
-    "avg_execution_time_ms": 0.0,
-    "last_error": null
+    "avg_execution_time_ms": 4.497,
+    "last_error": "builtin_execution_error"
   },
   "convert_file": {
     "total_runs": 5,
@@ -13,6 +13,22 @@
     "failed_runs": 5,
     "success_rate": 0.0,
     "avg_execution_time_ms": 0.0,
+    "last_error": null
+  },
+  "chat_with_ai": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 32.53,
+    "last_error": null
+  },
+  "list_tools": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 0.45,
     "last_error": null
   }
 }

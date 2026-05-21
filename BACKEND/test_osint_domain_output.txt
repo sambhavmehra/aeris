@@ -1,0 +1,68 @@
+# AERIS OSINT Intelligence Dossier
+
+## 1. Executive Intelligence Summary
+
+This dossier synthesizes open-source intelligence on `sambhav.me` and `@sambhav_mehra`, revealing a strong professional association with `Social Footprint`, an Indian organization specializing in Corporate Social Responsibility (CSR) solutions, digital footprint analysis, and climate advisory. The investigation identified Harshvardhan Sharma as a co-founder of Social Footprint, providing a key link in the organizational structure. While direct web presence details for `sambhav.me` were not found, the username `@sambhav_mehra` is directly linked to the activities and services of Social Footprint. The organization itself demonstrates an understanding of digital exposure risks, aligning with its services.
+
+**OSINT Confidence & Corroboration Score: 90/100%**
+*   **Justification:** High confidence due to direct linkages from the primary username (`@sambhav_mehra`) to a specific organization (`Social Footprint`) via its core services. Further corroboration comes from the identification of a co-founder (`Harshvardhan Sharma`) with a detailed LinkedIn profile directly confirming his role at Social Footprint. The company's official LinkedIn page and website provide consistent details, reinforcing the validity of the associations. The lack of direct web presence for `sambhav.me` prevents a perfect score.
+
+## 2. Inferred Target Vectors
+
+*   **Primary Target:** `sambhav.me`
+    *   **Inference:** Directly specified as a domain/IP target for infrastructure reconnaissance.
+    *   **Entry Vector:** Domain-based searches (WHOIS, DNS, web presence).
+*   **Primary Target:** `@sambhav_mehra`
+    *   **Inference:** Directly specified as a username target.
+    *   **Entry Vector:** Social media platform searches and username enumeration.
+
+## 3. Pivoted Investigation Chain
+
+1.  **Primary Target (`@sambhav_mehra`):** Initial investigation linked `@sambhav_mehra` to `Social Footprint`, an organization involved in CSR solutions and digital footprint analysis services.
+2.  **Pivot 1 (`Social Footprint` - organization):** Further investigation into Social Footprint identified `Harshvardhan` as its founder. The organization's services, including digital footprint analysis, were noted.
+3.  **Pivot 2 (`Harshvardhan` - person):** Detailed search for `Harshvardhan` identified `Harshvardhan Sharma` as the Founder of `Social Footprint` via his LinkedIn profile (`https://in.linkedin.com/in/harsh198`). This Harshvardhan has a background in sustainability and parliamentary advisory. (Other individuals named Harsh Vardhan were identified but not associated with *this* Social Footprint).
+4.  **Pivot 3 (`https://in.linkedin.com/company/socialfp` - website):** This LinkedIn company page for `Social Footprint` provided granular details about the organization, its services (CSR Consulting, Communication, Climate Advisory), founding year (2020), company size (11-50 employees), and official website (`https://www.socialfp.in/`). This page also confirms the association between Social Footprint and its founder.
+
+## 4. Platform & Social Footprint Profile
+
+| Platform / Type | Username / Profile Name | URL | Notes |
+| :-------------- | :---------------------- | :-- | :---- |
+| **Primary Target Associations** |
+| Organization | Social Footprint | `https://in.linkedin.com/company/socialfp` | Primary professional presence, details CSR, ESG, sustainability services. |
+| Organization | Social Footprint | `https://www.socialfp.in/` | Official website, details core services (CSR Consulting, Communication, Climate Advisory). |
+| Instagram (Organization) | socialfootprint_ | `https://www.instagram.com/reel/DX9RG1_o8b5/` `https://www.instagram.com/p/DLpfyFevtGL/` | Implied official Instagram for Social Footprint, featuring founder and digital footprint discussions. |
+| **Associated Individuals / Entities** |
+| LinkedIn (Person) | Harshvardhan Sharma | `https://in.linkedin.com/in/harsh198` | Founder, Social Footprint. Also Co-Founder, Planet Pact; Ex-Advisor to MP (LS). |
+
+## 5. Technical & Infrastructure Footprint
+
+*   **Domain: `sambhav.me`**
+    *   No direct web presence summary or infrastructure details (DNS, WHOIS, SSL records) were provided in the gathered intelligence for this domain.
+*   **Website: `https://www.socialfp.in/`**
+    *   Identified as the official website for "Social Footprint", the organization associated with the primary target. This domain serves as the primary online web presence for the company's services.
+
+## 6. Open Source Exposure & Privacy Risk Assessment
+
+*   **Sambhav Mehra's Association:** The clear association of `@sambhav_mehra` with `Social Footprint`, a company actively engaged in "digital footprint analysis services," suggests a heightened awareness of online presence and potential risks. However, the lack of specific personal profiles means the extent of their individual exposure is not directly quantifiable from this data.
+*   **Social Footprint (Organization):**
+    *   **Public Visibility:** Company details (founding year, employee count, industry, services, official website) are publicly accessible via LinkedIn and its corporate website. This information is standard for businesses but forms a base for OSINT analysis.
+    *   **Awareness of Executive Risk:** The intelligence explicitly highlights that "executives" and "organizational leadership" are targets for cyberattacks based on their digital footprint, including information from LinkedIn, social media, and data broker sites. This indicates that Social Footprint, and by extension its associated individuals, are aware of such risks, but it also underscores the potential vulnerabilities.
+*   **Harshvardhan Sharma (Key Individual):**
+    *   **Extensive Professional Exposure:** Harshvardhan Sharma's LinkedIn profile is highly detailed, publicly listing his role as Founder of Social Footprint, his educational background (SRCC), and past significant roles (Ex-Advisor to MP (LS) & Chairperson, Parliamentary Committee). This wealth of information provides ample data points for social engineering, targeted phishing, or identity verification attempts.
+    *   **Location Disclosure:** His profile lists "Mumbai Metropolitan Region" as his location, providing a general geographic indicator.
+
+## 7. Recommendations & Hardening Actions
+
+**For Primary Target (Sambhav Mehra - assuming individual behind `@sambhav_mehra` and `sambhav.me`):**
+
+1.  **Domain Review (`sambhav.me`):** If `sambhav.me` is a personal domain, implement WHOIS privacy to obscure registrant details. Review DNS records to ensure no unnecessary information (e.g., mail servers, old subdomains) is publicly exposed. If unused, consider decommissioning or consolidating with active presences.
+2.  **Personal Digital Footprint Audit:** Conduct a thorough self-audit of all personal online profiles, particularly on platforms not directly linked to Social Footprint. Given the company's expertise in digital footprint analysis, applying these methodologies to personal presence is critical.
+3.  **Privacy Settings Optimization:** Verify and strengthen privacy settings across all personal social media and online accounts to limit public visibility to only necessary professional connections or trusted circles.
+
+**For Social Footprint (Organization) and Key Personnel (including Harshvardhan Sharma):**
+
+1.  **Executive OSINT Briefing:** Provide an in-depth OSINT briefing to all executives and key personnel, emphasizing the specific risks highlighted in the gathered intelligence regarding executive digital footprints and cyberattacks. This should include practical examples of how public data can be weaponized.
+2.  **Information Control Policy:** Establish a clear policy for public information sharing by employees, particularly executives. This includes guidelines for LinkedIn profiles, company websites, and social media activity, focusing on minimizing unnecessary personal details.
+3.  **Regular Digital Footprint Scans:** Utilize the company's own digital footprint analysis capabilities to regularly scan and monitor the public exposure of its executives and the organization as a whole, proactively identifying and mitigating risks.
+4.  **Consolidated Online Identity:** Ensure all official organizational profiles (LinkedIn, Instagram, website) present a consistent and controlled narrative, devoid of conflicting or outdated information. Review associated social media accounts for consistency.
+5.  **Professional Profile Hardening (Harshvardhan Sharma):** While professional profiles require some public detail, Harshvardhan Sharma should review the granularity of information on his LinkedIn profile (e.g., past committee roles, specific dates) and ensure it aligns with necessary professional exposure without providing excessive detail that could be leveraged for targeted attacks.

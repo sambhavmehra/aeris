@@ -11,6 +11,7 @@ from agents.image_agent import ImageAgent
 from agents.observer_agent import ObserverAgent
 from agents.search_agent import SearchAgent
 from agents.analyzer_agent import AnalyzerAgent
+from agents.osint_agent import OSINTAgent
 
 __all__ = [
     "BaseAgent",
@@ -25,4 +26,5 @@ __all__ = [
     "ImageAgent",
     "ObserverAgent",
     "AnalyzerAgent",
+    "OSINTAgent",
 ]

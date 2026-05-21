@@ -1,0 +1,17 @@
+[
+  {
+    "name": "brevo",
+    "transport": "stdio",
+    "enabled": true,
+    "auto_connect": true,
+    "timeout_seconds": 30,
+    "command": [
+      "npx",
+      "-y",
+      "@houtini/brevo-mcp"
+    ],
+    "env": {
+      "BREVO_API_KEY": "${BREVO_API_KEY}"
+    }
+  }
+]

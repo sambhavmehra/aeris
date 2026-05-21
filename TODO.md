@@ -1,1 +1,0 @@
-- [ ] Update FRONTEND/src/components/AerisInterface.tsx to replace green “AERIS” split with fetched greeting (dynamicGreeting)
