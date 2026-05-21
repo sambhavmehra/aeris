@@ -23,7 +23,7 @@ logger = logging.getLogger("aeris.neural.core")
 INTENT_LABELS = [
     "chat", "security", "system", "research", "search",
     "code", "image", "diagram", "codepipeline", "analyze",
-    "osint",
+    "osint", "email",
 ]
 
 # --------------- Training Data ---------------
@@ -162,6 +162,21 @@ TRAINING_DATA: List[Tuple[str, str]] = [
     ("profile check on username", "osint"),
     ("who is this person osint", "osint"),
     ("osint investigation", "osint"),
+    # -- email --
+    ("send an email to boss@company.com", "email"),
+    ("email send karo manager ko", "email"),
+    ("send a mail to rahul@gmail.com with subject meeting", "email"),
+    ("mail bhejo team ko", "email"),
+    ("send mail to contact@example.com", "email"),
+    ("compose an email to client", "email"),
+    ("smtp relay se email bhejo", "email"),
+    ("mail kr de raj@domain.com ko", "email"),
+    ("email rahul@outlook.com to inform him", "email"),
+    ("send a notification email", "email"),
+    ("boss ko mail likh ke bhejo", "email"),
+    ("send email using brevo", "email"),
+    ("brevo se email send karo", "email"),
+    ("mail send kar do", "email"),
 ]
 
 

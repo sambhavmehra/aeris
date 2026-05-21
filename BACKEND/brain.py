@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 
 from ai_engine import ai_engine
-from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent
+from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent
 from agents.agent_registry import agent_registry, AgentStatus
 from memory.store import memory_store
 from neural.core import neural_core
@@ -209,6 +209,7 @@ AVAILABLE INTENTS:
 - "codepipeline" : Build an entire project/app autonomously, scaffold a workspace, create a full codebase
 - "analyze"  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents
 - "osint"   : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation
+- "email"   : Send emails, send mail, compose and send mail via SMTP/Brevo relay
 
 === CONVERSATION HISTORY (last 3 messages) ===
 {history}
@@ -326,6 +327,11 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "social footprint", "trace target", "footprint check", "profile check",
       "target search", "profile trace", "stalk target", "stalk user", "recon target"
     ], "osint"),
+    # ── Email routing ──────────────────────────────────────────────────────────
+    ([
+      "send email", "send mail", "email to", "mail to", "email send", "mail send",
+      "compose email", "compose mail", "mail bhejo", "email bhejo", "mail bhej", "email bhej"
+    ], "email"),
 ]
 
 
@@ -367,7 +373,7 @@ class Brain:
     """
 
     NEURAL_CONFIDENCE_THRESHOLD = 0.80
-    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint"}
+    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email"}
 
     def __init__(self):
         # ── Instantiate all Core agents ──
@@ -381,6 +387,7 @@ class Brain:
             "image":    ImageAgent(),
             "analyze":  AnalyzerAgent(),
             "osint":    OSINTAgent(),
+            "email":    EmailAgent(),
         }
         self.audit_agent = AuditAgent()
         self.observer_agent = ObserverAgent()
@@ -542,7 +549,8 @@ class Brain:
                 f"- diagram  : Create flowcharts, system diagrams, architecture charts, mind maps, charts, graphs, widgets — ANY visual data structure or flow diagram\n"
                 f"- codepipeline : Build an entire project/app autonomously, scaffold a workspace, generate a full codebase\n"
                 f"- analyze  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents of files\n"
-                f"- osint    : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation\n\n"
+                f"- osint    : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation\n"
+                f"- email    : Send emails, send mail, compose and send mail via SMTP/Brevo relay\n\n"
                 f"FEW-SHOT EXAMPLES:\n"
                 f"- \"search sambhav mehra on google\" -> system (reason: requests browser search visually)\n"
                 f"- \"google pe python dhoondo\" -> system (reason: requests opening browser to search Google)\n"
@@ -550,13 +558,15 @@ class Brain:
                 f"- \"check ssl certificate for google.com\" -> security (reason: technical SSL scan)\n"
                 f"- \"what is gravity?\" -> chat (reason: general knowledge definition)\n"
                 f"- \"analyze log.txt and find errors\" -> analyze (reason: inspects file contents)\n"
-                f"- \"write a node.js web server\" -> code (reason: requests code snippet implementation)\n\n"
+                f"- \"write a node.js web server\" -> code (reason: requests code snippet implementation)\n"
+                f"- \"send an email to boss@company.com saying I am sick\" -> email (reason: requests sending mail)\n"
+                f"- \"rahul ko mail bhejo hello bolne ke liye\" -> email (reason: requests composing and sending email)\n\n"
                 f"The message may be in ANY language (English, Hindi, Hinglish, etc). Understand the MEANING, not just keywords.\n"
                 f"Use the conversation history to resolve follow-up queries and pronouns (e.g., 'it', 'that', 'iska').\n\n"
                 f"=== CONVERSATION HISTORY (last 3 messages) ===\n{history_summary}\n=== END HISTORY ===\n\n"
                 f"=== RECENT AGENT TASK EXECUTIONS ===\n{recent_tasks_summary}\n=== END RECENT TASKS ===\n\n"
                 f'Current user message: "{message}"\n\n'
-                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint>", "reason": "<brief explanation>"}}'
+                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint, email>", "reason": "<brief explanation>"}}'
             )
             raw = raw.strip().strip("```json").strip("```").strip()
             data = json.loads(raw)
@@ -810,10 +820,39 @@ class Brain:
             logger.info(f"[Brain] Resuming agentic plan execution from step {current_step_index}")
         else:
             # Generate new plan
+            # 1. Intent Classifier (small model is used by default in _classify_intent)
+            intent = await self._classify_intent(message)
+            logger.info(f"[Brain] Plan Generation intent classification: {intent}")
+
+            # 2. Tool Retriever
             from tools.universal_registry import get_universal_registry
-            tools_summary = get_universal_registry().format_for_llm()
+            from intelligence.selection_intelligence import get_selection_intelligence
+            
+            # Retrieve top 10 relevant tools using SelectionIntelligence
+            selection_intel = get_selection_intelligence()
+            retrieved_candidates = selection_intel.select(message, top_k=10)
+            retrieved_names = {c.tool_name for c in retrieved_candidates}
+            
+            # Always ensure core utility tools are available to prevent planner getting stuck
+            core_utilities = {"chat_with_ai", "run_bash", "read_file", "write_file", "edit_file", "web_research"}
+            selected_names = retrieved_names.union(core_utilities)
+            
+            registry = get_universal_registry()
+            selected_tools = []
+            for name in selected_names:
+                tool_def = registry.get_tool(name)
+                if tool_def and tool_def.is_enabled:
+                    selected_tools.append(tool_def)
+            
+            # Format selected tools for the planner prompt
+            tools_summary = "\n".join(t.to_llm_string() for t in selected_tools)
+            all_tools_count = len(registry.get_enabled_tools())
+            logger.info(f"[Brain] Retracted tools list from {all_tools_count} to {len(selected_tools)} (savings: {round((1 - len(selected_tools)/all_tools_count)*100, 1)}%)")
+            
             history = self._build_history_summary(10)
-            memory_context = memory_store.get_memory_context()
+            
+            # 3. Memory Retriever
+            memory_context = memory_store.get_relevant_memory_context(message)
             
             from memory.user_profile import user_profile_store
             profile = user_profile_store.get_profile()
@@ -968,12 +1007,28 @@ Respond with ONLY valid JSON matching this schema:
   "step_id": "{step.step_id}",
   "thought": "<your reasoning about the results and next step>",
   "should_continue": true,
-  "suggested_changes": null
+  "suggested_changes": null or a LIST of new steps to append/replace the remaining steps of the plan, matching the PlanStep schema: [{{"step_id": "step_id_string", "tool_name": "tool_name_string", "args": {{}}, "description": "description_string"}}]
 }}
 """
                 ref_data = await query_llm_json(reflection_prompt)
                 if ref_data:
                     try:
+                        # Robust fix: check if suggested_changes is a dictionary instead of a list
+                        suggested = ref_data.get("suggested_changes")
+                        if isinstance(suggested, dict):
+                            if "steps" in suggested:
+                                ref_data["suggested_changes"] = suggested["steps"]
+                            elif "new_plan" in suggested and isinstance(suggested["new_plan"], dict) and "steps" in suggested["new_plan"]:
+                                ref_data["suggested_changes"] = suggested["new_plan"]["steps"]
+                            else:
+                                ref_data["suggested_changes"] = None
+                        
+                        if not ref_data.get("suggested_changes"):
+                            if "new_plan" in ref_data and isinstance(ref_data["new_plan"], dict) and "steps" in ref_data["new_plan"]:
+                                ref_data["suggested_changes"] = ref_data["new_plan"]["steps"]
+                            elif "steps" in ref_data and isinstance(ref_data["steps"], list):
+                                ref_data["suggested_changes"] = ref_data["steps"]
+                        
                         reflection = Reflection(**ref_data)
                         logger.info(f"[Brain] Reflection step {step.step_id}: {reflection.thought}")
                         if not reflection.should_continue:
@@ -1022,6 +1077,7 @@ HINGLISH PERSONALIZATION RULES:
 - If the user writes in Hinglish (Hindi written in Latin/Roman script, e.g., "kaise ho", "kya chal raha hai") or Hindi, you MUST naturally respond in modern, conversational Hinglish.
 - Keep the language flow smooth, colloquial, and friendly (e.g., "Haan, bilkul!", "Main isko check karta hoon").
 - Do not use overly formal/robotic Google-translated Hindi. Match the user's Roman-script Hindi style.
+- ALWAYS address the user as "Sir" (or "sir") in all responses. NEVER address the user as "bhai", "bro", "buddy", or any other informal/colloquial terms, even if the user addresses you informally.
 
 Respond with ONLY valid JSON matching this schema:
 {{

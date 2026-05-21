@@ -14,5 +14,21 @@
   {
     "role": "assistant",
     "content": "Sir, aapka request hai. AERIS ke Multi-Agent Swarm mein 27 sub-agents hain, jo aapke request ko fulfill karne ke liye uplabdh hain. Yeh agents aapke request ke anusaar kaam karte hain, jaise ki Coding, Research, Vulnerability Scanning, Tool Generation, aur Web Intelligence. Sir, aapko koi specific agent ke baare mein janna chahein, to main aapko vishayavaree jaankari pradaan kar sakta hoon."
+  },
+  {
+    "role": "user",
+    "content": "generate a tic tac toe game in python"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, Tic Tac Toe ka game generate karne ke liye, main python code likhta hoon:\n\n```python\n# Tic Tac Toe game\n\nboard = [' ' for _ in range(9)]\n\ndef print_board():\n    row1 = '| {} | {} | {} |'.format(board[0], board[1], board[2])\n    row2 = '| {} | {} | {} |'.format(board[3], board[4], board[5])\n    row3 = '| {} | {} | {} |'.format(board[6], board[7], board[8])\n\n    print()\n    print(row1)\n    print(row2)\n    print(row3)\n    print()\n\ndef check_win():\n    win_conditions = [(0, 1, 2), (3, 4, 5), (6, 7, 8), (0, 3, 6), (1, 4, 7), (2, 5, 8), (0, 4, 8), (2, 4, 6)]\n    for condition in win_conditions:\n        if board[condition[0]] == board[condition[1]] == board[condition[2]] != ' ':\n            return board[condition[0]]\n    if ' ' not in board:\n        return 'Tie'\n    return False\n\ndef game():\n    current_player = 'X'\n    while True:\n        print_board()"
+  },
+  {
+    "role": "user",
+    "content": "ha krlye sab thik ab test kr"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, game ko test karne ke liye, main kuchh steps kaanunga:\n\n1. Main ek player ke roop mein khelunga, jiska character 'X' hoga.\n2. Main ek board create karunga, jismein 9 spaces honge.\n3. Main ek loop mein khelunga, jismein main ek space choose karoonga aur usmein 'X' lagaunga.\n4. Main check karunga ki koi player jeeta hai ya board full ho gaya hai.\n\nAap dekh sakte hain ki game kaise chalta hai:\n\n```python\n# Tic Tac Toe game\n\nboard = [' ' for _ in range(9)]\n\ndef print_board():\n    row1 = '| {} | {} | {} |'.format(board[0], board[1], board[2])\n    row2 = '| {} | {} | {} |'.format(board[3], board[4], board[5])\n    row3 = '| {} | {} | {} |'.format(board[6], board[7], board[8])\n\n    print()\n    print(row1)\n    print(row2)\n    print(row3)\n    print()\n\ndef check_win():\n    win_conditions = [(0, 1, 2), (3, 4, 5), (6, 7, 8), (0, 3, 6), (1, 4,"
   }
 ]

@@ -169,6 +169,44 @@ class MemoryStore:
             parts.append(f"Project Memory:\n{proj_str}")
         return "\n\n".join(parts)
 
+    def get_relevant_memory_context(self, query: str, limit: int = 5) -> str:
+        """Get formatted memory context filtering for relevant facts to minimize tokens."""
+        parts = []
+        if self.short_term_summary:
+            parts.append(f"Short-term Chat Summary:\n{self.short_term_summary}")
+        
+        # Memory Retriever: search for relevant facts
+        if self.long_term_facts:
+            relevant_facts = self.search_facts(query)
+            if relevant_facts:
+                # Take top `limit` relevant facts
+                facts_str = "\n".join(f"- {fact}" for fact in relevant_facts[:limit])
+                parts.append(f"Relevant Long-term User Facts:\n{facts_str}")
+            else:
+                # If no matching facts, we don't inject all of them to save tokens.
+                # But if there are very few facts (e.g. <= 5 total), we can inject them anyway.
+                if len(self.long_term_facts) <= 5:
+                    facts_str = "\n".join(f"- {fact}" for fact in self.long_term_facts)
+                    parts.append(f"Long-term User Facts:\n{facts_str}")
+                    
+        if self.project_memory:
+            # Filter project memory based on keywords in query
+            query_words = query.lower().split()
+            relevant_projects = []
+            for k, v in self.project_memory.items():
+                k_lower = k.lower()
+                v_lower = str(v).lower()
+                if any(word in k_lower or word in v_lower for word in query_words):
+                    relevant_projects.append(f"- {k}: {v}")
+            
+            if relevant_projects:
+                parts.append(f"Relevant Project Memory:\n" + "\n".join(relevant_projects))
+            elif len(self.project_memory) <= 3:
+                proj_str = "\n".join(f"- {k}: {v}" for k, v in self.project_memory.items())
+                parts.append(f"Project Memory:\n{proj_str}")
+                
+        return "\n\n".join(parts)
+
     def clear_history(self) -> None:
         """Clear all chat history."""
         self.chat_history = []

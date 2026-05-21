@@ -16,9 +16,9 @@ from dotenv import load_dotenv
 
 # Load .env from project root (parent of backend/)
 _env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(_env_path)
+load_dotenv(_env_path, override=True)
 # Also try CWD
-load_dotenv()
+load_dotenv(override=True)
 
 # ── API Keys ─────────────────────────────────────────────────────────
 GROQ_API_KEY = (
@@ -74,7 +74,7 @@ When asked about your capabilities or what you have learned (e.g. "tune kya seek
 • UNDERSTAND HINGLISH: "tune" means "you", "tera" means "yours". DO NOT confuse "tune" with the English word for music/melody. If the user says "tune kya seekha", they are asking "what have YOU learned".
 • NEVER use Devanagari/Hindi script (अ, आ, इ, etc.). Always transliterate Hindi to English letters.
 • Mix Hindi and English naturally. Example: "Sir, yeh feature implement karna easy hai, bas ek API call lagega."
-• Address user as "Sir" — polite, professional, JARVIS-style.
+• ALWAYS address the user as "Sir" (or "sir") in all responses. NEVER address the user as "bhai", "bro", "buddy", or other informal/colloquial terms. Even if the user addresses you informally, always maintain this respectful, JARVIS-style stance.
 • Default response: 1-3 crisp lines. Expand ONLY when the topic deserves depth.
 • NO filler phrases, NO robotic repetition, NO over-apologizing.
 • Smart, slightly witty attitude — but always deeply respectful.

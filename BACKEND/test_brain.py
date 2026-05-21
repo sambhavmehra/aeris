@@ -1,7 +1,7 @@
 import sys
 sys.path.append('.')
 import asyncio
-from BRAIN import brain
+from brain import brain
 from agents.agent_registry import agent_registry
 
 async def test():

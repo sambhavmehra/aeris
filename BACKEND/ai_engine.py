@@ -150,16 +150,18 @@ class AIEngine:
 
     # ──────────────────────────── Classify ────────────────────────────
 
-    async def classify(self, prompt: str) -> str:
+    async def classify(self, prompt: str, model: Optional[str] = None) -> str:
         """
         Fast intent classification via Groq.
         Returns raw LLM output (caller parses JSON).
         """
+        target_model = model or settings.GROQ_FALLBACK_MODEL
         return await self.chat(
             messages=[
                 {"role": "system", "content": "You are a precise intent classifier. Respond ONLY with valid JSON."},
                 {"role": "user", "content": prompt},
             ],
+            model=target_model,
             temperature=0.1,
             max_tokens=256,
         )

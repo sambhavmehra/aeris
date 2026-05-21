@@ -45,11 +45,16 @@ _INTENT_CATEGORY_MAP: Dict[str, List[str]] = {
     "play": ["automation"], "music": ["automation"], "song": ["automation"],
     # Generation
     "generate": ["generation"], "create": ["generation"], "build": ["generation"],
-    "website": ["generation"], "image": ["generation"], "video": ["generation"],
+    "website": ["generation"], "image": ["generation", "vision"], "video": ["generation"],
+    "picture": ["generation", "vision"], "photo": ["generation", "vision"],
     "code": ["generation"], "forge": ["generation"],
     # Vision
     "screen": ["vision"], "camera": ["vision"], "ocr": ["vision"],
-    "face": ["vision"], "analyze": ["vision"],
+    "face": ["vision"], "analyze": ["file", "vision"],
+    "screenshot": ["system", "vision"],
+    # Log / File operations
+    "log": ["file"], "logs": ["file"], "text": ["file"], "data": ["file"],
+    "csv": ["file"], "report": ["file"], "document": ["file"],
     # Knowledge
     "rag": ["knowledge"], "knowledge": ["knowledge"], "index": ["knowledge"],
     # Navigation

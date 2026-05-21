@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 # Load .env from project root (one level up from BACKEND/)
 _env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(_env_path)
+load_dotenv(_env_path, override=True)
 
 
 class Settings:
@@ -32,6 +32,12 @@ class Settings:
         self.NOTION_API_KEY: str = os.getenv("VITE_NOTION_API_KEY", "")
         self.NOTION_DATABASE_ID: str = os.getenv("VITE_NOTION_DATABASE_ID", "")
         self.BREVO_API_KEY: str = os.getenv("BREVO_API_KEY", "")
+
+        # --- SMTP Services ---
+        self.SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
+        self.SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
+        self.SMTP_LOGIN: str = os.getenv("SMTP_LOGIN", "")
+        self.SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
 
         # --- Server ---
         self.API_PORT: int = int(os.getenv("API_PORT", "8000"))
@@ -85,6 +91,10 @@ class Settings:
     def has_brevo(self) -> bool:
         return bool(self.BREVO_API_KEY)
 
+    @property
+    def has_smtp(self) -> bool:
+        return bool(self.SMTP_SERVER and self.SMTP_LOGIN and self.SMTP_PASSWORD)
+
     def __repr__(self) -> str:
         return (
             f"Settings(\n"
@@ -93,11 +103,13 @@ class Settings:
             f"tavily={'✓' if self.has_tavily else '✗'}, "
             f"cohere={'✓' if self.has_cohere else '✗'}, "
             f"notion={'✓' if self.has_notion else '✗'}, "
-            f"brevo={'✓' if self.has_brevo else '✗'}\n"
+            f"brevo={'✓' if self.has_brevo else '✗'}, "
+            f"smtp={'✓' if self.has_smtp else '✗'}\n"
             f"  user={self.USERNAME}, assistant={self.ASSISTANT_NAME}\n"
             f"  port={self.API_PORT}\n"
             f")"
         )
+
 
 
 # Global singleton
