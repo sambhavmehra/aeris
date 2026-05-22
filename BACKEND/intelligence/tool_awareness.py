@@ -240,6 +240,26 @@ _TOOL_BEHAVIORAL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
         "param_descriptions": {"prompt": "Description of the video/animation to generate"},
         "output_type": "json",
     },
+    "send_email": {
+        "typical_use_cases": ["Send an email message using SMTP settings", "Send notifications", "Email reports/files to users"],
+        "anti_patterns": ["Do NOT use for campaign or contact list management (use brevo tools instead)"],
+        "output_type": "string",
+        "param_descriptions": {
+            "recipient": "Email address or resolved name (e.g. 'me', 'sambhav')",
+            "body": "The email message body (plain text)",
+            "subject": "The email subject line (optional)"
+        },
+    },
+    "brevo_send_email": {
+        "typical_use_cases": [],
+        "anti_patterns": ["Do NOT use this tool for \"email\", \"send\", or \"mail\" tasks. Use send_email instead to avoid API authentication failures."],
+        "output_type": "string",
+    },
+    "brevo_send_test_email": {
+        "typical_use_cases": [],
+        "anti_patterns": ["Do NOT use this tool for \"email\", \"send\", \"mail\", or \"test\" tasks. Use send_email instead to avoid API authentication failures."],
+        "output_type": "string",
+    },
 }
 
 
@@ -288,13 +308,18 @@ class ToolAwarenessEngine:
             behavioral = _TOOL_BEHAVIORAL_KNOWLEDGE.get(tool.name, {})
             health = health_data.get(tool.name, {})
 
+            # Get optional parameters from both the tool's input schema and behavioral annotations
+            schema_optionals = [p.name for p in tool.input_schema.params if not p.required] if tool.input_schema else []
+            hardcoded_optionals = behavioral.get("optional_params", [])
+            combined_optionals = list(dict.fromkeys(schema_optionals + hardcoded_optionals))
+
             knowledge = ToolKnowledge(
                 name=tool.name,
                 description=tool.description,
                 category=tool.category,
                 risk_level=tool.risk_level.value,
                 required_params=tool.required_params,
-                optional_params=behavioral.get("optional_params", []),
+                optional_params=combined_optionals,
                 param_descriptions=behavioral.get("param_descriptions", {}),
                 output_type=behavioral.get("output_type", "string"),
                 output_description=behavioral.get("output_description", ""),

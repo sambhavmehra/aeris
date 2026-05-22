@@ -198,7 +198,12 @@ class MCPStdioConnection:
             return False
 
         try:
-            env = {**os.environ, **self.config.env}
+            # Expand environment variable placeholders like ${VAR}
+            resolved_env = {
+                k: os.path.expandvars(v) if isinstance(v, str) else v
+                for k, v in self.config.env.items()
+            }
+            env = {**os.environ, **resolved_env}
 
             # On Windows, npx/npm/node are .cmd wrappers that need shell=True
             is_windows = sys.platform == "win32"

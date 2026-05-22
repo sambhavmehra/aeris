@@ -65,6 +65,8 @@ _INTENT_CATEGORY_MAP: Dict[str, List[str]] = {
     # System
     "volume": ["system"], "mute": ["system"], "shutdown": ["system"],
     "restart": ["system"], "lock": ["system"], "screenshot": ["system"],
+    # Email
+    "email": ["email", "mcp"], "mail": ["email", "mcp"], "brevo": ["email", "mcp"],
 }
 
 # ─── Common Pipeline Patterns ────────────────────────────────────────
@@ -122,6 +124,69 @@ class SelectionResult:
         }
 
 
+_INTENT_TO_TOOL_MAP: Dict[str, Dict[str, Any]] = {
+    "email": {
+        "categories": ["email", "mcp"],
+        "keywords": ["email", "mail", "brevo", "send"],
+        "must_include_names": ["send_email"]
+    },
+    "security": {
+        "categories": ["security"],
+        "keywords": ["security", "scan", "nmap", "ssl", "dns", "whois", "vapt", "port"],
+        "must_include_names": ["security_scan", "run_bash"]
+    },
+    "osint": {
+        "categories": ["osint"],
+        "keywords": ["osint", "stalk", "profile", "lookup", "whois"],
+        "must_include_prefixes": ["osint_"]
+    },
+    "system": {
+        "categories": ["system", "automation", "shell"],
+        "keywords": ["run", "execute", "shell", "bash", "command", "terminal", "screenshot", "volume", "open", "close", "play", "youtube", "music", "song"],
+        "must_include_names": ["run_bash", "smart_shell_generate", "open_app", "close_app", "system_control", "take_screenshot", "play_youtube"]
+    },
+    "research": {
+        "categories": ["research"],
+        "keywords": ["research", "paper", "arxiv", "academic", "literature", "scrape"],
+        "must_include_names": ["web_research", "scrape_website"]
+    },
+    "search": {
+        "categories": ["search", "research"],
+        "keywords": ["search", "google", "web", "news", "weather", "price", "realtime", "scrape"],
+        "must_include_names": ["google_search", "web_research", "youtube_search", "scrape_website"]
+    },
+    "code": {
+        "categories": ["generation"],
+        "keywords": ["code", "debug", "refactor", "explain", "python", "javascript", "flask", "api"],
+        "must_include_names": ["generate_code", "write_file", "edit_file", "run_bash"]
+    },
+    "image": {
+        "categories": ["generation", "vision"],
+        "keywords": ["image", "picture", "photo", "art", "draw", "create", "generate"],
+        "must_include_names": ["generate_image", "analyze_image_file"]
+    },
+    "diagram": {
+        "categories": ["diagram", "generation"],
+        "keywords": ["diagram", "flowchart", "mindmap", "er", "sequence", "chart", "widget"],
+        "must_include_names": ["generate_diagram_widget"]
+    },
+    "codepipeline": {
+        "categories": ["generation"],
+        "keywords": ["build", "scaffold", "project", "entire", "workspace", "codebase", "pipeline"],
+        "must_include_names": ["build_project", "generate_code", "write_file", "run_bash"]
+    },
+    "analyze": {
+        "categories": ["file", "vision", "analyze"],
+        "keywords": ["analyze", "inspect", "summarize", "diagnose", "log", "logs", "file", "csv", "data"],
+        "must_include_names": ["read_file", "grep_search", "analyze_image_file", "analyze_screen"]
+    },
+    "chat": {
+        "categories": ["conversation"],
+        "keywords": ["chat", "explain", "hello", "help", "greet"],
+        "must_include_names": ["chat_with_ai"]
+    }
+}
+
 
 class SelectionIntelligence:
     """
@@ -143,7 +208,7 @@ class SelectionIntelligence:
     def __init__(self):
         pass
 
-    def select(self, objective: str, top_k: int = 5) -> List[SelectionResult]:
+    def select(self, objective: str, intent: Optional[str] = None, top_k: int = 5) -> List[SelectionResult]:
         """
         Full intelligent selection pipeline.
         Returns ranked SelectionResult objects.
@@ -160,12 +225,82 @@ class SelectionIntelligence:
 
         # 2. Extract intent categories
         intent_categories = self._extract_intent_categories(obj_lower)
+        
+        # If intent is provided, add its categories
+        if intent and intent in _INTENT_TO_TOOL_MAP:
+            intent_categories.extend(_INTENT_TO_TOOL_MAP[intent].get("categories", []))
+            intent_categories = list(set(intent_categories))
 
         # 3. Get base candidates from ToolSelector
         base_candidates = self._get_base_candidates(objective, top_k * 2)
 
         # 4. Enrich with awareness data
         enriched = self._enrich_with_awareness(base_candidates, intent_categories)
+        
+        # Apply intent-based boosts and guarantees
+        if intent and intent in _INTENT_TO_TOOL_MAP:
+            intent_info = _INTENT_TO_TOOL_MAP[intent]
+            must_include_prefixes = intent_info.get("must_include_prefixes", [])
+            must_include_names = intent_info.get("must_include_names", [])
+            intent_keywords = intent_info.get("keywords", [])
+            
+            # Boost matches
+            for r in enriched:
+                name_lower = r.tool_name.lower()
+                
+                # Direct must-include names boost
+                if r.tool_name in must_include_names:
+                    r.score = min(r.score + 0.3, 1.0)
+                    r.reason += f" | intent_must_include:{intent}"
+                    
+                # Prefix matching (e.g. brevo_ for email)
+                if any(name_lower.startswith(pref) for pref in must_include_prefixes):
+                    r.score = min(r.score + 0.4, 1.0)
+                    r.reason += f" | intent_prefix_match:{intent}"
+                    
+                # Keyword matching
+                if any(kw in name_lower for kw in intent_keywords):
+                    r.score = min(r.score + 0.2, 1.0)
+                    r.reason += f" | intent_keyword_match:{intent}"
+            
+            # Guarantee intent-specific tools are present
+            try:
+                from tools.universal_registry import get_universal_registry
+                registry = get_universal_registry()
+                all_enabled_tools = registry.get_enabled_tools()
+            except Exception as e:
+                logger.warning(f"Could not load registry for fallback check: {e}")
+                all_enabled_tools = []
+                
+            existing_names = {r.tool_name for r in enriched}
+            
+            for tool in all_enabled_tools:
+                if tool.name in existing_names:
+                    continue
+                    
+                name_lower = tool.name.lower()
+                should_add = False
+                add_reason = ""
+                
+                # Check prefixes
+                for pref in must_include_prefixes:
+                    if name_lower.startswith(pref):
+                        should_add = True
+                        add_reason = f"intent_prefix_match_fallback:{intent}"
+                        break
+                        
+                # Check must-include names
+                if not should_add and tool.name in must_include_names:
+                    should_add = True
+                    add_reason = f"intent_must_include_fallback:{intent}"
+                    
+                if should_add:
+                    enriched.append(SelectionResult(
+                        tool_name=tool.name,
+                        score=0.9,  # High default score for guaranteed tools
+                        reason=add_reason,
+                        confidence=0.9
+                    ))
 
         # 5. Filter out anti-pattern violations
         filtered = self._filter_anti_patterns(enriched, obj_lower)
@@ -346,8 +481,10 @@ def _extract_key_phrases(text: str) -> List[str]:
     phrases = re.findall(r'"([^"]+)"', text)
     if phrases:
         return phrases
+    # Clean text to remove punctuation
+    clean_text = re.sub(r'[^\w\s]', '', text)
     # Fallback: extract significant words (>4 chars)
-    words = [w for w in text.split() if len(w) > 4 and w not in {
+    words = [w for w in clean_text.split() if len(w) > 4 and w not in {
         "should", "never", "always", "instead", "using", "without"
     }]
     return words[:3]

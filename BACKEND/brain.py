@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -93,11 +94,22 @@ For each step, specify the tool to call, the arguments (as a JSON object), and a
 AVAILABLE TOOLS:
 {tools_summary}
 
+WORKSPACE DIRECTORY: {workspace_dir}
+All file paths for write_file/read_file/edit_file MUST be relative paths (e.g. "report.txt") or within the workspace directory above.
+NEVER use paths like "C:/", "D:/", "/tmp", or any absolute path outside the workspace.
+
 CRITICAL RULES:
 - When the user asks about "agents" (e.g. "kitne agent hai", "list agents", "how many agents"), use the `list_agents` tool, NOT `list_tools`.
 - `list_tools` is ONLY for listing executable tool functions. `list_agents` is for listing AI agents.
 - For ANY security-related request (SSL check, port scan, DNS lookup, recon, VAPT, vulnerability scan, WHOIS, subdomain enumeration), use the `security_scan` tool. NEVER use `smart_shell_generate` or `run_bash` for security scanning tasks.
 - Read each tool's description carefully and pick the BEST match for the user's intent.
+
+ARGUMENT CONSTRUCTION RULES (VERY IMPORTANT):
+- Read the parameter list under each tool carefully. Each parameter shows its TYPE and whether it is REQUIRED.
+- For email tools: "to" expects an ARRAY of objects like [{{"email": "recipient@example.com", "name": "Name"}}]. "sender" expects an object {{"email": "sender@example.com", "name": "AERIS"}}. "subject" is a string. "htmlContent" is a string with HTML body.
+- If the user's message does not contain a required parameter value (e.g. no recipient email), use chat_with_ai to ask the user for the missing info INSTEAD of guessing or leaving it blank.
+- For write_file: "path" must be a RELATIVE path like "output.txt" or "reports/scan.md". It will be resolved within the workspace.
+- NEVER fabricate placeholder values for required params. If info is missing, ask the user.
 
 CONVERSATION CONTEXT:
 {history}
@@ -809,6 +821,8 @@ class Brain:
         """
         start = time.time()
         task_id = pending_state.get("task_id") if pending_state else f"task_{int(time.time())}"
+        self._retry_counts = {}  # Reset retry counters for each new execution
+        workspace_dir = str(Path(settings.BASE_DIR).parent / "workspace")
         
         # 1. Plan / Resume Plan
         if pending_state:
@@ -830,7 +844,7 @@ class Brain:
             
             # Retrieve top 10 relevant tools using SelectionIntelligence
             selection_intel = get_selection_intelligence()
-            retrieved_candidates = selection_intel.select(message, top_k=10)
+            retrieved_candidates = selection_intel.select(message, intent=intent, top_k=10)
             retrieved_names = {c.tool_name for c in retrieved_candidates}
             
             # Always ensure core utility tools are available to prevent planner getting stuck
@@ -868,7 +882,8 @@ class Brain:
                 history=history,
                 memory_context=memory_context,
                 profile_context=profile_context,
-                message=message
+                message=message,
+                workspace_dir=workspace_dir
             )
             
             plan_data = await query_llm_json(prompt)
@@ -952,44 +967,77 @@ class Brain:
                     current_step_index += 1
                     continue
                 
-            # Execute tool call
-            start_time = time.perf_counter()
-            try:
-                from tools.tool_executor import get_executor_service
-                executor = get_executor_service()
-                result = executor.execute(
-                    tool_name=step.tool_name,
-                    task_id=task_id,
-                    step_id=step.step_id,
-                    **step.args
-                )
-                elapsed_ms = (time.perf_counter() - start_time) * 1000
-                obs = Observation(
-                    step_id=step.step_id,
-                    tool_name=step.tool_name,
-                    success=result.success,
-                    result=result.stdout if result.success else "",
-                    error=result.stderr if not result.success else None,
-                    duration_ms=elapsed_ms
-                )
-            except Exception as e:
-                elapsed_ms = (time.perf_counter() - start_time) * 1000
-                obs = Observation(
-                    step_id=step.step_id,
-                    tool_name=step.tool_name,
-                    success=False,
-                    result="",
-                    error=str(e),
-                    duration_ms=elapsed_ms
-                )
+            # ── Pre-execution argument sanitizer ────────────────────────
+            # Fix common planner mistakes before they cause runtime failures
+            sanitized_args = dict(step.args)
+            
+            # Fix 1: write_file / edit_file paths — ensure they stay within workspace
+            if step.tool_name in ("write_file", "edit_file", "read_file") and "path" in sanitized_args:
+                raw_path = sanitized_args["path"]
+                ws_dir = Path(settings.BASE_DIR).parent / "workspace"
+                resolved = Path(raw_path).resolve() if Path(raw_path).is_absolute() else (ws_dir / raw_path).resolve()
+                try:
+                    resolved.relative_to(ws_dir.resolve())
+                except ValueError:
+                    # Path is outside workspace — use just the filename inside workspace
+                    sanitized_args["path"] = Path(raw_path).name
+                    logger.info(f"[Brain] Sanitized path: '{raw_path}' → '{sanitized_args['path']}' (kept within workspace)")
+            
+            # Fix 2: Check required params exist before execution
+            skip_execution = False
+            if tool_def and tool_def.input_schema:
+                missing = [p.name for p in tool_def.input_schema.params if p.required and p.name not in sanitized_args]
+                if missing:
+                    obs = Observation(
+                        step_id=step.step_id,
+                        tool_name=step.tool_name,
+                        success=False,
+                        result="",
+                        error=f"Missing required arguments: {', '.join(missing)}. The planner must provide these values.",
+                        duration_ms=0.0
+                    )
+                    skip_execution = True
+            
+            step.args = sanitized_args
+            
+            # Execute tool call (only if pre-validation passed)
+            if not skip_execution:
+                start_time = time.perf_counter()
+                try:
+                    from tools.tool_executor import get_executor_service
+                    executor = get_executor_service()
+                    result = executor.execute(
+                        tool_name=step.tool_name,
+                        task_id=task_id,
+                        step_id=step.step_id,
+                        **step.args
+                    )
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    obs = Observation(
+                        step_id=step.step_id,
+                        tool_name=step.tool_name,
+                        success=result.success,
+                        result=result.stdout if result.success else "",
+                        error=result.stderr if not result.success else None,
+                        duration_ms=elapsed_ms
+                    )
+                except Exception as e:
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+                    obs = Observation(
+                        step_id=step.step_id,
+                        tool_name=step.tool_name,
+                        success=False,
+                        result="",
+                        error=str(e),
+                        duration_ms=elapsed_ms
+                    )
                 
             observations.append(obs)
             current_step_index += 1
             
             # Reflection step
             if current_step_index < len(plan.steps) or not obs.success:
-                reflection_prompt = f"""You are the AI Reflector for AERIS.
-Analyze the results of the plan execution so far.
+                reflection_prompt = f"""You are the AI Reflector for AERIS — your job is to SELF-CORRECT failures.
 
 ORIGINAL PLAN:
 {json.dumps(plan.dict(), indent=2)}
@@ -998,16 +1046,29 @@ OBSERVATIONS SO FAR:
 {json.dumps([o.dict() for o in observations], indent=2)}
 
 CURRENT STEP ID: {step.step_id}
+WORKSPACE DIRECTORY: {workspace_dir if 'workspace_dir' in dir() else str(Path(settings.BASE_DIR).parent / 'workspace')}
 
-Evaluate the last tool call: did it succeed? Did it yield the required info?
-Determine whether to continue with the original plan, stop, or suggest modifications.
+Analyze the LAST observation:
 
-Respond with ONLY valid JSON matching this schema:
+IF THE STEP SUCCEEDED:
+- Set should_continue = true, suggested_changes = null
+- Continue with the remaining plan steps
+
+IF THE STEP FAILED — YOU MUST SELF-CORRECT (do NOT just abort):
+1. **Missing/invalid arguments**: Provide a corrected retry step with the SAME tool but FIXED args.
+   - Missing "to" in email → add a step using chat_with_ai to ask the user for the recipient
+   - Wrong param types → fix the types (e.g., "to" should be an array of objects [{{"email":"...", "name":"..."}}])
+2. **Path errors** (workspace boundary, file not found):
+   - Replace absolute paths with workspace-relative paths (e.g., "report.txt" instead of "C:/report.txt")
+3. **SECURITY_BLOCKED**: Skip the blocked step and continue with remaining steps. Do NOT retry blocked tools.
+4. Only set should_continue = false if the ENTIRE goal is impossible (e.g., the requested tool doesn't exist).
+
+Respond with ONLY valid JSON:
 {{
   "step_id": "{step.step_id}",
-  "thought": "<your reasoning about the results and next step>",
+  "thought": "<your analysis of what went wrong and how to fix it>",
   "should_continue": true,
-  "suggested_changes": null or a LIST of new steps to append/replace the remaining steps of the plan, matching the PlanStep schema: [{{"step_id": "step_id_string", "tool_name": "tool_name_string", "args": {{}}, "description": "description_string"}}]
+  "suggested_changes": null or [{{"step_id": "retry_1", "tool_name": "tool_name", "args": {{}}, "description": "description"}}]
 }}
 """
                 ref_data = await query_llm_json(reflection_prompt)
@@ -1031,12 +1092,29 @@ Respond with ONLY valid JSON matching this schema:
                         
                         reflection = Reflection(**ref_data)
                         logger.info(f"[Brain] Reflection step {step.step_id}: {reflection.thought}")
+                        
+                        # Track retries to prevent infinite correction loops
+                        retry_key = f"{step.step_id}_{step.tool_name}"
+                        if not hasattr(self, '_retry_counts'):
+                            self._retry_counts = {}
+                        
                         if not reflection.should_continue:
-                            logger.info(f"[Brain] Reflection decided to abort further steps.")
-                            break
-                        if reflection.suggested_changes:
-                            plan.steps = plan.steps[:current_step_index] + reflection.suggested_changes
-                            logger.info(f"[Brain] Reflection updated plan steps. New plan length: {len(plan.steps)}")
+                            # Check if reflection is aborting a failed step — give it one more chance
+                            if not obs.success and self._retry_counts.get(retry_key, 0) < 2 and reflection.suggested_changes:
+                                logger.info(f"[Brain] Overriding abort — applying self-correction (retry {self._retry_counts.get(retry_key, 0) + 1}/2)")
+                                self._retry_counts[retry_key] = self._retry_counts.get(retry_key, 0) + 1
+                                plan.steps = plan.steps[:current_step_index] + reflection.suggested_changes
+                                logger.info(f"[Brain] Self-correction applied. New plan length: {len(plan.steps)}")
+                            else:
+                                logger.info(f"[Brain] Reflection decided to abort further steps.")
+                                break
+                        elif reflection.suggested_changes:
+                            self._retry_counts[retry_key] = self._retry_counts.get(retry_key, 0) + 1
+                            if self._retry_counts[retry_key] <= 2:
+                                plan.steps = plan.steps[:current_step_index] + reflection.suggested_changes
+                                logger.info(f"[Brain] Reflection updated plan steps. New plan length: {len(plan.steps)}")
+                            else:
+                                logger.warning(f"[Brain] Max retries reached for {retry_key}. Skipping correction.")
                     except Exception as re_err:
                         logger.warning(f"Failed to parse reflection JSON: {re_err}")
                         

@@ -51,10 +51,13 @@ class UniversalToolRegistry:
         category: str = "general",
         timeout: int = 30,
         approval_requirement: bool = False,
+        optional_params: List[str] = None,
     ) -> UniversalToolDef:
         """Register a hardcoded Python function as a tool (backwards-compatible)."""
         required_params = required_params or []
+        optional_params = optional_params or []
         params = [ParamSchema(name=p, required=True) for p in required_params]
+        params.extend([ParamSchema(name=p, required=False) for p in optional_params])
 
         tool = UniversalToolDef(
             name=name,
@@ -201,6 +204,7 @@ def get_universal_registry() -> UniversalToolRegistry:
                     category=tool_def.category,
                     timeout=getattr(tool_def, "timeout", 30),
                     approval_requirement=getattr(tool_def, "approval_requirement", False),
+                    optional_params=getattr(tool_def, "optional_params", []),
                 )
             logger.info(f"Migrated {len(global_tool_registry._tools)} builtin tools to Universal Registry.")
         except Exception as e:

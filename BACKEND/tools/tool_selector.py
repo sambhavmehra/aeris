@@ -109,6 +109,11 @@ _KEYWORD_MAP: Dict[str, List[str]] = {
     # Tool management
     "forge":       ["dynamic_tool_forge"],
     "tool":        ["dynamic_tool_forge"],
+    # Email / Brevo
+    "email":       ["send_email", "brevo_send_email", "brevo_get_contacts", "brevo_create_email_campaign"],
+    "mail":        ["send_email", "brevo_send_email", "brevo_get_contacts"],
+    "brevo":       ["brevo_send_email", "brevo_get_contacts", "brevo_create_email_campaign", "brevo_get_account_info"],
+    "send":        ["send_email", "brevo_send_email", "write_file", "run_bash"],
 }
 
 

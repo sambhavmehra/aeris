@@ -36,8 +36,17 @@ class Settings:
         # --- SMTP Services ---
         self.SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
         self.SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
-        self.SMTP_LOGIN: str = os.getenv("SMTP_LOGIN", "")
-        self.SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
+        self.SMTP_LOGIN: str = (
+            os.getenv("SMTP_LOGIN", "").strip(" '\"") or 
+            os.getenv("BREVO_SMTP_LOGIN", "").strip(" '\"") or 
+            os.getenv("BREVO_SENDER_EMAIL", "").strip(" '\"")
+        )
+        self.SMTP_PASSWORD: str = (
+            os.getenv("SMTP_PASSWORD", "").strip(" '\"") or 
+            os.getenv("BREVO_API_KEY", "").strip(" '\"")
+        )
+        self.BREVO_SENDER_EMAIL: str = os.getenv("BREVO_SENDER_EMAIL", "").strip(" '\"")
+        self.BREVO_SENDER_NAME: str = os.getenv("BREVO_SENDER_NAME", "").strip(" '\"")
 
         # --- Server ---
         self.API_PORT: int = int(os.getenv("API_PORT", "8000"))

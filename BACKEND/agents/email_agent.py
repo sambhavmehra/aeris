@@ -83,6 +83,14 @@ class EmailAgent(BaseAgent):
         smtp_port = settings.SMTP_PORT
         smtp_login = settings.SMTP_LOGIN
         smtp_password = settings.SMTP_PASSWORD
+        sender_email = settings.BREVO_SENDER_EMAIL
+        if not sender_email:
+            if smtp_login and "@" in smtp_login and "smtp-brevo.com" not in smtp_login:
+                sender_email = smtp_login
+            else:
+                sender_email = "noreply@aeris.io"
+        
+        sender_name = settings.BREVO_SENDER_NAME or settings.ASSISTANT_NAME
 
         if not smtp_login or not smtp_password:
             return {
@@ -91,11 +99,15 @@ class EmailAgent(BaseAgent):
             }
 
         try:
-            msg = MIMEMultipart()
-            msg["From"] = f"{settings.ASSISTANT_NAME} <{smtp_login}>"
-            msg["To"] = recipient_email
+            msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg.attach(MIMEText(body, "plain"))
+            msg["From"] = f"{sender_name} <{sender_email}>"
+            msg["To"] = recipient_email
+
+            if "<html>" in body.lower() or "<p>" in body.lower() or "<br>" in body.lower() or "</div>" in body.lower():
+                msg.attach(MIMEText(body, "html"))
+            else:
+                msg.attach(MIMEText(body, "plain"))
 
             logger.info(f"Connecting to SMTP server {smtp_server}:{smtp_port}...")
             server = smtplib.SMTP(smtp_server, smtp_port)
@@ -105,7 +117,7 @@ class EmailAgent(BaseAgent):
             server.login(smtp_login, smtp_password)
             
             logger.info(f"Sending email to {recipient_email}...")
-            server.sendmail(smtp_login, recipient_email, msg.as_string())
+            server.send_message(msg)
             server.quit()
             logger.info("Email sent successfully.")
 

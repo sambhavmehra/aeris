@@ -50,6 +50,7 @@ class ToolDefinition:
         category: str = "general",
         timeout: int = 30,
         approval_requirement: bool = False,
+        optional_params: List[str] = None,
     ):
         self.name = name
         self.description = description
@@ -59,6 +60,7 @@ class ToolDefinition:
         self.category = category
         self.timeout = timeout
         self.approval_requirement = approval_requirement
+        self.optional_params = optional_params or []
 
     def to_metadata(self) -> Dict[str, Any]:
         return {
@@ -106,6 +108,7 @@ class ToolRegistry:
         category: str = "general",
         timeout: int = 30,
         approval_requirement: bool = False,
+        optional_params: List[str] = None,
     ):
         self._tools[name] = ToolDefinition(
             name=name,
@@ -116,6 +119,7 @@ class ToolRegistry:
             category=category,
             timeout=timeout,
             approval_requirement=approval_requirement,
+            optional_params=optional_params or [],
         )
 
     def get_tool(self, name: str) -> Optional[ToolDefinition]:
@@ -1026,6 +1030,38 @@ def _register_all_tools():
         logger.info("Registered SecurityAgent gateway tool")
     except Exception as e:
         logger.warning(f"Failed to register SecurityAgent gateway: {e}")
+
+    # —— 16.6. Email Agent Gateway —— #
+    try:
+        async def send_email(recipient: str, body: str, subject: str = "AERIS Notification") -> str:
+            """
+            Send an email message to a recipient using the configured SMTP settings.
+            Supports resolving names like 'me', 'sambhav', 'sambhav mehra' to 'sambhavmehra07@gmail.com'.
+            """
+            from agents.email_agent import EmailAgent
+            agent = EmailAgent()
+            plan = {
+                "recipient": recipient,
+                "subject": subject,
+                "body": body
+            }
+            results = await agent.execute(plan)
+            return await agent.report(results)
+
+        reg.register(
+            "send_email",
+            "Send an email message to a recipient using the configured SMTP settings. "
+            "Inputs: recipient (required, name or email address), body (required, plain text content), "
+            "subject (optional, defaults to 'AERIS Notification').",
+            send_email,
+            ["recipient", "body"],
+            RiskLevel.MEDIUM,
+            "email",
+            optional_params=["subject"]
+        )
+        logger.info("Registered EmailAgent gateway tool")
+    except Exception as e:
+        logger.warning(f"Failed to register EmailAgent gateway: {e}")
 
     # -- 17. Computer Use (Vision UI Automation) -- #
     try:

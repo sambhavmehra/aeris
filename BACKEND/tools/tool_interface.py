@@ -205,9 +205,19 @@ class UniversalToolDef:
         }
 
     def to_llm_string(self) -> str:
-        """One-line LLM-friendly description."""
-        params_str = ", ".join(self.required_params) if self.required_params else "none"
-        return f"- {self.name}({params_str}): {self.description} [risk: {self.risk_level.value}]"
+        """Detailed LLM-friendly description with full parameter info."""
+        lines = [f"- **{self.name}**: {self.description} [risk: {self.risk_level.value}]"]
+        if self.input_schema and self.input_schema.params:
+            for p in self.input_schema.params:
+                req_tag = "REQUIRED" if p.required else f"optional, default={p.default}"
+                desc = f"  - `{p.name}` ({p.type}, {req_tag}): {p.description}" if p.description else f"  - `{p.name}` ({p.type}, {req_tag})"
+                if p.enum:
+                    desc += f" [enum: {', '.join(p.enum)}]"
+                lines.append(desc)
+        elif self.required_params:
+            for rp in self.required_params:
+                lines.append(f"  - `{rp}` (string, REQUIRED)")
+        return "\n".join(lines)
 
 
 # ─── Structured Execution Result ─────────────────────────────────────
