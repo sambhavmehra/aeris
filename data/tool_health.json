@@ -16,19 +16,131 @@
     "last_error": null
   },
   "chat_with_ai": {
-    "total_runs": 1,
-    "successful_runs": 1,
+    "total_runs": 55,
+    "successful_runs": 55,
     "failed_runs": 0,
     "success_rate": 1.0,
-    "avg_execution_time_ms": 32.53,
+    "avg_execution_time_ms": 7908.904000000001,
     "last_error": null
   },
   "list_tools": {
+    "total_runs": 2,
+    "successful_runs": 2,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 0.45,
+    "last_error": null
+  },
+  "send_email": {
+    "total_runs": 3,
+    "successful_runs": 3,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 968.9733333333334,
+    "last_error": null
+  },
+  "analyze_screen": {
     "total_runs": 1,
     "successful_runs": 1,
     "failed_runs": 0,
     "success_rate": 1.0,
-    "avg_execution_time_ms": 0.45,
+    "avg_execution_time_ms": 25702.76,
+    "last_error": null
+  },
+  "take_screenshot": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 893.63,
+    "last_error": null
+  },
+  "read_file": {
+    "total_runs": 19,
+    "successful_runs": 0,
+    "failed_runs": 19,
+    "success_rate": 0.0,
+    "avg_execution_time_ms": 0.9773684210526316,
+    "last_error": "builtin_execution_error"
+  },
+  "write_file": {
+    "total_runs": 3,
+    "successful_runs": 3,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 3.8166666666666664,
+    "last_error": null
+  },
+  "open_file": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 164.19,
+    "last_error": null
+  },
+  "list_agents": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 0.49,
+    "last_error": null
+  },
+  "generate_code": {
+    "total_runs": 2,
+    "successful_runs": 1,
+    "failed_runs": 1,
+    "success_rate": 0.5,
+    "avg_execution_time_ms": 39955.675,
+    "last_error": "builtin_execution_error"
+  },
+  "open_app": {
+    "total_runs": 2,
+    "successful_runs": 2,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 2380.815,
+    "last_error": null
+  },
+  "play_youtube": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 5042.14,
+    "last_error": null
+  },
+  "web_research": {
+    "total_runs": 15,
+    "successful_runs": 0,
+    "failed_runs": 15,
+    "success_rate": 0.0,
+    "avg_execution_time_ms": 0.2533333333333333,
+    "last_error": "builtin_execution_error"
+  },
+  "edit_file": {
+    "total_runs": 4,
+    "successful_runs": 0,
+    "failed_runs": 4,
+    "success_rate": 0.0,
+    "avg_execution_time_ms": 0.5449999999999999,
+    "last_error": "builtin_execution_error"
+  },
+  "realtime_search": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 6141.02,
+    "last_error": null
+  },
+  "google_search": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 195.06,
     "last_error": null
   }
 }

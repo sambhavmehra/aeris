@@ -1,0 +1,11 @@
+{
+  "read_file": [
+    "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\wazuh_logs.log"
+  ],
+  "web_research": [
+    "'ResearchAgent' object has no attribute 'research'"
+  ],
+  "edit_file": [
+    "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\memory.txt"
+  ]
+}

@@ -30,7 +30,13 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [isVoiceModeEnabled, setIsVoiceModeEnabled] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+
+  const voiceModeEnabledRef = useRef(false);
+  const isProcessingVoiceRef = useRef(false);
+  const voiceStatusIntervalRef = useRef<any>(null);
+  const startRecognitionRef = useRef<() => void>(() => {});
   const [thinkingStage, setThinkingStage] = useState(0);
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -81,6 +87,19 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 600);
   }, [isOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (voiceStatusIntervalRef.current) {
+        clearInterval(voiceStatusIntervalRef.current);
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
+    };
+  }, []);
 
   const addAIMessage = useCallback((content: string, isStreaming = true, agent?: string, intent?: string) => {
     onSpeakingChange(true);
@@ -179,30 +198,69 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   // -- Web Speech API for real STT --
   const recognitionRef = useRef<any>(null);
 
-  const toggleVoice = useCallback(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      addAIMessage('Speech recognition is not supported in this browser. Please use Chrome or Edge.', false);
-      return;
-    }
-
-    // If already listening, stop (manual off)
-    if (isListening && recognitionRef.current) {
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.onerror = null;
-      recognitionRef.current.onend = null;
-
-      recognitionRef.current.stop();
+  const stopRecognition = useCallback(() => {
+    if (recognitionRef.current) {
+      const rec = recognitionRef.current;
       recognitionRef.current = null;
-      setIsListening(false);
-      onSpeakingChange(false);
-      return;
+      try {
+        rec.stop();
+      } catch (e) {
+        console.error('Error stopping SpeechRecognition:', e);
+      }
     }
+    setIsListening(false);
+    onSpeakingChange(false);
+  }, [onSpeakingChange]);
+
+  const pollVoiceStatus = useCallback(() => {
+    if (voiceStatusIntervalRef.current) {
+      clearInterval(voiceStatusIntervalRef.current);
+    }
+    voiceStatusIntervalRef.current = setInterval(async () => {
+      if (!voiceModeEnabledRef.current) {
+        clearInterval(voiceStatusIntervalRef.current);
+        voiceStatusIntervalRef.current = null;
+        return;
+      }
+      try {
+        const res = await fetch('http://localhost:8000/api/voice/status');
+        if (res.ok) {
+          const data = await res.json();
+          if (!data.is_speaking) {
+            clearInterval(voiceStatusIntervalRef.current);
+            voiceStatusIntervalRef.current = null;
+            isProcessingVoiceRef.current = false;
+            if (voiceModeEnabledRef.current) {
+              startRecognitionRef.current();
+            }
+          }
+        } else {
+          clearInterval(voiceStatusIntervalRef.current);
+          voiceStatusIntervalRef.current = null;
+          isProcessingVoiceRef.current = false;
+          if (voiceModeEnabledRef.current) {
+            startRecognitionRef.current();
+          }
+        }
+      } catch (e) {
+        clearInterval(voiceStatusIntervalRef.current);
+        voiceStatusIntervalRef.current = null;
+        isProcessingVoiceRef.current = false;
+        if (voiceModeEnabledRef.current) {
+          startRecognitionRef.current();
+        }
+      }
+    }, 500);
+  }, []);
+
+  const startRecognition = useCallback(() => {
+    if (recognitionRef.current || isProcessingVoiceRef.current) return;
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
 
     const recognition = new SpeechRecognition();
-    recognition.lang = 'en-IN'; // Supports English + Hindi
-
-    // Keep mic ON until user toggles off
+    recognition.lang = 'en-IN';
     recognition.continuous = true;
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
@@ -215,7 +273,6 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     };
 
     recognition.onresult = async (event: any) => {
-      // Grab the latest final transcript from the batch
       let transcript = '';
       for (let i = event.results.length - 1; i >= 0; i--) {
         const r = event.results[i];
@@ -237,10 +294,11 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
         },
       ]);
 
-      // Enforce Hinglish for voice replies (minimal, affects routing less than rewriting everything)
-      const hinglishTranscript =
-        transcript.trim() +
-        '. Bas Hinglish mein jawab do.';
+      const hinglishTranscript = transcript.trim() + '. Bas Hinglish mein jawab do.';
+
+      // Pause mic for processing/speaking
+      isProcessingVoiceRef.current = true;
+      stopRecognition();
 
       startThinking();
       try {
@@ -263,6 +321,8 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       } catch (e) {
         stopThinking();
         addAIMessage('Error: Could not process voice command. Backend may be offline.', false);
+      } finally {
+        pollVoiceStatus();
       }
     };
 
@@ -276,24 +336,55 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     };
 
     recognition.onend = () => {
-      // Auto-restart only if mic is still ON (manual off should not restart)
-      if (recognitionRef.current === recognition && isListening) {
-        try {
-          recognition.start();
-        } catch {
-          setIsListening(false);
-          onSpeakingChange(false);
-          recognitionRef.current = null;
-        }
-      } else {
-        setIsListening(false);
-        recognitionRef.current = null;
-        onSpeakingChange(false);
+      recognitionRef.current = null;
+      setIsListening(false);
+      onSpeakingChange(false);
+
+      if (voiceModeEnabledRef.current && !isProcessingVoiceRef.current) {
+        setTimeout(() => {
+          if (voiceModeEnabledRef.current && !isProcessingVoiceRef.current) {
+            startRecognitionRef.current();
+          }
+        }, 300);
       }
     };
 
-    recognition.start();
-  }, [isListening, onSpeakingChange, addAIMessage, startThinking, stopThinking]);
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error('Failed to start SpeechRecognition:', e);
+      recognitionRef.current = null;
+      setIsListening(false);
+      onSpeakingChange(false);
+    }
+  }, [addAIMessage, onSpeakingChange, startThinking, stopThinking, pollVoiceStatus, stopRecognition]);
+
+  useEffect(() => {
+    startRecognitionRef.current = startRecognition;
+  }, [startRecognition]);
+
+  const toggleVoice = useCallback(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      addAIMessage('Speech recognition is not supported in this browser. Please use Chrome or Edge.', false);
+      return;
+    }
+
+    if (voiceModeEnabledRef.current) {
+      voiceModeEnabledRef.current = false;
+      setIsVoiceModeEnabled(false);
+      isProcessingVoiceRef.current = false;
+      if (voiceStatusIntervalRef.current) {
+        clearInterval(voiceStatusIntervalRef.current);
+        voiceStatusIntervalRef.current = null;
+      }
+      stopRecognition();
+    } else {
+      voiceModeEnabledRef.current = true;
+      setIsVoiceModeEnabled(true);
+      startRecognition();
+    }
+  }, [addAIMessage, startRecognition, stopRecognition]);
 
   const currentStageText = THINKING_STAGES[thinkingStage]?.text || 'Processing...';
 
@@ -496,12 +587,21 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
               title="Voice input"
               style={{
                 width: '32px', height: '32px', borderRadius: '50%',
-                background: isListening ? 'rgba(139,92,246,0.28)' : 'rgba(139,92,246,0.1)',
-                border: '1px solid rgba(139,92,246,0.22)',
-                color: isListening ? 'rgba(190,160,255,0.95)' : 'rgba(160,120,255,0.72)',
+                background: isListening 
+                  ? 'rgba(139,92,246,0.28)' 
+                  : (isVoiceModeEnabled ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.1)'),
+                border: isListening 
+                  ? '1px solid rgba(139,92,246,0.4)' 
+                  : (isVoiceModeEnabled ? '1px solid rgba(139,92,246,0.25)' : '1px solid rgba(139,92,246,0.22)'),
+                color: isListening 
+                  ? 'rgba(190,160,255,0.95)' 
+                  : (isVoiceModeEnabled ? 'rgba(190,160,255,0.8)' : 'rgba(160,120,255,0.72)'),
                 cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 animation: isListening ? 'voice-ring 1s ease-out infinite' : 'none',
                 transition: 'all 0.2s', flexShrink: 0,
+                boxShadow: isListening 
+                  ? '0 0 10px rgba(139,92,246,0.4)' 
+                  : (isVoiceModeEnabled ? '0 0 6px rgba(139,92,246,0.2)' : 'none'),
               }}
             >🎙</button>
             <button

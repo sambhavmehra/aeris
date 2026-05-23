@@ -28,7 +28,7 @@ class AIEngine:
         self._groq_clients: list[AsyncGroq] = []
         self._groq_index: int = 0
         for key in settings.GROQ_API_KEYS:
-            self._groq_clients.append(AsyncGroq(api_key=key))
+            self._groq_clients.append(AsyncGroq(api_key=key, max_retries=0))
 
         # --- Gemini client ---
         self._gemini_client: Optional[genai.Client] = None
@@ -98,20 +98,34 @@ class AIEngine:
 
         # Fallback to Gemini
         logger.info("All Groq attempts exhausted, falling back to Gemini")
+        gemini_err = None
         try:
             return await self._gemini_generate(
                 self._messages_to_prompt(messages)
             )
-        except Exception as gemini_err:
-            logger.warning(f"Gemini fallback failed: {gemini_err}")
+        except Exception as ge:
+            gemini_err = ge
+            logger.warning(f"Gemini fallback failed: {ge}")
 
-        # Final fallback to Cohere
+        # Fallback to Cohere
         logger.info("Gemini failed, falling back to Cohere Command R+")
+        cohere_err = None
         try:
             return await self._cohere_chat(messages, temperature)
-        except Exception as cohere_err:
-            logger.error(f"Cohere fallback also failed: {cohere_err}")
-            raise RuntimeError(f"All LLM providers failed. Last Groq: {last_error}, Cohere: {cohere_err}")
+        except Exception as ce:
+            cohere_err = ce
+            logger.warning(f"Cohere fallback failed: {ce}")
+
+        # Final local fallback to Ollama
+        logger.info(f"Cohere failed, falling back to local Ollama ({settings.OLLAMA_MODEL})")
+        try:
+            return await self._ollama_chat(messages, temperature)
+        except Exception as ollama_err:
+            logger.error(f"Ollama fallback also failed: {ollama_err}")
+            raise RuntimeError(
+                f"All LLM providers failed. Last Groq error: {last_error}, "
+                f"Gemini error: {gemini_err}, Cohere error: {cohere_err}, Ollama error: {ollama_err}"
+            )
 
     # ──────────────────────────── Gemini ────────────────────────────
 
@@ -267,6 +281,27 @@ class AIEngine:
             )
             resp.raise_for_status()
             return resp.json().get("text", "")
+
+    async def _ollama_chat(
+        self,
+        messages: list[dict],
+        temperature: float = 0.7,
+    ) -> str:
+        """Fallback chat via local Ollama instance."""
+        url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
+        payload = {
+            "model": settings.OLLAMA_MODEL,
+            "messages": messages,
+            "stream": False,
+            "options": {
+                "temperature": temperature
+            }
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("message", {}).get("content", "")
 
     # ──────────────────────────── Helpers ────────────────────────────
 

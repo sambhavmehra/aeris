@@ -1,0 +1,187 @@
+{
+  "chat_with_ai": {
+    "total": 48,
+    "success": 48,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 8250.404375000004,
+    "errors": []
+  },
+  "read_file": {
+    "total": 17,
+    "success": 0,
+    "fail": 17,
+    "consecutive_failures": 17,
+    "avg_time_ms": 0.9594117647058823,
+    "errors": [
+      {
+        "type": "builtin_execution_error",
+        "message": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\var\\ossec\\logs\\ossec.log",
+        "time": 1779473245.807875
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\var\\ossec\\logs\\ossec.log",
+        "time": 1779473255.1573215
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\var\\ossec\\logs\\ossec.log",
+        "time": 1779473262.0712087
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\var\\ossec\\logs\\ossec.log",
+        "time": 1779473271.500241
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\var\\ossec\\logs\\ossec.log",
+        "time": 1779473278.4481194
+      }
+    ]
+  },
+  "write_file": {
+    "total": 3,
+    "success": 3,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 3.8166666666666664,
+    "errors": []
+  },
+  "open_file": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 164.19,
+    "errors": []
+  },
+  "send_email": {
+    "total": 2,
+    "success": 2,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 931.985,
+    "errors": []
+  },
+  "list_agents": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 0.49,
+    "errors": []
+  },
+  "generate_code": {
+    "total": 2,
+    "success": 1,
+    "fail": 1,
+    "consecutive_failures": 0,
+    "avg_time_ms": 39955.675,
+    "errors": []
+  },
+  "open_app": {
+    "total": 2,
+    "success": 2,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 2380.815,
+    "errors": []
+  },
+  "play_youtube": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 5042.14,
+    "errors": []
+  },
+  "list_tools": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 0.45,
+    "errors": []
+  },
+  "web_research": {
+    "total": 16,
+    "success": 0,
+    "fail": 16,
+    "consecutive_failures": 16,
+    "avg_time_ms": 0.24124999999999996,
+    "errors": [
+      {
+        "type": "builtin_execution_error",
+        "message": "'ResearchAgent' object has no attribute 'research'",
+        "time": 1779528966.5938966
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "'ResearchAgent' object has no attribute 'research'",
+        "time": 1779529016.1207883
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "'ResearchAgent' object has no attribute 'research'",
+        "time": 1779529016.6235557
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "'ResearchAgent' object has no attribute 'research'",
+        "time": 1779529017.3926554
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "'ResearchAgent' object has no attribute 'research'",
+        "time": 1779529021.9689474
+      }
+    ]
+  },
+  "edit_file": {
+    "total": 4,
+    "success": 0,
+    "fail": 4,
+    "consecutive_failures": 4,
+    "avg_time_ms": 0.5449999999999999,
+    "errors": [
+      {
+        "type": "builtin_execution_error",
+        "message": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\memory.txt",
+        "time": 1779528613.870596
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\memory.txt",
+        "time": 1779528614.4679785
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\memory.txt",
+        "time": 1779528619.0491328
+      },
+      {
+        "type": "builtin_execution_error",
+        "message": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\memory.txt",
+        "time": 1779528623.6583877
+      }
+    ]
+  },
+  "realtime_search": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 6141.02,
+    "errors": []
+  },
+  "google_search": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 195.06,
+    "errors": []
+  }
+}
