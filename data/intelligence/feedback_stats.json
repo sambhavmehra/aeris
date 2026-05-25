@@ -1,10 +1,10 @@
 {
   "chat_with_ai": {
-    "total": 48,
-    "success": 48,
+    "total": 56,
+    "success": 56,
     "fail": 0,
     "consecutive_failures": 0,
-    "avg_time_ms": 8250.404375000004,
+    "avg_time_ms": 7986.104464285716,
     "errors": []
   },
   "read_file": {
@@ -182,6 +182,14 @@
     "fail": 0,
     "consecutive_failures": 0,
     "avg_time_ms": 195.06,
+    "errors": []
+  },
+  "schedule_execution": {
+    "total": 12,
+    "success": 0,
+    "fail": 12,
+    "consecutive_failures": 12,
+    "avg_time_ms": 15006.639166666668,
     "errors": []
   }
 }

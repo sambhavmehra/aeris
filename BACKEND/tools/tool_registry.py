@@ -332,8 +332,8 @@ def _register_all_tools():
         from agents.research_agent import ResearchAgent
         _researcher = ResearchAgent()
 
-        def web_research(query: str, depth: str = "basic") -> str:
-            return _researcher.research(query, depth)
+        async def web_research(query: str, depth: str = "basic") -> str:
+            return await _researcher.research(query, depth)
 
         def scrape_website(url: str) -> str:
             result = _researcher.scrape_website(url)
@@ -508,6 +508,44 @@ def _register_all_tools():
             RiskLevel.SAFE,
             "search",
         )
+        def schedule_execution(instruction: str, time_spec: str) -> dict:
+            """Schedule any instruction/task or reminder to be automatically executed at a later time."""
+            import asyncio
+            from services.scheduler import get_scheduler
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    get_scheduler().schedule(instruction, time_spec),
+                    loop
+                )
+                new_task = future.result(timeout=15)
+            else:
+                new_task = asyncio.run(get_scheduler().schedule(instruction, time_spec))
+
+            return {
+                "success": True,
+                "task_id": new_task["task_id"],
+                "scheduled_time": new_task["scheduled_time"],
+                "response": f"⏰ Scheduled task successfully: **'{instruction}'** at {new_task['scheduled_time']}."
+            }
+
+        def list_scheduled_tasks(status: str = None) -> list[dict]:
+            """Retrieve the list of background scheduled tasks, optionally filtered by status (pending, completed, failed, cancelled)."""
+            from services.scheduler import get_scheduler
+            return get_scheduler().list_tasks(status)
+
+        def cancel_scheduled_task(task_spec: str) -> dict:
+            """Cancel a pending scheduled task by matching its ID or a substring of its instruction (e.g. 'study', 'meeting')."""
+            from services.scheduler import get_scheduler
+            success = get_scheduler().cancel_task(task_spec)
+            if success:
+                return {"success": True, "message": f"Successfully cancelled task matching '{task_spec}'."}
+            return {"success": False, "message": f"Could not find any pending task matching '{task_spec}'."}
+
         reg.register(
             "control_ai_voice",
             "Mute or unmute the AI's proactive conversational voice. Use this ONLY when the user explicitly asks you to 'shut up', 'be quiet', 'stop speaking', or 'resume speaking'. Provide 'mute' or 'unmute' as the action parameter.",
@@ -516,7 +554,32 @@ def _register_all_tools():
             RiskLevel.SAFE,
             "conversation",
         )
-        logger.info("Registered chat & realtime search tools")
+        reg.register(
+            "schedule_execution",
+            "Schedule any natural language task/command or reminder to be automatically executed in the background at a later time (e.g. 'open chrome at 3pm', 'check google.com ssl certificate in 1 hour', 'remind me to call Rahul in 20 minutes').",
+            schedule_execution,
+            ["instruction", "time_spec"],
+            RiskLevel.MEDIUM,
+            "automation",
+        )
+        reg.register(
+            "list_scheduled_tasks",
+            "Retrieve the list of background scheduled tasks, optionally filtered by status (pending, completed, failed, cancelled).",
+            list_scheduled_tasks,
+            [],
+            RiskLevel.SAFE,
+            "automation",
+            optional_params=["status"],
+        )
+        reg.register(
+            "cancel_scheduled_task",
+            "Cancel a pending scheduled task by matching its ID or a substring of its instruction (e.g. 'study', 'meeting').",
+            cancel_scheduled_task,
+            ["task_spec"],
+            RiskLevel.MEDIUM,
+            "automation",
+        )
+        logger.info("Registered chat, realtime search, and scheduler tools")
     except Exception as e:
         logger.warning(f"Failed to register chat tools: {e}")
 

@@ -250,3 +250,33 @@ class ResearchAgent(BaseAgent):
             return json.loads(cleaned)
         except json.JSONDecodeError:
             return cleaned
+
+    def scrape_website(self, url: str) -> dict:
+        """Synchronously scrape text content from a URL."""
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        }
+        try:
+            import httpx
+            from bs4 import BeautifulSoup
+            
+            with httpx.Client(timeout=15.0, follow_redirects=True, headers=headers) as client:
+                resp = client.get(url)
+                resp.raise_for_status()
+                html = resp.text
+                
+            soup = BeautifulSoup(html, "html.parser")
+            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript", "iframe", "svg"]):
+                tag.decompose()
+                
+            raw_text = soup.get_text(separator="\n", strip=True)
+            lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+            clean_text = "\n".join(lines)[:8000]
+            return {"success": True, "content": clean_text}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+

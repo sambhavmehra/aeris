@@ -361,6 +361,36 @@ class NeuralCore:
 
     # ======================= Anomaly Detection =======================
 
+    def train_initial_anomaly_model(
+        self, input_dim: int = 32, latent_dim: int = 8, model_path: Optional[str] = None, epochs: int = 100, lr: float = 0.01
+    ) -> None:
+        """Bootstrap the anomaly detector with synthetic normal data."""
+        path = model_path or os.path.join(self.model_dir, "anomaly_model.pth")
+        logger.info(f"Training initial anomaly model ({epochs} epochs, dim={input_dim})...")
+        
+        # Generate synthetic normal features: normal distribution around 0.5
+        np.random.seed(42)
+        X_normal = np.random.normal(loc=0.5, scale=0.1, size=(1000, input_dim)).clip(0.0, 1.0).astype(np.float32)
+        
+        self.anomaly_model = AnomalyDetectorNet(input_dim, latent_dim).to(self.device)
+        X_tensor = torch.tensor(X_normal).to(self.device)
+        
+        optimizer = optim.Adam(self.anomaly_model.parameters(), lr=lr)
+        criterion = nn.MSELoss()
+        
+        self.anomaly_model.train()
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            reconstructed = self.anomaly_model(X_tensor)
+            loss = criterion(reconstructed, X_tensor)
+            loss.backward()
+            optimizer.step()
+            
+        self.anomaly_model.eval()
+        torch.save(self.anomaly_model.state_dict(), path)
+        self.is_anomaly_ready = True
+        logger.info(f"Anomaly model trained on normal data. Saved to {path}")
+
     def load_anomaly_model(
         self, input_dim: int, latent_dim: int, model_path: Optional[str] = None
     ) -> None:
@@ -374,7 +404,11 @@ class NeuralCore:
             )
             logger.info(f"Loaded AnomalyDetectorNet weights from {path}")
         else:
-            logger.warning(f"No weights at {path}. AnomalyDetectorNet randomly initialized.")
+            logger.warning(f"No weights at {path}. Training initial anomaly model...")
+            try:
+                self.train_initial_anomaly_model(input_dim=input_dim, latent_dim=latent_dim, model_path=path)
+            except Exception as e:
+                logger.error(f"Failed to train anomaly model: {e}. Falling back to random initialization.")
 
         self.anomaly_model.eval()
         self.is_anomaly_ready = True

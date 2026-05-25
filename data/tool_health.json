@@ -16,11 +16,11 @@
     "last_error": null
   },
   "chat_with_ai": {
-    "total_runs": 55,
-    "successful_runs": 55,
+    "total_runs": 65,
+    "successful_runs": 65,
     "failed_runs": 0,
     "success_rate": 1.0,
-    "avg_execution_time_ms": 7908.904000000001,
+    "avg_execution_time_ms": 7766.918923076924,
     "last_error": null
   },
   "list_tools": {
@@ -56,11 +56,11 @@
     "last_error": null
   },
   "read_file": {
-    "total_runs": 19,
+    "total_runs": 25,
     "successful_runs": 0,
-    "failed_runs": 19,
+    "failed_runs": 25,
     "success_rate": 0.0,
-    "avg_execution_time_ms": 0.9773684210526316,
+    "avg_execution_time_ms": 0.8784000000000001,
     "last_error": "builtin_execution_error"
   },
   "write_file": {
@@ -141,6 +141,22 @@
     "failed_runs": 0,
     "success_rate": 1.0,
     "avg_execution_time_ms": 195.06,
+    "last_error": null
+  },
+  "schedule_execution": {
+    "total_runs": 10,
+    "successful_runs": 0,
+    "failed_runs": 10,
+    "success_rate": 0.0,
+    "avg_execution_time_ms": 15006.493999999997,
+    "last_error": "builtin_execution_error"
+  },
+  "find_system_file": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 247.06,
     "last_error": null
   }
 }

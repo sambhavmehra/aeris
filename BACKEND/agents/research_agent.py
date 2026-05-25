@@ -71,15 +71,32 @@ class ResearchAgent(BaseAgent):
             return {"queries": [message], "original_question": message}
 
     async def execute(self, plan: Any) -> Any:
-        """Run web searches for each query via Tavily API directly."""
+        """Run web searches for each query. Leverages SearchAgent for Tavily + Google + Scraping."""
+        from agents.search_agent import SearchAgent
+        search_agent = SearchAgent()
+        
         all_results = []
         for query in plan.get("queries", [])[:3]:  # Max 3 queries
             try:
-                data = await self._tavily_search(query)
+                search_plan = {
+                    "queries": [query],
+                    "search_depth": "advanced",
+                    "scrape_urls": [],
+                    "delegate_to": None,
+                    "original_question": query
+                }
+                # Delegate the search gathering step to SearchAgent for rich results
+                data = await search_agent.execute(search_plan)
                 if data:
                     all_results.append(data)
             except Exception as e:
-                logger.warning(f"Search failed for '{query}': {e}")
+                logger.warning(f"SearchAgent delegation failed for '{query}': {e}. Falling back to direct Tavily search.")
+                try:
+                    tavily_data = await self._tavily_search(query)
+                    if tavily_data:
+                        all_results.append(tavily_data)
+                except Exception as e2:
+                    logger.warning(f"Fallback Tavily search failed: {e2}")
         return {"question": plan.get("original_question", ""), "search_results": all_results}
 
     async def _tavily_search(self, query: str, max_results: int = 5) -> dict:
@@ -109,14 +126,27 @@ class ResearchAgent(BaseAgent):
         if not search_data:
             return "I wasn't able to find relevant information. Please try rephrasing your question or check your Tavily API key configuration."
 
+        from agents.search_agent import SearchAgent
+        search_agent = SearchAgent()
+
         # Format search results for the LLM
         formatted = []
         for sr in search_data:
-            answer = sr.get("answer", "")
-            if answer:
-                formatted.append(f"**Direct Answer:** {answer}\n")
-            for r in sr.get("results", []):
-                formatted.append(f"- [{r.get('title','')}]({r.get('url','')}): {r.get('content','')}")
+            # Check if this is a SearchAgent result format
+            if "tavily_results" in sr or "google_results" in sr or "scraped_pages" in sr:
+                formatted_text = search_agent._format_all_results(
+                    sr.get("tavily_results", []),
+                    sr.get("google_results", []),
+                    sr.get("scraped_pages", [])
+                )
+                formatted.append(formatted_text)
+            else:
+                # Handle old/fallback Tavily-only format
+                answer = sr.get("answer", "")
+                if answer:
+                    formatted.append(f"**Direct Answer:** {answer}\n")
+                for r in sr.get("results", []):
+                    formatted.append(f"- [{r.get('title','')}]({r.get('url','')}): {r.get('content','')}")
 
         results_text = "\n".join(formatted)
         prompt = SYNTHESIS_PROMPT.format(question=question, results=results_text)
@@ -128,3 +158,38 @@ class ResearchAgent(BaseAgent):
             ], max_tokens=2048)
         except Exception:
             return f"## Research Results\n\n{results_text}"
+
+    async def research(self, query: str, depth: str = "basic") -> str:
+        """Run the research agent flow asynchronously."""
+        res = await self.run(query)
+        return res.get("response", "")
+
+    def scrape_website(self, url: str) -> dict:
+        """Synchronously scrape text content from a URL."""
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+        }
+        try:
+            import httpx
+            from bs4 import BeautifulSoup
+            
+            with httpx.Client(timeout=15.0, follow_redirects=True, headers=headers) as client:
+                resp = client.get(url)
+                resp.raise_for_status()
+                html = resp.text
+                
+            soup = BeautifulSoup(html, "html.parser")
+            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript", "iframe", "svg"]):
+                tag.decompose()
+                
+            raw_text = soup.get_text(separator="\n", strip=True)
+            lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+            clean_text = "\n".join(lines)[:8000]
+            return {"success": True, "content": clean_text}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+

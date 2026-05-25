@@ -100,8 +100,25 @@ class AIEngine:
         logger.info("All Groq attempts exhausted, falling back to Gemini")
         gemini_err = None
         try:
+            response_mime_type = None
+            if response_format and response_format.get("type") == "json_object":
+                response_mime_type = "application/json"
+            
+            # Extract system instruction if present, and list of user/assistant contents
+            system_instr = None
+            other_msgs = []
+            for msg in messages:
+                if msg.get("role") == "system":
+                    system_instr = msg.get("content")
+                else:
+                    other_msgs.append(msg)
+            
+            prompt_str = self._messages_to_prompt(other_msgs)
+            
             return await self._gemini_generate(
-                self._messages_to_prompt(messages)
+                prompt_str,
+                response_mime_type=response_mime_type,
+                system_instruction=system_instr
             )
         except Exception as ge:
             gemini_err = ge
@@ -146,18 +163,31 @@ class AIEngine:
                 {"role": "user", "content": full_prompt},
             ])
 
-    async def _gemini_generate(self, prompt: str) -> str:
+    async def _gemini_generate(
+        self, prompt: str, response_mime_type: Optional[str] = None, system_instruction: Optional[str] = None
+    ) -> str:
         """Internal Gemini call wrapper."""
         if not self._gemini_client:
             raise RuntimeError("Gemini API key not configured")
 
         # google-genai is sync, run in executor
         loop = asyncio.get_event_loop()
+        
+        from google.genai import types
+        config_args = {}
+        if response_mime_type:
+            config_args["response_mime_type"] = response_mime_type
+        if system_instruction:
+            config_args["system_instruction"] = system_instruction
+            
+        config = types.GenerateContentConfig(**config_args) if config_args else None
+
         response = await loop.run_in_executor(
             None,
             lambda: self._gemini_client.models.generate_content(
                 model=settings.GEMINI_MODEL,
                 contents=prompt,
+                config=config,
             ),
         )
         return response.text or ""

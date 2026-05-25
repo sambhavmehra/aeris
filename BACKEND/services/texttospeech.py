@@ -161,7 +161,7 @@ async def _stream_and_play(text: str, voice: str) -> bool:
                         for i in range(0, len(pcm), _FRAME_SIZE):
                             if _stop_event.is_set():
                                 break
-                            stream.write(pcm[i : i + _FRAME_SIZE])
+                            await asyncio.to_thread(stream.write, pcm[i : i + _FRAME_SIZE])
                         played_any = True
                         accumulated.clear()
 
@@ -180,7 +180,7 @@ async def _stream_and_play(text: str, voice: str) -> bool:
                 for i in range(0, len(pcm), _FRAME_SIZE):
                     if _stop_event.is_set():
                         break
-                    stream.write(pcm[i : i + _FRAME_SIZE])
+                    await asyncio.to_thread(stream.write, pcm[i : i + _FRAME_SIZE])
                 played_any = True
 
         return played_any
@@ -238,12 +238,11 @@ async def _buffer_and_play_pygame(text: str, voice: str) -> bool:
         pygame.mixer.music.load(audio_buf)
         pygame.mixer.music.play()
 
-        clock = pygame.time.Clock()
         while pygame.mixer.music.get_busy():
             if _stop_event.is_set():
                 pygame.mixer.music.stop()
                 break
-            clock.tick(10)
+            await asyncio.sleep(0.1)
         return True
 
     except Exception as e:
@@ -312,7 +311,7 @@ def text_to_speech(
         future = asyncio.run_coroutine_threadsafe(
             _stream_and_play(spoken_text, voice), loop
         )
-        result = future.result(timeout=30)
+        result = future.result(timeout=120)
         if result:
             return True
 
@@ -321,10 +320,10 @@ def text_to_speech(
         future = asyncio.run_coroutine_threadsafe(
             _buffer_and_play_pygame(spoken_text, voice), loop
         )
-        return future.result(timeout=30)
+        return future.result(timeout=120)
 
     except Exception as e:
-        logger.error(f"TTS pipeline error: {e}")
+        logger.exception("TTS pipeline error:")
         return False
 
 

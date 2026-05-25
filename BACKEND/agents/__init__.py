@@ -13,6 +13,7 @@ from agents.search_agent import SearchAgent
 from agents.analyzer_agent import AnalyzerAgent
 from agents.osint_agent import OSINTAgent
 from agents.email_agent import EmailAgent
+from agents.scheduler_agent import SchedulerAgent
 
 __all__ = [
     "BaseAgent",
@@ -29,4 +30,5 @@ __all__ = [
     "AnalyzerAgent",
     "OSINTAgent",
     "EmailAgent",
+    "SchedulerAgent",
 ]

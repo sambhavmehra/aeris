@@ -27,15 +27,20 @@ Available tools you can use to gather data:
 - read_system_file(path: str) -> Reads the content of ANY file on the system by its absolute path (works for PDFs, DOCX, TXT, etc.)
 - run_bash(command: str) -> Runs a shell command (useful for getting system info, logs, or command output).
 
+=== CONVERSATION HISTORY ===
+{history}
+========================
+
 User request: {message}
 
 If the user wants you to analyze a specific file (e.g., "analyze my resume.pdf"), you should first find it, then read it.
 If the data is already in the message, you don't need tools.
 
 IMPORTANT RULES:
-- ALWAYS use read_system_file (NOT read_file) when reading a file found via find_system_file.
+- ALWAYS use read_system_file (NOT read_file) when reading a file found via find_system_file or absolute paths outside the workspace directory.
 - Use "<USE_RESULT_FROM_PREVIOUS_STEP>" as the path placeholder so the found file path is substituted automatically.
 - NEVER call read_system_file if find_system_file might return "No matching files found.".
+- If the user refers to a file from the history (e.g., "pdf wali", "that docx file", "the pdf one"), resolve the absolute path from the conversation history and use it directly as the 'path' parameter for read_system_file.
 - If no tools are needed, return an empty list for "tools".
 
 Respond with ONLY valid JSON describing the steps to gather data:
@@ -86,7 +91,15 @@ class AnalyzerAgent(BaseAgent):
 
     async def think(self, message: str, context: dict) -> Any:
         """Determine what tools to use to fetch the data."""
-        prompt = PLAN_PROMPT.format(message=message)
+        chat_history = context.get("chat_history", [])
+        history_lines = []
+        for msg in chat_history[-5:]:
+            role = msg.get("role", "user").upper()
+            content = msg.get("content", "")
+            history_lines.append(f"[{role}]: {content}")
+        history_summary = "\n".join(history_lines) if history_lines else "No prior conversation."
+
+        prompt = PLAN_PROMPT.format(message=message, history=history_summary)
         try:
             raw = await ai_engine.classify(prompt)
             raw = raw.strip()

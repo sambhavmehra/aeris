@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 
 from ai_engine import ai_engine
-from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent
+from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent
 from agents.agent_registry import agent_registry, AgentStatus
 from memory.store import memory_store
 from neural.core import neural_core
@@ -40,7 +40,7 @@ logger = logging.getLogger("aeris.brain")
 
 class BrainTask(BaseModel):
     task_id: str
-    intent: str       # chat | security | system | research | code
+    intent: str       # chat | security | system | research | code | scheduler
     description: str  # Refined instruction for the agent
     dependencies: List[str] = []  # task_ids this task depends on
 
@@ -102,6 +102,15 @@ CRITICAL RULES:
 - When the user asks about "agents" (e.g. "kitne agent hai", "list agents", "how many agents"), use the `list_agents` tool, NOT `list_tools`.
 - `list_tools` is ONLY for listing executable tool functions. `list_agents` is for listing AI agents.
 - For ANY security-related request (SSL check, port scan, DNS lookup, recon, VAPT, vulnerability scan, WHOIS, subdomain enumeration), use the `security_scan` tool. NEVER use `smart_shell_generate` or `run_bash` for security scanning tasks.
+- If the user wants to schedule any task, reminder, alarm, meeting, or event, or if they confirm (e.g. saying 'yes', 'okay', 'ok', 'haan', 'sure', 'do it', 'kar do') a scheduling/reminder proposal made by the assistant in the conversation history (e.g. 'Should I put it in pending tasks and check in 30 minutes?'), you MUST use the `schedule_execution` tool.
+  - If it is a confirmation to a proposal, set the 'instruction' to the task that was proposed to be scheduled (e.g. "Analyze website sambhavmehra.me"), and set 'time_spec' to the proposed time spec (e.g. "in 30 minutes").
+  - Otherwise, if it is a reminder/alarm/meeting (e.g. "remind me to call Rahul"), set the 'instruction' parameter to a descriptive reminder message (e.g. "Remind user: Call Rahul").
+  - If it is a system task/command (e.g. "open chrome"), set the 'instruction' parameter to the exact command/task to execute.
+  - Set the 'time_spec' parameter to when it should run (e.g., 'in 1 minute', 'in 30 minutes', 'at 6pm').
+- If the user wants to schedule a task/reminder or put a task in the pending tasks/list, but has NOT specified a time or delay (e.g., 'is task ko pending task mein daal le' without saying when), you MUST call `chat_with_ai` and pass the user's message, so the conversational agent can ask the user for the time. Do NOT run `schedule_execution` with a blank or guessed `time_spec`.
+- If the user wants to read, write, or list files/folders located outside the workspace (e.g. absolute paths starting with a drive letter like C:\\, D:\\, or starting with ~ or /), you MUST use `read_system_file` or `list_system_dir` instead of `read_file` or `list_dir`. `read_file` and `list_dir` are strictly for relative paths inside the workspace directory.
+- If you need to search the host system for a file by name, use `find_system_file`.
+- For quick search, live facts, news, weather, or real-time info (e.g. looking up a person, site status, or current events), use `realtime_search` (which routes through the SearchAgent). If they request deep synthesis, comparison, academic research, or detailed reports on complex topics, use `web_research` (which routes through the ResearchAgent).
 - Read each tool's description carefully and pick the BEST match for the user's intent.
 
 ARGUMENT CONSTRUCTION RULES (VERY IMPORTANT):
@@ -222,6 +231,7 @@ AVAILABLE INTENTS:
 - "analyze"  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents
 - "osint"   : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation
 - "email"   : Send emails, send mail, compose and send mail via SMTP/Brevo relay
+- "scheduler" : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword (e.g., 'cancel meeting', 'list scheduled tasks', 'is task ko cancel kar do')
 
 === CONVERSATION HISTORY (last 3 messages) ===
 {history}
@@ -282,6 +292,11 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "youtube search", "search on youtube", "search youtube",
       "open youtube", "youtube pe", "youtube par",
      ], "system"),
+    ([
+      "schedule", "remind", "meeting", "alarm", "pending task", "daal do", "remind me",
+      "cancel task", "list task", "list scheduled", "cancel scheduled", "task pending",
+      "pending tasks", "remind me later", "meeting schedule"
+     ], "scheduler"),
     (["search", "find out", "latest news", "who is ", "what is the latest",
       "current price", "weather", "trending", "look up",
       "realtime", "real-time", "live data", "right now", "today's",
@@ -327,11 +342,11 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
     ], "diagram"),
     # ── Analyze / inspect / diagnose ──────────────────────────────────────────
     ([
-      "analyze ", "analyse ", "inspect ", "diagnose", "summarize file",
+      "analyze", "analyse", "inspect", "diagnose", "summarize file",
       "analyze file", "analyse file", "check this file", "check this data",
       "parse this", "read and explain", "find issues in",
       "analyze karo", "analyse karo", "check karo", "dekhke batao",
-      "file analyze", "log analyze", "data analyze",
+      "file analyze", "log analyze", "data analyze", "analysis", "analysis karo"
     ], "analyze"),
     # ── OSINT investigations ──────────────────────────────────────────────────
     ([
@@ -385,7 +400,7 @@ class Brain:
     """
 
     NEURAL_CONFIDENCE_THRESHOLD = 0.80
-    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email"}
+    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler"}
 
     def __init__(self):
         # ── Instantiate all Core agents ──
@@ -400,6 +415,7 @@ class Brain:
             "analyze":  AnalyzerAgent(),
             "osint":    OSINTAgent(),
             "email":    EmailAgent(),
+            "scheduler": SchedulerAgent(),
         }
         self.audit_agent = AuditAgent()
         self.observer_agent = ObserverAgent()
@@ -562,7 +578,8 @@ class Brain:
                 f"- codepipeline : Build an entire project/app autonomously, scaffold a workspace, generate a full codebase\n"
                 f"- analyze  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents of files\n"
                 f"- osint    : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation\n"
-                f"- email    : Send emails, send mail, compose and send mail via SMTP/Brevo relay\n\n"
+                f"- email    : Send emails, send mail, compose and send mail via SMTP/Brevo relay\n"
+                f"- scheduler : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword (e.g., 'cancel meeting', 'list scheduled tasks', 'is task ko cancel kar do')\n\n"
                 f"FEW-SHOT EXAMPLES:\n"
                 f"- \"search sambhav mehra on google\" -> system (reason: requests browser search visually)\n"
                 f"- \"google pe python dhoondo\" -> system (reason: requests opening browser to search Google)\n"
@@ -574,11 +591,12 @@ class Brain:
                 f"- \"send an email to boss@company.com saying I am sick\" -> email (reason: requests sending mail)\n"
                 f"- \"rahul ko mail bhejo hello bolne ke liye\" -> email (reason: requests composing and sending email)\n\n"
                 f"The message may be in ANY language (English, Hindi, Hinglish, etc). Understand the MEANING, not just keywords.\n"
-                f"Use the conversation history to resolve follow-up queries and pronouns (e.g., 'it', 'that', 'iska').\n\n"
+                f"Use the conversation history to resolve follow-up queries and pronouns (e.g., 'it', 'that', 'iska').\n"
+                f"IMPORTANT: If the user message is a confirmation (e.g. 'yes', 'okay', 'ok', 'haan', 'sure', 'do it') to a scheduling or reminder proposal made by the assistant in the conversation history, you MUST classify the intent as 'scheduler'.\n\n"
                 f"=== CONVERSATION HISTORY (last 3 messages) ===\n{history_summary}\n=== END HISTORY ===\n\n"
                 f"=== RECENT AGENT TASK EXECUTIONS ===\n{recent_tasks_summary}\n=== END RECENT TASKS ===\n\n"
                 f'Current user message: "{message}"\n\n'
-                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint, email>", "reason": "<brief explanation>"}}'
+                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint, email, scheduler>", "reason": "<brief explanation>"}}'
             )
             raw = raw.strip().strip("```json").strip("```").strip()
             data = json.loads(raw)
@@ -848,7 +866,7 @@ class Brain:
             retrieved_names = {c.tool_name for c in retrieved_candidates}
             
             # Always ensure core utility tools are available to prevent planner getting stuck
-            core_utilities = {"chat_with_ai", "run_bash", "read_file", "write_file", "edit_file", "web_research"}
+            core_utilities = {"chat_with_ai", "run_bash", "read_file", "write_file", "edit_file", "web_research", "realtime_search", "schedule_execution", "read_system_file", "find_system_file", "list_system_dir"}
             selected_names = retrieved_names.union(core_utilities)
             
             registry = get_universal_registry()
@@ -1035,8 +1053,8 @@ class Brain:
             observations.append(obs)
             current_step_index += 1
             
-            # Reflection step
-            if current_step_index < len(plan.steps) or not obs.success:
+            # Reflection step: only run if the step failed, to self-correct
+            if not obs.success:
                 reflection_prompt = f"""You are the AI Reflector for AERIS — your job is to SELF-CORRECT failures.
 
 ORIGINAL PLAN:
@@ -1156,6 +1174,12 @@ HINGLISH PERSONALIZATION RULES:
 - Keep the language flow smooth, colloquial, and friendly (e.g., "Haan, bilkul!", "Main isko check karta hoon").
 - Do not use overly formal/robotic Google-translated Hindi. Match the user's Roman-script Hindi style.
 - ALWAYS address the user as "Sir" (or "sir") in all responses. NEVER address the user as "bhai", "bro", "buddy", or any other informal/colloquial terms, even if the user addresses you informally.
+
+PROACTIVE SCHEDULING RULES (CRITICAL):
+- Look at the "OBSERVATIONS & TOOL OUTPUTS" above. If any step failed, had errors, or if a web/RAG search or scraper tool returned no results, you MUST suggest to the user to put it in pending tasks to run or check again later.
+- Example: "Sir, RAG search/website scrape failed. Kya main isko pending tasks mein daal du aur 30 minutes baad check karu?" (Feel free to suggest scheduling it for later).
+- If the user asked you to schedule a meeting, set a reminder, or run a command after a delay, let them know you are scheduling it.
+- If the user wants to schedule a task or put something in "pending tasks" but no schedule tool was executed because the time was not specified, you MUST ask the user for the time (e.g., "Sir, aap is task ko kitne baje ya kitni der baad run karna chahte hain?"). NEVER suggest or hallucinate about requiring external APIs (like Google News API) or fake commands (like "Dal Task").
 
 Respond with ONLY valid JSON matching this schema:
 {{

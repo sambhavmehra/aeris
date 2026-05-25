@@ -42,6 +42,14 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing AERIS API Server...")
     logger.info("Registered %s total tools in registry.", len(tool_registry))
 
+    # Start Task Scheduler
+    try:
+        from services.scheduler import get_scheduler
+        get_scheduler().start()
+        logger.info("AERIS Task Scheduler service online.")
+    except Exception as e:
+        logger.error(f"Failed to start Task Scheduler: {e}")
+
     from tools.mcp_bridge import get_mcp_registry
     from tools.tool_health import get_health_tracker
 
@@ -70,6 +78,13 @@ async def lifespan(app: FastAPI):
         logger.exception("Neural Engine initialization failed; starting in degraded mode.")
     yield
     logger.info("Shutting down AERIS API Server...")
+    # Stop Task Scheduler
+    try:
+        from services.scheduler import get_scheduler
+        get_scheduler().stop()
+        logger.info("AERIS Task Scheduler service stopped.")
+    except Exception as e:
+        logger.error(f"Failed to stop Task Scheduler: {e}")
 
 
 class AERISOSEngine:
