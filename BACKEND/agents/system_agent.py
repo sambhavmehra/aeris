@@ -144,9 +144,8 @@ class SystemAgent(BaseAgent):
             }
 
     async def execute(self, plan: Any) -> Any:
-        from agents.observer_agent import ObserverAgent
         import asyncio
-        observer = ObserverAgent()
+        observer = await self.get_approved_agent_instance("ObserverAgent", "Observe and verify system/tool execution outcomes")
         
         results = []
         aliases = {
@@ -192,10 +191,14 @@ class SystemAgent(BaseAgent):
                     pass
 
                 # 2. Observe Outcome
-                try:
-                    decision = await observer.process(step_info, outcome)
-                except Exception as e:
-                    self.logger.warning(f"Observer failed: {e}. Defaulting to proceed.")
+                if observer:
+                    try:
+                        decision = await observer.process(step_info, outcome)
+                    except Exception as e:
+                        self.logger.warning(f"Observer failed: {e}. Defaulting to proceed.")
+                        decision = {"decision": "proceed", "status": "success", "result": outcome}
+                else:
+                    self.logger.info("ObserverAgent not authorized or unavailable. Bypassing observation step.")
                     decision = {"decision": "proceed", "status": "success", "result": outcome}
                 
                 # 3. Handle Decision

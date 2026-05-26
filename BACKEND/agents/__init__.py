@@ -14,6 +14,7 @@ from agents.analyzer_agent import AnalyzerAgent
 from agents.osint_agent import OSINTAgent
 from agents.email_agent import EmailAgent
 from agents.scheduler_agent import SchedulerAgent
+from agents.drana_agent import DranaAgent
 
 __all__ = [
     "BaseAgent",
@@ -31,4 +32,5 @@ __all__ = [
     "OSINTAgent",
     "EmailAgent",
     "SchedulerAgent",
+    "DranaAgent",
 ]

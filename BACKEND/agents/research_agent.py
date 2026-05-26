@@ -71,26 +71,16 @@ class ResearchAgent(BaseAgent):
             return {"queries": [message], "original_question": message}
 
     async def execute(self, plan: Any) -> Any:
-        """Run web searches for each query. Leverages SearchAgent for Tavily + Google + Scraping."""
-        from agents.search_agent import SearchAgent
-        search_agent = SearchAgent()
-        
+        """Run web searches for each query. Leverages SearchAgent via Brain-authorized use_agent delegation."""
         all_results = []
         for query in plan.get("queries", [])[:3]:  # Max 3 queries
             try:
-                search_plan = {
-                    "queries": [query],
-                    "search_depth": "advanced",
-                    "scrape_urls": [],
-                    "delegate_to": None,
-                    "original_question": query
-                }
-                # Delegate the search gathering step to SearchAgent for rich results
-                data = await search_agent.execute(search_plan)
+                # Use self.use_agent to confirm delegation with the central Brain first
+                data = await self.use_agent("SearchAgent", query)
                 if data:
                     all_results.append(data)
             except Exception as e:
-                logger.warning(f"SearchAgent delegation failed for '{query}': {e}. Falling back to direct Tavily search.")
+                logger.warning(f"use_agent delegation failed for '{query}': {e}. Falling back to direct Tavily search.")
                 try:
                     tavily_data = await self._tavily_search(query)
                     if tavily_data:
@@ -126,21 +116,23 @@ class ResearchAgent(BaseAgent):
         if not search_data:
             return "I wasn't able to find relevant information. Please try rephrasing your question or check your Tavily API key configuration."
 
-        from agents.search_agent import SearchAgent
-        search_agent = SearchAgent()
-
         # Format search results for the LLM
         formatted = []
         for sr in search_data:
-            # Check if this is a SearchAgent result format
-            if "tavily_results" in sr or "google_results" in sr or "scraped_pages" in sr:
+            # Check if this is the delegated SearchAgent response format
+            if isinstance(sr, dict) and sr.get("agent") == "SearchAgent":
+                formatted.append(sr.get("response", ""))
+            # Check if this is a SearchAgent execute raw format (fallback/direct call)
+            elif isinstance(sr, dict) and ("tavily_results" in sr or "google_results" in sr or "scraped_pages" in sr):
+                from agents.search_agent import SearchAgent
+                search_agent = SearchAgent()
                 formatted_text = search_agent._format_all_results(
                     sr.get("tavily_results", []),
                     sr.get("google_results", []),
                     sr.get("scraped_pages", [])
                 )
                 formatted.append(formatted_text)
-            else:
+            elif isinstance(sr, dict):
                 # Handle old/fallback Tavily-only format
                 answer = sr.get("answer", "")
                 if answer:

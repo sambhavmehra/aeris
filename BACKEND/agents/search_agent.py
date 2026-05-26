@@ -427,39 +427,16 @@ class SearchAgent(BaseAgent):
         Delegate a message to another AERIS agent by key.
         Supported: 'security', 'research'
         """
-        try:
-            from agents.agent_registry import agent_registry
-
-            # Try registry first
-            agent_map = {
-                "security": "SecurityAgent",
-                "research": "ResearchAgent",
-            }
-            registered_name = agent_map.get(agent_key)
-            agent_instance = None
-
-            if registered_name:
-                agent_instance = agent_registry.get_instance(registered_name)
-
-            # Fallback: direct import
-            if agent_instance is None:
-                if agent_key == "security":
-                    from agents.security_agent import SecurityAgent
-                    agent_instance = SecurityAgent()
-                elif agent_key == "research":
-                    from agents.research_agent import ResearchAgent
-                    agent_instance = ResearchAgent()
-
-            if agent_instance is None:
-                return f"⚠️ Could not delegate to {agent_key} agent."
-
-            logger.info(f"[SearchAgent] Delegating to {agent_key}Agent: {message[:80]}")
-            result = await agent_instance.run(message, {})
-            return result.get("response", "No response from delegated agent.")
-
-        except Exception as e:
-            logger.error(f"[SearchAgent] Delegation to '{agent_key}' failed: {e}")
-            return f"⚠️ Delegation to {agent_key} agent failed: {str(e)}"
+        agent_map = {
+            "security": "SecurityAgent",
+            "research": "ResearchAgent",
+        }
+        target_name = agent_map.get(agent_key)
+        if not target_name:
+            return f"⚠️ Could not delegate to unknown agent key '{agent_key}'."
+            
+        result = await self.use_agent(target_name, message)
+        return result.get("response", "No response from delegated agent.")
 
     # ─────────────────────────── Helpers ──────────────────────────────────────
 

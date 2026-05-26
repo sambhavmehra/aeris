@@ -59,7 +59,6 @@ class ImageAgent(BaseAgent):
         """
         import asyncio
         from ai_engine import ai_engine
-        from agents.search_agent import SearchAgent
 
         # Support both:
         #  - plain string prompt (current behavior)
@@ -101,13 +100,12 @@ class ImageAgent(BaseAgent):
             search_query = user_prompt
 
         # 2) Collect prompt enhancement details via SearchAgent web search
-        search_agent = SearchAgent()
         try:
             logger.info(f"[ImageAgent] Executing web search for visual references: '{search_query}'")
-            search_results = await search_agent.run(search_query, {})
+            search_results = await self.use_agent("SearchAgent", search_query)
             search_text = str(search_results.get("response") or "").strip()
         except Exception as e:
-            logger.warning(f"[ImageAgent] SearchAgent failed during image prep: {e}")
+            logger.warning(f"[ImageAgent] SearchAgent delegation failed during image prep: {e}")
             search_text = ""
 
         # 3) Generate enhanced prompt + enhanced negative prompt using visual search details

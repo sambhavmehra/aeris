@@ -111,13 +111,19 @@ Create a comprehensive markdown dossier with the following structure:
 3. **Pivoted Investigation Chain**
    - Map out the step-by-step pivot trace (e.g., username -> found email -> uncovered associated domain).
 4. **Platform & Social Footprint Profile**
-   - A structured markdown table detailing all social profiles, usernames, and accounts found.
-5. **Technical & Infrastructure Footprint** (If domain_ip is present)
+   - A structured markdown table detailing ALL social media profiles, usernames, and accounts found across every platform (LinkedIn, Twitter/X, GitHub, Reddit, Instagram, Facebook, YouTube, TikTok, Medium, Pinterest, etc.).
+   - Table columns: Platform | Profile URL | Username/Handle | Status/Notes
+   - If a platform was searched but no profile was found, note it as "Not Found" in the table.
+5. **Detailed News & Public Mentions**
+   - A chronologically-ordered list of every news article, interview, press mention, blog post, or public media appearance found.
+   - For each item include: Date (if known), Source, Title, URL, and a 1-2 sentence summary.
+   - If no news was found, explicitly state that.
+6. **Technical & Infrastructure Footprint** (If domain_ip is present)
    - Details of DNS, WHOIS, SSL records, or public web presence.
-6. **Open Source Exposure & Privacy Risk Assessment**
+7. **Open Source Exposure & Privacy Risk Assessment**
    - Highlight public exposure points, security risks, or privacy weaknesses.
    - Strictly limit this to public data. Do not list password leaks or private data.
-7. **Recommendations & Hardening Actions**
+8. **Recommendations & Hardening Actions**
    - Actionable remediation steps for the target to reduce their public footprint and secure their privacy.
 
 Use elegant markdown layout. Ensure zero placeholders are used. Write in an objective, professional tone.
@@ -313,7 +319,9 @@ class OSINTAgent(BaseAgent):
     # ────────────────────────── Helpers ───────────────────────────────────────
 
     async def _run_target_search(self, value: str, target_type: str) -> Any:
-        """Identify and run the appropriate tools depending on target type."""
+        """Run parallel social-footprint + news/media searches for every target type."""
+        import asyncio
+
         # 1. Specialized domains and IP lookups (uses fast recon)
         if target_type == "domain_ip":
             infra_data = {}
@@ -328,48 +336,82 @@ class OSINTAgent(BaseAgent):
                     except Exception as e:
                         infra_data[tool_name] = {"error": str(e)}
 
-            # Also perform a web search to gather news/context on the domain
-            web_intel = await self._run_tavily_search(f"site:{value} OR \"{value}\" news footprint")
-            return {"infrastructure": infra_data, "web_presence": web_intel}
+            # Parallel web + news searches for the domain
+            social_q = f"site:{value} OR \"{value}\" social profile OR footprint OR about"
+            news_q = f"\"{value}\" news OR press OR announcement OR article OR interview"
+            social_fut = self._run_tavily_search(social_q)
+            news_fut = self._run_tavily_search(news_q)
+            social_data, news_data = await asyncio.gather(social_fut, news_fut)
+            return {"infrastructure": infra_data, "social_footprint": social_data, "news_mentions": news_data}
 
-        # 2. Emails, usernames, phone, person, org, cryptocurrency
-        search_query = ""
+        # 2. Build dual queries for all other target types
+        social_query = ""
+        news_query = ""
+
         if target_type == "email":
-            search_query = f'"{value}" social profile OR footprint OR leak OR association'
+            social_query = f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com OR site:facebook.com OR site:instagram.com OR site:reddit.com OR social profile'
+            news_query = f'"{value}" news OR article OR press OR interview OR mention'
         elif target_type == "username":
-            # Strip leading @
-            clean_username = value[1:] if value.startswith("@") else value
-            search_query = f'"{clean_username}" OR "@{clean_username}" site:twitter.com OR site:linkedin.com OR site:github.com OR site:instagram.com social profile footprint'
+            clean = value.lstrip("@")
+            social_query = (
+                f'"{clean}" OR "@{clean}" '
+                f'site:twitter.com OR site:x.com OR site:linkedin.com OR site:github.com '
+                f'OR site:instagram.com OR site:reddit.com OR site:facebook.com '
+                f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
+                f'OR site:pinterest.com social profile'
+            )
+            news_query = f'"{clean}" OR "@{clean}" news OR article OR interview OR press OR mention'
         elif target_type == "person":
-            search_query = f'"{value}" social profile OR linkedin OR professional context'
+            social_query = (
+                f'"{value}" '
+                f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
+                f'OR site:instagram.com OR site:facebook.com OR site:reddit.com '
+                f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
+                f'OR site:pinterest.com profile'
+            )
+            news_query = f'"{value}" news OR article OR interview OR press release OR media OR achievement OR announcement'
         elif target_type == "organization":
-            search_query = f'"{value}" organization profile OR headquarters OR footprint OR key officers'
+            social_query = (
+                f'"{value}" '
+                f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
+                f'OR site:facebook.com OR site:youtube.com OR site:instagram.com '
+                f'profile OR about OR headquarters OR official'
+            )
+            news_query = f'"{value}" news OR press release OR announcement OR article OR funding OR acquisition'
         elif target_type == "phone":
-            search_query = f'"{value}" OR phone number context'
+            social_query = f'"{value}" social profile OR contact OR directory'
+            news_query = f'"{value}" news OR mention OR article'
         elif target_type == "cryptocurrency":
-            search_query = f'"{value}" crypto wallet transaction OR address lookup OR mention'
+            social_query = f'"{value}" crypto wallet OR blockchain OR address lookup'
+            news_query = f'"{value}" news OR transaction OR mention OR scam OR alert'
         else:
-            search_query = f'"{value}" open source footprint'
+            social_query = f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com OR site:instagram.com OR site:reddit.com profile OR footprint'
+            news_query = f'"{value}" news OR article OR interview OR press OR mention'
 
-        return await self._run_tavily_search(search_query)
+        # Run both searches in parallel
+        social_fut = self._run_tavily_search(social_query)
+        news_fut = self._run_tavily_search(news_query)
+        social_data, news_data = await asyncio.gather(social_fut, news_fut)
+
+        return {"social_footprint": social_data, "news_mentions": news_data}
 
     async def _run_tavily_search(self, query: str) -> dict:
-        """Wrapper for calling the Tavily Search API directly via HTTPX."""
+        """Wrapper for calling the Tavily Search API — advanced depth, 8 results."""
         api_key = os.getenv("VITE_TAVILY_API_KEY", "")
         if not api_key:
             self.logger.warning("VITE_TAVILY_API_KEY is not set. Searching will be skipped.")
             return {"error": "Tavily API key not set"}
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
                     "https://api.tavily.com/search",
                     json={
                         "api_key": api_key,
                         "query": query,
-                        "max_results": 5,
+                        "max_results": 8,
                         "include_answer": True,
-                        "search_depth": "basic"
+                        "search_depth": "advanced"
                     }
                 )
                 resp.raise_for_status()
@@ -385,22 +427,58 @@ class OSINTAgent(BaseAgent):
         if isinstance(data, dict) and "error" in data:
             return f"Error: {data['error']}"
 
-        # If domain infra data
+        # If domain infra data with dual streams
         if isinstance(data, dict) and "infrastructure" in data:
             infra = data["infrastructure"]
             lines = ["**Infrastructure Recon:**"]
             for tool, res in infra.items():
                 lines.append(f"- **{tool}:** {str(res)[:1000]}")
-            
-            web = data.get("web_presence")
-            if web and isinstance(web, dict):
-                lines.append("**Web Presence Summary:**")
-                lines.append(web.get("answer") or "No direct summary answer.")
-                for r in web.get("results", []):
+
+            social = data.get("social_footprint")
+            if social and isinstance(social, dict) and "results" in social:
+                lines.append("\n**Social & Web Presence:**")
+                if social.get("answer"):
+                    lines.append(social["answer"])
+                for r in social.get("results", []):
                     lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
+
+            news = data.get("news_mentions")
+            if news and isinstance(news, dict) and "results" in news:
+                lines.append("\n**News & Media Mentions:**")
+                if news.get("answer"):
+                    lines.append(news["answer"])
+                for r in news.get("results", []):
+                    lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
+
             return "\n".join(lines)
 
-        # Standard web search data
+        # Dual-stream social + news (non-domain targets)
+        if isinstance(data, dict) and "social_footprint" in data:
+            lines = []
+            social = data.get("social_footprint", {})
+            news = data.get("news_mentions", {})
+
+            lines.append("**Social & Platform Footprint:**")
+            if isinstance(social, dict) and not social.get("error"):
+                if social.get("answer"):
+                    lines.append(f"Summary: {social['answer']}\n")
+                for r in social.get("results", []):
+                    lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
+            else:
+                lines.append("No social footprint data returned.")
+
+            lines.append("\n**News & Public Mentions:**")
+            if isinstance(news, dict) and not news.get("error"):
+                if news.get("answer"):
+                    lines.append(f"Summary: {news['answer']}\n")
+                for r in news.get("results", []):
+                    lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
+            else:
+                lines.append("No news data returned.")
+
+            return "\n".join(lines)
+
+        # Legacy / standard web search data fallback
         if isinstance(data, dict) and "results" in data:
             lines = []
             answer = data.get("answer")

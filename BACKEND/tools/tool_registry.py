@@ -1166,8 +1166,21 @@ def _register_all_tools():
     except Exception as e:
         logger.warning(f"Failed to register MCP Installer tools: {e}")
 
-    logger.info(f"Tool registry initialized with {len(reg.get_tool_names())} tools.")
+    # ── 19. Recon & Security Scanning ────────────────────────────────
+    try:
+        from tools.recon_tools import dns_lookup, whois_lookup, port_scan, header_analysis, ssl_check, subdomain_enum
 
+        reg.register("dns_lookup", "Perform a DNS lookup for a domain.", dns_lookup, ["domain"], RiskLevel.SAFE, "recon")
+        reg.register("whois_lookup", "Perform WHOIS lookup.", whois_lookup, ["domain"], RiskLevel.SAFE, "recon")
+        reg.register("port_scan", "Scan common ports on a target IP or domain.", port_scan, ["target"], RiskLevel.LOW, "recon")
+        reg.register("header_analysis", "Analyze HTTP headers for a URL.", header_analysis, ["url"], RiskLevel.SAFE, "recon")
+        reg.register("ssl_check", "Check SSL certificate for a domain.", ssl_check, ["domain"], RiskLevel.SAFE, "recon")
+        reg.register("subdomain_enum", "Enumerate common subdomains.", subdomain_enum, ["domain"], RiskLevel.LOW, "recon")
+        logger.info("Registered missing recon tools for SecurityAgent")
+    except Exception as e:
+        logger.warning(f"Failed to register recon tools: {e}")
+
+    logger.info(f"Tool registry initialized with {len(reg.get_tool_names())} tools.")
 
 # Register all tools on module load
 _register_all_tools()

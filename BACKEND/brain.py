@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 
 from ai_engine import ai_engine
-from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent
+from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent
 from agents.agent_registry import agent_registry, AgentStatus
 from memory.store import memory_store
 from neural.core import neural_core
@@ -232,6 +232,7 @@ AVAILABLE INTENTS:
 - "osint"   : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation
 - "email"   : Send emails, send mail, compose and send mail via SMTP/Brevo relay
 - "scheduler" : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword (e.g., 'cancel meeting', 'list scheduled tasks', 'is task ko cancel kar do')
+- "drana"    : Bug bounty hunting, JS recon, manual VAPT, XSS payload generation, traffic analysis
 
 === CONVERSATION HISTORY (last 3 messages) ===
 {history}
@@ -274,7 +275,7 @@ RULES:
 
 _KEYWORD_MAP: List[Tuple[List[str], str]] = [
     (["scan", "port", "recon", "vulnerability", "nmap", "ssl", "hack",
-      "header", "fuzz", "vapt", "whois", "dns", "subdomain"], "security"),
+      "header", "fuzz", "whois", "dns", "subdomain"], "security"),
     # ── System / OS automation ─────────────────────────────────────────────
     ([
       # App control
@@ -354,6 +355,11 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "social footprint", "trace target", "footprint check", "profile check",
       "target search", "profile trace", "stalk target", "stalk user", "recon target"
     ], "osint"),
+    # ── Drana Agent ───────────────────────────────────────────────────────────
+    ([
+      "drana", "drafna", "js recon", "js analysis", "xss payload", "xss generate",
+      "vapt analysis", "http analysis", "bug bounty", "pentest advice"
+    ], "drana"),
     # ── Email routing ──────────────────────────────────────────────────────────
     ([
       "send email", "send mail", "email to", "mail to", "email send", "mail send",
@@ -400,7 +406,7 @@ class Brain:
     """
 
     NEURAL_CONFIDENCE_THRESHOLD = 0.80
-    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler"}
+    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler", "drana"}
 
     def __init__(self):
         # ── Instantiate all Core agents ──
@@ -416,6 +422,7 @@ class Brain:
             "osint":    OSINTAgent(),
             "email":    EmailAgent(),
             "scheduler": SchedulerAgent(),
+            "drana":    DranaAgent(),
         }
         self.audit_agent = AuditAgent()
         self.observer_agent = ObserverAgent()
@@ -494,6 +501,41 @@ class Brain:
         """Return a capabilities summary string for injection into LLM prompts."""
         return agent_registry.get_capabilities_summary()
 
+    async def approve_agent_delegation(self, requester_name: str, target_name: str, purpose: str) -> bool:
+        """
+        Evaluate and approve/deny a delegation request from one agent to another.
+        Uses the LLM/ai_engine to make the authorization decision.
+        """
+        prompt = (
+            f"You are the central AERIS Brain. An agent is requesting permission to use another agent.\n\n"
+            f"Requester Agent: {requester_name}\n"
+            f"Target Agent to Use: {target_name}\n"
+            f"Purpose / Task: {purpose}\n\n"
+            f"Evaluate if this delegation is logical, safe, and appropriate for the task.\n"
+            f"Respond with ONLY JSON:\n"
+            f"{{\n"
+            f"  \"approved\": true or false,\n"
+            f"  \"reason\": \"brief explanation\"\n"
+            f"}}"
+        )
+        try:
+            from ai_engine import ai_engine
+            import json
+            response = await ai_engine.classify(prompt)
+            response = response.strip()
+            if response.startswith("```"):
+                response = response.split("\n", 1)[1] if "\n" in response else response[3:]
+                if response.endswith("```"):
+                    response = response[:-3]
+                response = response.strip()
+            decision = json.loads(response)
+            approved = decision.get("approved", False)
+            logger.info(f"[Brain] Delegation request: {requester_name} -> {target_name} ({purpose[:60]}...) | Approved: {approved} | Reason: {decision.get('reason')}")
+            return approved
+        except Exception as e:
+            logger.warning(f"[Brain] Error evaluating delegation: {e}. Defaulting to True.")
+            return True
+
     # ─────────────────────────── Intent Routing ───────────────────────────────
 
     def _build_history_summary(self, limit: int = 3) -> str:
@@ -568,7 +610,7 @@ class Brain:
                 f"You are an intent classifier. Classify the following user message into EXACTLY ONE intent.\n\n"
                 f"INTENTS:\n"
                 f"- chat     : Casual conversation, greetings, general knowledge, jokes, math, definitions\n"
-                f"- security : Port scanning, recon, vulnerability testing, VAPT, DNS lookup, SSL checks, zero-day analysis\n"
+                f"- security : Port scanning, network recon, vulnerability scanning, DNS lookup, SSL checks, zero-day analysis\n"
                 f"- system   : Open/close apps, run shell commands, file operations, OS info, system control, browser navigation (opening browser to search Google/YouTube), playing music/videos\n"
                 f"- research : Deep academic/technical research, multi-source synthesis of complex topics, research papers\n"
                 f"- search   : Realtime background web search (not opening a browser window), current events, breaking news, live prices, trending topics, quick internet lookups, weather, user location/where am i, web scraping\n"
@@ -579,7 +621,8 @@ class Brain:
                 f"- analyze  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents of files\n"
                 f"- osint    : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation\n"
                 f"- email    : Send emails, send mail, compose and send mail via SMTP/Brevo relay\n"
-                f"- scheduler : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword (e.g., 'cancel meeting', 'list scheduled tasks', 'is task ko cancel kar do')\n\n"
+                f"- scheduler : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword (e.g., 'cancel meeting', 'list scheduled tasks', 'is task ko cancel kar do')\n"
+                f"- drana    : Bug bounty hunting, JS recon, manual VAPT, XSS payload generation, traffic analysis\n\n"
                 f"FEW-SHOT EXAMPLES:\n"
                 f"- \"search sambhav mehra on google\" -> system (reason: requests browser search visually)\n"
                 f"- \"google pe python dhoondo\" -> system (reason: requests opening browser to search Google)\n"
@@ -596,7 +639,7 @@ class Brain:
                 f"=== CONVERSATION HISTORY (last 3 messages) ===\n{history_summary}\n=== END HISTORY ===\n\n"
                 f"=== RECENT AGENT TASK EXECUTIONS ===\n{recent_tasks_summary}\n=== END RECENT TASKS ===\n\n"
                 f'Current user message: "{message}"\n\n'
-                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint, email, scheduler>", "reason": "<brief explanation>"}}'
+                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint, email, scheduler, drana>", "reason": "<brief explanation>"}}'
             )
             raw = raw.strip().strip("```json").strip("```").strip()
             data = json.loads(raw)
@@ -1308,6 +1351,118 @@ Respond with ONLY valid JSON matching this schema:
         # 3. Normal execution: try agentic loop
         try:
             memory_store.add_message("user", message)
+
+            # ── Direct OSINT Agent routing ─────────────────────────────────────
+            # If intent is OSINT, bypass the generic agentic loop and run
+            # the specialised multi-stage OSINTAgent pipeline directly.
+            intent = await self._classify_intent(message)
+            if intent == "osint":
+                logger.info("[Brain] Routing OSINT intent directly to OSINTAgent")
+                agent = self.agents["osint"]
+                base_context = {
+                    "chat_history": memory_store.get_context(10),
+                    "recent_tasks": self._build_recent_tasks_summary(5),
+                }
+                result = await agent.run(message, base_context)
+
+                elapsed = result.get("execution_time", 0.0)
+                success = result.get("success", True)
+                final_response = result.get("response", "")
+
+                memory_store.add_message(
+                    "assistant",
+                    final_response,
+                    {
+                        "agent": "OSINTAgent",
+                        "tasks": 1,
+                        "execution_time": elapsed,
+                        "attempts": 1,
+                    },
+                )
+                task_id = f"task_{len(memory_store.task_results) + 1}"
+                memory_store.store_task(task_id, {
+                    "tasks": [{
+                        "task_id": "t1",
+                        "intent": "osint",
+                        "agent": "OSINTAgent",
+                        "response": final_response,
+                        "success": success,
+                        "execution_time": elapsed,
+                        "error": result.get("error"),
+                    }],
+                    "elapsed": elapsed,
+                    "attempts": 1,
+                })
+
+                return {
+                    "response":       final_response,
+                    "intent":         "osint",
+                    "agent":          "OSINTAgent",
+                    "tasks_executed": 1,
+                    "tasks_succeeded": 1 if success else 0,
+                    "tasks_failed":   0 if success else 1,
+                    "execution_time": elapsed,
+                    "success":        success,
+                    "task_id":        task_id,
+                    "attempts":       1,
+                }
+
+            # ── Direct Drana Agent routing ─────────────────────────────────────
+            # If intent is drana, bypass the generic agentic loop and run
+            # the DranaAgent pipeline directly.
+            if intent == "drana":
+                logger.info("[Brain] Routing Drana intent directly to DranaAgent")
+                agent = self.agents["drana"]
+                from memory.drana_store import drana_store
+                base_context = {
+                    "chat_history": memory_store.get_context(10),
+                    "recent_tasks": self._build_recent_tasks_summary(5),
+                    "drana_context": drana_store.get_context_string(),
+                }
+                result = await agent.run(message, base_context)
+
+                elapsed = result.get("execution_time", 0.0)
+                success = result.get("success", True)
+                final_response = result.get("response", "")
+
+                memory_store.add_message(
+                    "assistant",
+                    final_response,
+                    {
+                        "agent": "DranaAgent",
+                        "tasks": 1,
+                        "execution_time": elapsed,
+                        "attempts": 1,
+                    },
+                )
+                task_id = f"task_{len(memory_store.task_results) + 1}"
+                memory_store.store_task(task_id, {
+                    "tasks": [{
+                        "task_id": "t1",
+                        "intent": "drana",
+                        "agent": "DranaAgent",
+                        "response": final_response,
+                        "success": success,
+                        "execution_time": elapsed,
+                        "error": result.get("error"),
+                    }],
+                    "elapsed": elapsed,
+                    "attempts": 1,
+                })
+
+                return {
+                    "response":       final_response,
+                    "intent":         "drana",
+                    "agent":          "DranaAgent",
+                    "tasks_executed": 1,
+                    "tasks_succeeded": 1 if success else 0,
+                    "tasks_failed":   0 if success else 1,
+                    "execution_time": elapsed,
+                    "success":        success,
+                    "task_id":        task_id,
+                    "attempts":       1,
+                }
+
             return await self.execute_agentic_loop(message)
         except Exception as e:
             logger.exception(f"Agentic loop failed: {e}. Falling back to legacy process.")
