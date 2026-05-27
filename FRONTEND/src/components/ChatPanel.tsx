@@ -28,10 +28,16 @@ const THINKING_STAGES = [
 
 export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isHacker, setIsHacker] = useState(false);
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isVoiceModeEnabled, setIsVoiceModeEnabled] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+
+  // Hacker Mode Challenge State
+  const [showHackerPrompt, setShowHackerPrompt] = useState(false);
+  const [hackerPassword, setHackerPassword] = useState('');
+  const [hackerError, setHackerError] = useState('');
 
   const voiceModeEnabledRef = useRef(false);
   const isProcessingVoiceRef = useRef(false);
@@ -46,39 +52,64 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const thinkingTimers = useRef<NodeJS.Timeout[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const res = await fetch('http://localhost:8000/api/chat/history');
-        const data = await res.json();
-        if (data.history && data.history.length > 0) {
-          const mapped: Message[] = data.history.map((m: any, i: number) => ({
-            id: `hist-${i}`,
-            role: m.role === 'assistant' ? 'ai' : 'user',
-            content: m.content,
-            streaming: false
-          }));
-          setMessages(mapped);
-          hasOpened.current = true;
-        } else if (isOpen && !hasOpened.current) {
-          hasOpened.current = true;
-          setTimeout(() => {
-            addAIMessage('Neural link established. I am AERIS -- Autonomous Enhanced Reasoning Intelligence System. How may I assist you?');
-          }, 450);
-        }
-      } catch (e) {
-        console.warn('Failed to fetch history (Backend might be offline/initializing):', e);
-        if (isOpen && !hasOpened.current) {
-          hasOpened.current = true;
-          addAIMessage('Neural link established. I am AERIS. (Offline Mode: History unavailable)');
+  const addAIMessage = useCallback((content: string, isStreaming = true, agent?: string, intent?: string) => {
+    onSpeakingChange(true);
+    const id = Date.now().toString();
+    setMessages(prev => [...prev, { id, role: 'ai', content, streaming: isStreaming, agent, intent }]);
+  }, [onSpeakingChange]);
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const statusRes = await fetch('http://localhost:8000/api/status');
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        setIsHacker(!!statusData.hacker_mode);
+        if (statusData.hacker_mode) {
+          document.body.classList.add('hacker');
+        } else {
+          document.body.classList.remove('hacker');
         }
       }
-    };
 
+      const res = await fetch('http://localhost:8000/api/chat/history');
+      const data = await res.json();
+      if (data.history && data.history.length > 0) {
+        const mapped: Message[] = data.history.map((m: any, i: number) => ({
+          id: `hist-${i}`,
+          role: m.role === 'assistant' ? 'ai' : 'user',
+          content: m.content,
+          streaming: false
+        }));
+        const filtered = mapped.filter((m: Message) => !m.content.startsWith('[SYSTEM]:'));
+        setMessages(filtered);
+        hasOpened.current = true;
+      } else {
+        setMessages([]);
+        if (!hasOpened.current) {
+          hasOpened.current = true;
+          setTimeout(() => {
+            if (document.body.classList.contains('hacker')) {
+              addAIMessage('Neural link established in Hacker Brain Mode. System secure. Ready for OSINT, VAPT, or CTF operations, Sir.', false);
+            } else {
+              addAIMessage('Neural link established. I am AERIS -- Autonomous Enhanced Reasoning Intelligence System. How may I assist you?', false);
+            }
+          }, 450);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch history (Backend might be offline/initializing):', e);
+      if (!hasOpened.current) {
+        hasOpened.current = true;
+        addAIMessage('Neural link established. I am AERIS. (Offline Mode: History unavailable)', false);
+      }
+    }
+  }, [addAIMessage]);
+
+  useEffect(() => {
     if (isOpen) {
       fetchHistory();
     }
-  }, [isOpen]);
+  }, [isOpen, isHacker, fetchHistory]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -101,11 +132,6 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     };
   }, []);
 
-  const addAIMessage = useCallback((content: string, isStreaming = true, agent?: string, intent?: string) => {
-    onSpeakingChange(true);
-    const id = Date.now().toString();
-    setMessages(prev => [...prev, { id, role: 'ai', content, streaming: isStreaming, agent, intent }]);
-  }, [onSpeakingChange]);
 
   const handleStreamDone = useCallback((id: string) => {
     setMessages(prev => prev.map(m => m.id === id ? { ...m, streaming: false } : m));
@@ -151,6 +177,36 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     onSpeakingChange(false);
   }, [stopThinking, onSpeakingChange]);
 
+  const submitHackerPassword = useCallback(async () => {
+    if (!hackerPassword.trim()) return;
+    try {
+      const res = await fetch('http://localhost:8000/api/hacker-mode/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: hackerPassword.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShowHackerPrompt(false);
+        setHackerPassword('');
+        setHackerError('');
+        document.body.classList.add('hacker');
+        setIsHacker(true);
+      } else {
+        setHackerError(data.message || 'Access Denied.');
+      }
+    } catch (e) {
+      setHackerError('Authentication service offline.');
+    }
+  }, [hackerPassword]);
+
+  const cancelHackerChallenge = useCallback(() => {
+    setShowHackerPrompt(false);
+    setHackerPassword('');
+    setHackerError('');
+    addAIMessage('Security clearance cancelled. Remaining in Productivity Mode.', false);
+  }, [addAIMessage]);
+
   const sendMessage = useCallback(async (text?: string) => {
     const msg = (text ?? input).trim();
     if (!msg || isTyping) return;
@@ -177,13 +233,46 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       abortControllerRef.current = null;
       stopThinking();
 
-      // Pass agent and intent metadata to the message
-      addAIMessage(
-        data.response || 'No response received.',
-        true,
-        data.agent || undefined,
-        data.intent || undefined
-      );
+      if (data.hacker_mode_challenge) {
+        setShowHackerPrompt(true);
+        setHackerPassword('');
+        setHackerError('');
+        onSpeakingChange(false);
+        return;
+      }
+
+      // Voice-keyword activation: keyword was in the command, mode already activated
+      if (data.hacker_mode_activated) {
+        document.body.classList.add('hacker');
+        setIsHacker(true);
+        addAIMessage(
+          data.response || 'Hacker Brain Mode activated.',
+          true,
+          data.agent || 'Brain',
+          data.intent || 'hacker_mode_activation'
+        );
+        return;
+      }
+
+      if (data.intent === 'hacker_mode_deactivation' || data.hacker_mode_deactivated) {
+        document.body.classList.remove('hacker');
+        setIsHacker(false);
+        addAIMessage(
+          data.response || 'Productivity Mode activated.',
+          true,
+          data.agent || 'Brain',
+          data.intent || 'hacker_mode_deactivation'
+        );
+        return;
+      } else {
+        // Pass agent and intent metadata to the message
+        addAIMessage(
+          data.response || 'No response received.',
+          true,
+          data.agent || undefined,
+          data.intent || undefined
+        );
+      }
     } catch (e: any) {
       abortControllerRef.current = null;
       stopThinking();
@@ -301,29 +390,67 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       stopRecognition();
 
       startThinking();
-      try {
-        const res = await fetch('http://localhost:8000/api/voice/process', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript: hinglishTranscript, speak: true }),
-        });
+        try {
+          const res = await fetch('http://localhost:8000/api/voice/process', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript: hinglishTranscript, speak: true }),
+          });
 
-        if (!res.ok) throw new Error('Backend error');
-        const data = await res.json();
-        stopThinking();
+          if (!res.ok) throw new Error('Backend error');
+          const data = await res.json();
+          stopThinking();
 
-        addAIMessage(
-          data.response_text || data.response || 'No response received.',
-          true,
-          undefined,
-          data.intent || undefined,
-        );
-      } catch (e) {
-        stopThinking();
-        addAIMessage('Error: Could not process voice command. Backend may be offline.', false);
-      } finally {
-        pollVoiceStatus();
-      }
+          if (data.hacker_mode_activated === true) {
+            // Password accepted or voice-keyword auto-activated → switch to hacker UI
+            document.body.classList.add('hacker');
+            setIsHacker(true);
+            addAIMessage(
+              data.response_text || data.response || 'Hacker Brain Mode activated.',
+              true,
+              'Brain',
+              'hacker_mode_activation'
+            );
+          } else if (data.hacker_mode_challenge) {
+            // Challenge prompt (password needed) — just display the message
+            // Backend remembers the pending challenge state for the next voice input
+            addAIMessage(
+              data.response_text || data.response || 'Security clearance keyword required.',
+              true,
+              'Brain',
+              'hacker_mode_activation'
+            );
+          } else if (data.intent === 'hacker_mode_activation' && data.hacker_mode_activated === false) {
+            // Access denied — wrong password
+            addAIMessage(
+              data.response_text || data.response || 'Access Denied. Invalid security clearance.',
+              false,
+              'Brain',
+              'hacker_mode_activation'
+            );
+          } else if (data.intent === 'hacker_mode_deactivation' || data.hacker_mode_deactivated) {
+            document.body.classList.remove('hacker');
+            setIsHacker(false);
+            addAIMessage(
+              data.response_text || data.response || 'Productivity Mode activated.',
+              true,
+              'Brain',
+              data.intent || 'hacker_mode_deactivation'
+            );
+          } else {
+            addAIMessage(
+              data.response_text || data.response || 'No response received.',
+              true,
+              undefined,
+              data.intent || undefined,
+            );
+          }
+        } catch (e) {
+          stopThinking();
+          addAIMessage('Error: Could not process voice command. Backend may be offline.', false);
+        } finally {
+          pollVoiceStatus();
+        }
     };
 
     recognition.onerror = (event: any) => {
@@ -398,8 +525,10 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       maxWidth: isExpanded ? '100%' : '1100px',
       height: isExpanded ? '100vh' : '85vh',
       minHeight: '520px',
-      background: 'rgba(3,9,25,0.97)',
-      border: '1px solid rgba(0,200,255,0.15)',
+      background: isHacker ? 'rgba(22, 4, 4, 0.98)' : 'rgba(3,9,25,0.97)',
+      borderTop: isHacker ? '1px solid rgba(255,51,51,0.25)' : '1px solid rgba(var(--cyan-rgb),0.15)',
+      borderLeft: isHacker ? '1px solid rgba(255,51,51,0.25)' : '1px solid rgba(var(--cyan-rgb),0.15)',
+      borderRight: isHacker ? '1px solid rgba(255,51,51,0.25)' : '1px solid rgba(var(--cyan-rgb),0.15)',
       borderBottom: 'none',
       borderRadius: isExpanded ? '0' : '24px 24px 0 0',
       zIndex: 200,
@@ -408,6 +537,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       transition: 'transform 0.62s cubic-bezier(0.23,1,0.32,1)',
       backdropFilter: 'blur(40px)',
       WebkitBackdropFilter: 'blur(40px)',
+      boxShadow: isHacker ? '0 -10px 40px rgba(255,51,51,0.12)' : 'none',
     },
   };
 
@@ -418,7 +548,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
         onClick={onClose}
         style={{
           position: 'fixed', inset: 0,
-          background: 'rgba(0,4,18,0.72)',
+          background: isHacker ? 'rgba(15, 2, 2, 0.75)' : 'rgba(0,4,18,0.72)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           zIndex: 100,
@@ -433,25 +563,25 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
         <div style={{
           display: 'flex', alignItems: 'center', gap: '12px',
           padding: '18px 24px 14px',
-          borderBottom: '1px solid rgba(0,200,255,0.08)',
+          borderBottom: '1px solid rgba(var(--cyan-rgb),0.08)',
           flexShrink: 0,
         }}>
           <div style={{
             width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
-            background: 'radial-gradient(circle at 35% 30%, rgba(0,220,255,0.32) 0%, transparent 60%), radial-gradient(circle, #020820 0%, #050f32 100%)',
-            border: '1px solid rgba(0,200,255,0.3)',
-            boxShadow: '0 0 12px rgba(0,200,255,0.2)',
+            background: 'radial-gradient(circle at 35% 30%, rgba(var(--cyan-rgb),0.32) 0%, transparent 60%), radial-gradient(circle, #020820 0%, #050f32 100%)',
+            border: '1px solid rgba(var(--cyan-rgb),0.3)',
+            boxShadow: '0 0 12px rgba(var(--cyan-rgb),0.2)',
             animation: 'orb-breathe 4.5s ease-in-out infinite',
           }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '13px', fontWeight: 500, color: 'rgba(0,220,255,0.92)', letterSpacing: '2.5px' }}>AERIS</div>
+            <div style={{ fontSize: '13px', fontWeight: 500, color: 'rgba(var(--cyan-rgb),0.92)', letterSpacing: '2.5px' }}>AERIS</div>
             <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', letterSpacing: '1.5px', marginTop: '1px' }}>AUTONOMOUS AI CONSCIOUSNESS</div>
           </div>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             style={{
-              background: 'rgba(0,200,255,0.06)', border: '1px solid rgba(0,200,255,0.15)',
-              color: 'rgba(0,200,255,0.65)', borderRadius: '50%',
+              background: 'rgba(var(--cyan-rgb),0.06)', border: '1px solid rgba(var(--cyan-rgb),0.15)',
+              color: 'rgba(var(--cyan-rgb),0.65)', borderRadius: '50%',
               width: '30px', height: '30px', cursor: 'pointer', fontSize: '14px',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.2s', flexShrink: 0,
@@ -461,14 +591,119 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
           <button
             onClick={onClose}
             style={{
-              background: 'rgba(0,200,255,0.06)', border: '1px solid rgba(0,200,255,0.15)',
-              color: 'rgba(0,200,255,0.65)', borderRadius: '50%',
+              background: 'rgba(var(--cyan-rgb),0.06)', border: '1px solid rgba(var(--cyan-rgb),0.15)',
+              color: 'rgba(var(--cyan-rgb),0.65)', borderRadius: '50%',
               width: '30px', height: '30px', cursor: 'pointer', fontSize: '13px',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'all 0.2s', flexShrink: 0,
             }}
           >✕</button>
         </div>
+
+        {/* Hacker Password Overlay Challenge */}
+        {showHackerPrompt && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            top: '64px',
+            background: 'rgba(5, 2, 2, 0.95)',
+            zIndex: 250,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '40px',
+            animation: 'msg-appear 0.3s ease',
+          }}>
+            <div style={{
+              width: '100%',
+              maxWidth: '400px',
+              background: 'rgba(25, 5, 5, 0.6)',
+              border: '1px solid #ff3333',
+              borderRadius: '16px',
+              padding: '30px',
+              boxShadow: '0 0 25px rgba(255,51,51,0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '20px',
+              textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '32px', filter: 'drop-shadow(0 0 10px #ff3333)' }}>🛡️</div>
+              <div>
+                <h3 style={{ color: '#ff3333', letterSpacing: '2px', fontSize: '16px', margin: '0 0 6px 0', textTransform: 'uppercase' }}>Security Clearance Required</h3>
+                <p style={{ color: 'rgba(255,51,51,0.7)', fontSize: '11px', lineHeight: '1.5' }}>Enter authorization key to unlock AERIS Hacker Brain Mode.</p>
+              </div>
+
+              <input
+                type="password"
+                value={hackerPassword}
+                onChange={e => setHackerPassword(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') submitHackerPassword(); }}
+                placeholder="ENTER PASSCODE"
+                style={{
+                  width: '100%',
+                  background: 'rgba(255,51,51,0.05)',
+                  border: '1px solid rgba(255,51,51,0.4)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  color: '#ff3333',
+                  fontFamily: 'inherit',
+                  textAlign: 'center',
+                  fontSize: '14px',
+                  letterSpacing: '4px',
+                  outline: 'none',
+                  boxShadow: 'inset 0 0 10px rgba(255,51,51,0.05)',
+                }}
+                autoFocus
+              />
+
+              {hackerError && (
+                <div style={{ color: '#ff4444', fontSize: '11px', letterSpacing: '0.5px' }}>
+                  ⚠️ {hackerError}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  onClick={cancelHackerChallenge}
+                  style={{
+                    flex: 1,
+                    background: 'transparent',
+                    border: '1px solid rgba(255,51,51,0.3)',
+                    color: 'rgba(255,51,51,0.6)',
+                    borderRadius: '8px',
+                    padding: '10px 0',
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={submitHackerPassword}
+                  style={{
+                    flex: 1,
+                    background: 'rgba(255,51,51,0.15)',
+                    border: '1px solid #ff3333',
+                    color: '#ff3333',
+                    borderRadius: '8px',
+                    padding: '10px 0',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    transition: 'all 0.2s',
+                    boxShadow: '0 0 10px rgba(255,51,51,0.2)',
+                  }}
+                >
+                  Authorize
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div style={{
@@ -488,27 +723,27 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
             <div style={{ display: 'flex', gap: '10px', animation: 'msg-appear 0.4s ease' }}>
               <div style={{
                 width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0, marginTop: '3px',
-                background: 'radial-gradient(circle at 35% 30%, rgba(0,220,255,0.32) 0%, transparent 60%), radial-gradient(circle, #020820 0%, #050f32 100%)',
-                border: '1px solid rgba(0,200,255,0.3)',
+                background: 'radial-gradient(circle at 35% 30%, rgba(var(--cyan-rgb),0.32) 0%, transparent 60%), radial-gradient(circle, #020820 0%, #050f32 100%)',
+                border: '1px solid rgba(var(--cyan-rgb),0.3)',
                 animation: 'orb-breathe 1.5s ease-in-out infinite',
               }} />
               <div style={{
                 padding: '10px 16px', borderRadius: '4px 14px 14px 14px',
-                background: 'rgba(0,212,255,0.05)', border: '1px solid rgba(0,212,255,0.1)',
+                background: 'rgba(var(--cyan-rgb),0.05)', border: '1px solid rgba(var(--cyan-rgb),0.1)',
                 display: 'flex', flexDirection: 'column', gap: '6px',
               }}>
                 {/* Stage text */}
                 <div key={thinkingStage} style={{
                   display: 'flex', alignItems: 'center', gap: '8px',
-                  fontSize: '11.5px', color: 'rgba(0,220,255,0.7)',
+                  fontSize: '11.5px', color: 'rgba(var(--cyan-rgb),0.7)',
                   letterSpacing: '0.5px',
                   animation: 'thinking-fade 0.4s ease',
                 }}>
                   <div style={{
                     width: '6px', height: '6px', borderRadius: '50%',
-                    background: 'rgba(0,220,255,0.6)',
+                    background: 'rgba(var(--cyan-rgb),0.6)',
                     animation: 'thinking-pulse 1.2s ease-in-out infinite',
-                    boxShadow: '0 0 8px rgba(0,220,255,0.4)',
+                    boxShadow: '0 0 8px rgba(var(--cyan-rgb),0.4)',
                   }} />
                   {currentStageText}
                 </div>
@@ -518,7 +753,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
                   {[0, 1, 2].map(i => (
                     <div key={i} style={{
                       width: '4px', height: '4px', borderRadius: '50%',
-                      background: 'rgba(0,200,255,0.4)',
+                      background: 'rgba(var(--cyan-rgb),0.4)',
                       animation: `typing-bounce 1.1s ease-in-out infinite`,
                       animationDelay: `${i * 0.18}s`,
                     }} />
@@ -531,7 +766,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
         </div>
 
         {/* Input area */}
-        <div style={{ padding: '12px 20px 20px', borderTop: '1px solid rgba(0,200,255,0.08)', flexShrink: 0 }}>
+        <div style={{ padding: '12px 20px 20px', borderTop: '1px solid rgba(var(--cyan-rgb),0.08)', flexShrink: 0 }}>
           {/* Quick actions */}
           <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', overflowX: 'auto', paddingBottom: '2px' }}>
             {QUICK_ACTIONS.map(a => (
@@ -539,18 +774,18 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
                 key={a.label}
                 onClick={() => sendMessage(a.msg)}
                 style={{
-                  background: 'rgba(0,200,255,0.04)', border: '1px solid rgba(0,200,255,0.1)',
+                  background: 'rgba(var(--cyan-rgb),0.04)', border: '1px solid rgba(var(--cyan-rgb),0.1)',
                   borderRadius: '20px', padding: '5px 13px', fontSize: '11px',
-                  color: 'rgba(0,200,255,0.52)', cursor: 'pointer', whiteSpace: 'nowrap',
+                  color: 'rgba(var(--cyan-rgb),0.52)', cursor: 'pointer', whiteSpace: 'nowrap',
                   transition: 'all 0.2s', letterSpacing: '0.5px', fontFamily: 'inherit',
                 }}
                 onMouseEnter={e => {
-                  (e.target as HTMLElement).style.background = 'rgba(0,200,255,0.1)';
-                  (e.target as HTMLElement).style.color = 'rgba(0,220,255,0.85)';
+                  (e.target as HTMLElement).style.background = 'rgba(var(--cyan-rgb),0.1)';
+                  (e.target as HTMLElement).style.color = 'rgba(var(--cyan-rgb),0.85)';
                 }}
                 onMouseLeave={e => {
-                  (e.target as HTMLElement).style.background = 'rgba(0,200,255,0.04)';
-                  (e.target as HTMLElement).style.color = 'rgba(0,200,255,0.52)';
+                  (e.target as HTMLElement).style.background = 'rgba(var(--cyan-rgb),0.04)';
+                  (e.target as HTMLElement).style.color = 'rgba(var(--cyan-rgb),0.52)';
                 }}
               >{a.label}</button>
             ))}
@@ -559,7 +794,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
           {/* Input row */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: '10px',
-            background: 'rgba(0,200,255,0.04)', border: '1px solid rgba(0,200,255,0.13)',
+            background: 'rgba(var(--cyan-rgb),0.04)', border: '1px solid rgba(var(--cyan-rgb),0.13)',
             borderRadius: '14px', padding: '9px 12px',
           }}>
             <textarea
@@ -612,11 +847,11 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
                 borderRadius: isTyping ? '6px' : '50%',
                 background: isTyping
                   ? 'linear-gradient(135deg, rgba(255,60,60,0.25), rgba(200,40,40,0.2))'
-                  : 'linear-gradient(135deg, rgba(0,200,255,0.2), rgba(0,140,200,0.15))',
+                  : 'linear-gradient(135deg, rgba(var(--cyan-rgb),0.2), rgba(var(--cyan-rgb),0.15))',
                 border: isTyping
                   ? '1px solid rgba(255,80,80,0.4)'
-                  : '1px solid rgba(0,200,255,0.32)',
-                color: isTyping ? 'rgba(255,120,120,0.95)' : 'rgba(0,220,255,0.92)',
+                  : '1px solid rgba(var(--cyan-rgb),0.32)',
+                color: isTyping ? 'rgba(255,120,120,0.95)' : 'rgba(var(--cyan-rgb),0.92)',
                 cursor: 'pointer', fontSize: '13px',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'all 0.25s ease', flexShrink: 0,

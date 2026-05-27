@@ -242,6 +242,7 @@ async def health_check():
 @app.get("/api/status")
 async def get_status():
     from memory.store import memory_store
+    from memory.user_profile import user_profile_store
 
     reg = get_universal_registry()
     return {
@@ -255,6 +256,7 @@ async def get_status():
         "extension_v2_clients": len(extension_v2_ws_clients),
         "neural_ready": _neural_ready,
         "initialization_error": _neural_init_error,
+        "hacker_mode": user_profile_store.get_profile().get("hacker_mode", False),
     }
 
 
@@ -263,6 +265,34 @@ async def api_greeting():
     from services.greeting_service import generate_dynamic_greeting
 
     return generate_dynamic_greeting()
+
+
+class HackerAuthRequest(BaseModel):
+    password: str
+
+
+@app.post("/api/hacker-mode/auth")
+async def hacker_mode_auth(req: HackerAuthRequest):
+    from memory.user_profile import user_profile_store
+    from memory.store import memory_store
+
+    # Validate clearance password
+    if req.password.strip().lower() == "sambhav":
+        # Clear any pending challenge in brain
+        brain._hacker_challenge_pending = False
+        
+        user_profile_store.update_profile(hacker_mode=True)
+        return {
+            "success": True,
+            "message": "Security clearance granted. Hacker Brain Activated.",
+            "hacker_mode": True
+        }
+    else:
+        return {
+            "success": False,
+            "message": "Access Denied. Invalid security clearance key.",
+            "hacker_mode": False
+        }
 
 
 @app.post("/api/chat")
@@ -1127,4 +1157,10 @@ if __name__ == "__main__":
     import uvicorn
 
     logger.info("Starting server on port %s", settings.API_PORT)
-    uvicorn.run("api:app", host="0.0.0.0", port=settings.API_PORT, reload=True)
+    uvicorn.run(
+        "api:app",
+        host="0.0.0.0",
+        port=settings.API_PORT,
+        reload=True,
+        reload_excludes=["*.json", "*.md", "*.log", "data/*", "data/**/*", "memory.json", "hacker_memory.json"]
+    )

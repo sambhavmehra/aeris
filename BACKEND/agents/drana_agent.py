@@ -280,7 +280,7 @@ class DranaAgent(BaseAgent):
 
             md = [
                 f"# 🛡️ Drana-Infinity VAPT & Bug Bounty Report: {target}",
-                "Bhai, maine target par baseline security scans aur manual VAPT analysis perform kar li hai.\n",
+                "Sir, maine target par baseline security scans aur manual VAPT analysis perform kar li hai.\n",
                 "## 🔍 Deep Security Triage & Pentest Checklist",
                 drana_analysis,
                 "\n---",
@@ -291,7 +291,7 @@ class DranaAgent(BaseAgent):
 
         elif action == "ask_for_target":
             return (
-                "Bhai, kis target domain, IP, ya URL par bug bounty ya VAPT scan perform karna hai? "
+                "Sir, kis target domain, IP, ya URL par bug bounty ya VAPT scan perform karna hai? "
                 "Mujhe target specify karo (e.g. `sambhavmehra.me pe bug bounty scan run kar`)."
             )
 

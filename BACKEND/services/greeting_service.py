@@ -155,7 +155,40 @@ def _is_valid_greeting(line: str, bucket: str) -> bool:
     return True
 
 
-def _safe_template(bucket: str, mode: str) -> str:
+def _safe_template(bucket: str, mode: str, hacker_mode: bool = False) -> str:
+    if hacker_mode:
+        templates = {
+            "morning": {
+                "coding": "Sir, morning security code. Let's patch.",
+                "research": "Sir, morning OSINT sweep.",
+                "security": "Sir, morning recon. Mainframes scan ready.",
+                "designing": "Sir, morning attack surface map.",
+                "chat": "Sir, morning uplink. Ready for penetration test?",
+            },
+            "afternoon": {
+                "coding": "Sir, afternoon shell execution. Build payloads.",
+                "research": "Sir, afternoon darknet intel research.",
+                "security": "Sir, afternoon security audit. Scan target?",
+                "designing": "Sir, afternoon network diagram mapping.",
+                "chat": "Sir, afternoon breach simulations ready.",
+            },
+            "evening": {
+                "coding": "Sir, evening vulnerability patching. Audit code.",
+                "research": "Sir, evening OSINT intelligence harvesting.",
+                "security": "Sir, evening cyber defense scan active.",
+                "designing": "Sir, evening attack vector modeling.",
+                "chat": "Sir, evening terminal session secured.",
+            },
+            "night": {
+                "coding": "Sir, night buffer overflow tests. Deploy.",
+                "research": "Sir, night recon intel parsing.",
+                "security": "Sir, night sweep. System intrusion checks.",
+                "designing": "Sir, night security topology mapping.",
+                "chat": "Sir, night watch. Intrusion detection active.",
+            },
+        }
+        return templates.get(bucket, {}).get(mode, "Sir, secure link established. What target?")
+
     templates = {
         "morning": {
             "coding": "Sir, morning coding. Let's ship.",
@@ -206,7 +239,35 @@ def generate_dynamic_greeting() -> dict[str, str]:
     last_task = signals.get("last_task", "general")
     mode = signals.get("mode", "chat")
 
-    prompt = f"""You are AERIS greeting generator.
+    from memory.user_profile import user_profile_store
+    hacker_mode_active = user_profile_store.get_profile().get("hacker_mode", False)
+
+    if hacker_mode_active:
+        prompt = f"""You are AERIS security greeting generator.
+Task: create ONE short hacker/cybersecurity-themed greeting line, time-aware for: {bucket}.
+Current time (for reference): {now}
+
+Personalization hints (use subtly, NOT as raw text):
+- last task type: {last_task}
+- mode: {mode} (Hacker Mode is ACTIVE)
+- project hint: {signals.get("project","AERIS")}
+
+Constraints (must follow exactly):
+- Output ONLY the greeting line. No JSON, no markdown, no quotes.
+- Length: 2 to 10 words max.
+- MUST NOT contain these words/phrases (case-insensitive):
+  hi, hello, hey, heyy, i'm, im, aeris, "i am aeris", "im aeris".
+- Should address Sir politely (use "Sir" exactly).
+- It should feel cybersecurity, OSINT, or hacker-focused: "cyber recon active", "terminal secure", "security link established", "threat audit ready" etc.
+
+Examples (do NOT copy verbatim):
+- "Sir, morning security sweep. Target ready?"
+- "Sir, afternoon recon. Cyber vectors aligned."
+- "Sir, evening terminal secured. Status green."
+- "Sir, night watch. Intrusion detection active."
+"""
+    else:
+        prompt = f"""You are AERIS greeting generator.
 Task: create ONE short greeting line, time-aware for: {bucket}.
 Current time (for reference): {now}
 
@@ -245,7 +306,7 @@ Examples (do NOT copy verbatim):
     line = _sanitize_one_line(raw_text)
 
     if not _is_valid_greeting(line, bucket=bucket):
-        line = _safe_template(bucket=bucket, mode=mode)
+        line = _safe_template(bucket=bucket, mode=mode, hacker_mode=hacker_mode_active)
 
     # Final sanitize (in case template contains odd whitespace)
     line = _sanitize_one_line(line)

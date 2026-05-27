@@ -33,16 +33,106 @@ class MemoryStore:
 
     def __init__(self, max_history: int = 100):
         self.max_history = max_history
-        self.chat_history: list[dict] = []
-        self.task_results: dict[str, dict] = {}
-        self.short_term_summary: str = ""
-        self.long_term_facts: list[str] = []
-        self.project_memory: dict[str, Any] = {}
-        self.vector_hooks: list[dict] = []
-        self._file_path = settings.DATA_DIR / "memory.json"
+        
+        # Internal fields for Normal Mode
+        self._normal_chat_history: list[dict] = []
+        self._normal_task_results: dict[str, dict] = {}
+        self._normal_short_term_summary: str = ""
+        self._normal_long_term_facts: list[str] = []
+        self._normal_project_memory: dict[str, Any] = {}
+        self._normal_vector_hooks: list[dict] = []
+        
+        # Internal fields for Hacker Mode
+        self._hacker_chat_history: list[dict] = []
+        self._hacker_task_results: dict[str, dict] = {}
+        self._hacker_short_term_summary: str = ""
+        self._hacker_long_term_facts: list[str] = []
+        self._hacker_project_memory: dict[str, Any] = {}
+        self._hacker_vector_hooks: list[dict] = []
+
+        self._normal_file_path = settings.DATA_DIR / "memory.json"
+        self._hacker_file_path = settings.DATA_DIR / "hacker_memory.json"
 
         # Load existing data
         self.load()
+
+    @property
+    def is_hacker_mode(self) -> bool:
+        try:
+            from memory.user_profile import user_profile_store
+            return user_profile_store.get_profile().get("hacker_mode", False)
+        except Exception:
+            return False
+
+    @property
+    def chat_history(self) -> list[dict]:
+        return self._hacker_chat_history if self.is_hacker_mode else self._normal_chat_history
+
+    @chat_history.setter
+    def chat_history(self, val: list[dict]):
+        if self.is_hacker_mode:
+            self._hacker_chat_history = val
+        else:
+            self._normal_chat_history = val
+
+    @property
+    def task_results(self) -> dict[str, dict]:
+        return self._hacker_task_results if self.is_hacker_mode else self._normal_task_results
+
+    @task_results.setter
+    def task_results(self, val: dict[str, dict]):
+        if self.is_hacker_mode:
+            self._hacker_task_results = val
+        else:
+            self._normal_task_results = val
+
+    @property
+    def short_term_summary(self) -> str:
+        return self._hacker_short_term_summary if self.is_hacker_mode else self._normal_short_term_summary
+
+    @short_term_summary.setter
+    def short_term_summary(self, val: str):
+        if self.is_hacker_mode:
+            self._hacker_short_term_summary = val
+        else:
+            self._normal_short_term_summary = val
+
+    @property
+    def long_term_facts(self) -> list[str]:
+        return self._hacker_long_term_facts if self.is_hacker_mode else self._normal_long_term_facts
+
+    @long_term_facts.setter
+    def long_term_facts(self, val: list[str]):
+        if self.is_hacker_mode:
+            self._hacker_long_term_facts = val
+        else:
+            self._normal_long_term_facts = val
+
+    @property
+    def project_memory(self) -> dict[str, Any]:
+        return self._hacker_project_memory if self.is_hacker_mode else self._normal_project_memory
+
+    @project_memory.setter
+    def project_memory(self, val: dict[str, Any]):
+        if self.is_hacker_mode:
+            self._hacker_project_memory = val
+        else:
+            self._normal_project_memory = val
+
+    @property
+    def vector_hooks(self) -> list[dict]:
+        return self._hacker_vector_hooks if self.is_hacker_mode else self._normal_vector_hooks
+
+    @vector_hooks.setter
+    def vector_hooks(self, val: list[dict]):
+        if self.is_hacker_mode:
+            self._hacker_vector_hooks = val
+        else:
+            self._normal_vector_hooks = val
+
+    @property
+    def _file_path(self) -> Path:
+        return self._hacker_file_path if self.is_hacker_mode else self._normal_file_path
 
     def add_message(self, role: str, content: str, metadata: Optional[dict] = None) -> None:
         """Add a message to chat history."""
@@ -227,45 +317,64 @@ class MemoryStore:
     def save(self) -> None:
         """Persist memory to disk."""
         try:
+            # Save the active mode's data file
+            is_hacker = self.is_hacker_mode
+            file_path = self._hacker_file_path if is_hacker else self._normal_file_path
+            
             data = {
-                "chat_history": self.chat_history,
-                "task_results": self.task_results,
-                "short_term_summary": self.short_term_summary,
-                "long_term_facts": self.long_term_facts,
-                "project_memory": self.project_memory,
-                "vector_hooks": self.vector_hooks,
+                "chat_history": self._hacker_chat_history if is_hacker else self._normal_chat_history,
+                "task_results": self._hacker_task_results if is_hacker else self._normal_task_results,
+                "short_term_summary": self._hacker_short_term_summary if is_hacker else self._normal_short_term_summary,
+                "long_term_facts": self._hacker_long_term_facts if is_hacker else self._normal_long_term_facts,
+                "project_memory": self._hacker_project_memory if is_hacker else self._normal_project_memory,
+                "vector_hooks": self._hacker_vector_hooks if is_hacker else self._normal_vector_hooks,
                 "last_saved": datetime.now(timezone.utc).isoformat(),
             }
-            self._file_path.parent.mkdir(parents=True, exist_ok=True)
-            self._file_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
         except Exception as e:
             logger.error(f"Failed to save memory: {e}")
 
     def load(self) -> None:
-        """Load memory from disk."""
+        """Load memory from disk for both normal and hacker files."""
+        # Load Normal memory
         try:
-            if self._file_path.exists():
-                data = json.loads(self._file_path.read_text(encoding="utf-8"))
-                self.chat_history = data.get("chat_history", [])
-                self.task_results = data.get("task_results", {})
-                self.short_term_summary = data.get("short_term_summary", "")
-                self.long_term_facts = data.get("long_term_facts", [])
-                self.project_memory = data.get("project_memory", {})
-                self.vector_hooks = data.get("vector_hooks", [])
-                logger.info(f"Loaded memory: {len(self.chat_history)} messages, {len(self.long_term_facts)} facts")
+            if self._normal_file_path.exists():
+                data = json.loads(self._normal_file_path.read_text(encoding="utf-8"))
+                self._normal_chat_history = data.get("chat_history", [])
+                self._normal_task_results = data.get("task_results", {})
+                self._normal_short_term_summary = data.get("short_term_summary", "")
+                self._normal_long_term_facts = data.get("long_term_facts", [])
+                self._normal_project_memory = data.get("project_memory", {})
+                self._normal_vector_hooks = data.get("vector_hooks", [])
+                logger.info(f"Loaded normal memory: {len(self._normal_chat_history)} messages")
             else:
-                logger.info("No existing memory file — starting fresh")
+                logger.info("No existing normal memory file — starting fresh")
         except Exception as e:
-            logger.error(f"Failed to load memory: {e}")
-            self.chat_history = []
-            self.task_results = {}
-            self.short_term_summary = ""
-            self.long_term_facts = []
-            self.project_memory = {}
-            self.vector_hooks = []
+            logger.error(f"Failed to load normal memory: {e}")
+
+        # Load Hacker memory
+        try:
+            if self._hacker_file_path.exists():
+                data = json.loads(self._hacker_file_path.read_text(encoding="utf-8"))
+                self._hacker_chat_history = data.get("chat_history", [])
+                self._hacker_task_results = data.get("task_results", {})
+                self._hacker_short_term_summary = data.get("short_term_summary", "")
+                self._hacker_long_term_facts = data.get("long_term_facts", [])
+                self._hacker_project_memory = data.get("project_memory", {})
+                self._hacker_vector_hooks = data.get("vector_hooks", [])
+                logger.info(f"Loaded hacker memory: {len(self._hacker_chat_history)} messages")
+            else:
+                logger.info("No existing hacker memory file — starting fresh")
+        except Exception as e:
+            logger.error(f"Failed to load hacker memory: {e}")
 
     def __repr__(self) -> str:
-        return f"<MemoryStore: {len(self.chat_history)} messages, {len(self.long_term_facts)} facts>"
+        is_hacker = self.is_hacker_mode
+        hist_len = len(self._hacker_chat_history) if is_hacker else len(self._normal_chat_history)
+        facts_len = len(self._hacker_long_term_facts) if is_hacker else len(self._normal_long_term_facts)
+        mode = "Hacker" if is_hacker else "Normal"
+        return f"<MemoryStore ({mode} Mode): {hist_len} messages, {facts_len} facts>"
 
 
 # Global singleton

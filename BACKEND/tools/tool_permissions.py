@@ -88,6 +88,21 @@ class ToolPermissionSystem:
         params = params or {}
         params_str = str(params).lower()
 
+        # Enforce Hacker Mode for security/recon/vapt tools
+        if tool.category in ("recon", "vapt", "security"):
+            try:
+                from memory.user_profile import user_profile_store
+                is_hacker = user_profile_store.get_profile().get("hacker_mode", False)
+            except Exception:
+                is_hacker = False
+            
+            if not is_hacker:
+                return PermissionDecision(
+                    allowed=False,
+                    reason=f"Tool '{tool.name}' category '{tool.category}' requires Hacker Brain Mode authorization.",
+                    risk_level=tool.risk_level.value,
+                )
+
         # 1. User blacklist — hard block
         if tool.name in self._user_blacklist:
             return PermissionDecision(

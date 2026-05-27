@@ -117,7 +117,7 @@ function DynamicForm({ config }: { config: FormConfig }) {
   return (
     <form onSubmit={handleSubmit} style={{
       background: 'rgba(3,9,25,0.6)',
-      border: '1px solid rgba(0,212,255,0.15)',
+      border: '1px solid rgba(var(--cyan-rgb),0.15)',
       borderRadius: '12px',
       padding: '16px',
       marginTop: '8px',
@@ -134,7 +134,7 @@ function DynamicForm({ config }: { config: FormConfig }) {
           fontSize: '14px',
           fontWeight: 600,
           margin: '0 0 4px 0',
-          color: 'rgba(0, 220, 255, 0.95)'
+          color: 'rgba(var(--cyan-rgb), 0.95)'
         }}>{config.title}</h4>
         <p style={{
           fontSize: '11.5px',
@@ -162,8 +162,8 @@ function DynamicForm({ config }: { config: FormConfig }) {
             onChange={e => handleInputChange(field.name, e.target.value)}
             disabled={status === 'loading'}
             style={{
-              background: 'rgba(0,212,255,0.03)',
-              border: '1px solid rgba(0,212,255,0.15)',
+              background: 'rgba(var(--cyan-rgb),0.03)',
+              border: '1px solid rgba(var(--cyan-rgb),0.15)',
               borderRadius: '6px',
               padding: '8px 12px',
               fontSize: '12.5px',
@@ -194,10 +194,10 @@ function DynamicForm({ config }: { config: FormConfig }) {
         disabled={status === 'loading'}
         style={{
           background: status === 'loading'
-            ? 'rgba(0,200,255,0.1)'
-            : 'linear-gradient(135deg, rgba(0,200,255,0.25), rgba(0,140,200,0.2))',
-          border: '1px solid rgba(0,200,255,0.35)',
-          color: 'rgba(0,220,255,0.95)',
+            ? 'rgba(var(--cyan-rgb),0.1)'
+            : 'linear-gradient(135deg, rgba(var(--cyan-rgb),0.25), rgba(0,140,200,0.2))',
+          border: '1px solid rgba(var(--cyan-rgb),0.35)',
+          color: 'rgba(var(--cyan-rgb),0.95)',
           borderRadius: '8px',
           padding: '9px',
           fontSize: '13px',
@@ -215,8 +215,8 @@ function DynamicForm({ config }: { config: FormConfig }) {
             <span style={{
               width: '12px',
               height: '12px',
-              border: '2px solid rgba(0,220,255,0.3)',
-              borderTopColor: 'rgba(0,220,255,0.95)',
+              border: '2px solid rgba(var(--cyan-rgb),0.3)',
+              borderTopColor: 'rgba(var(--cyan-rgb),0.95)',
               borderRadius: '50%',
               animation: 'spin 0.8s linear infinite'
             }} />
@@ -233,7 +233,7 @@ function DynamicForm({ config }: { config: FormConfig }) {
 
 // Intent -> icon + color mapping
 const INTENT_META: Record<string, { icon: string; color: string; label: string }> = {
-  chat:        { icon: '💬', color: 'rgba(0,220,255,0.7)',  label: 'Chat' },
+  chat:        { icon: '💬', color: 'rgba(var(--cyan-rgb),0.7)',  label: 'Chat' },
   security:    { icon: '🛡',  color: 'rgba(255,80,80,0.75)', label: 'Security' },
   system:      { icon: '⚙',  color: 'rgba(255,180,50,0.75)', label: 'System' },
   research:    { icon: '🔍', color: 'rgba(100,220,100,0.75)', label: 'Research' },
@@ -286,12 +286,12 @@ function CodeBlock({
           justifyContent: 'space-between',
           alignItems: 'center',
           background: 'rgba(0,10,30,0.65)',
-          border: '1px solid rgba(0,212,255,0.15)',
+          border: '1px solid rgba(var(--cyan-rgb),0.15)',
           borderBottom: 'none',
           borderRadius: '8px 8px 0 0',
           padding: '4px 12px',
           fontSize: '10px',
-          color: 'rgba(0,220,255,0.5)',
+          color: 'rgba(var(--cyan-rgb),0.5)',
           fontFamily: 'monospace',
           textTransform: 'uppercase',
           letterSpacing: '1px',
@@ -306,9 +306,9 @@ function CodeBlock({
           style={{
             marginLeft: 'auto',
             cursor: 'pointer',
-            background: copied ? 'rgba(0,220,255,0.18)' : 'rgba(0,212,255,0.08)',
-            border: '1px solid rgba(0,212,255,0.18)',
-            color: copied ? 'rgba(0,220,255,0.95)' : 'rgba(0,220,255,0.75)',
+            background: copied ? 'rgba(var(--cyan-rgb),0.18)' : 'rgba(var(--cyan-rgb),0.08)',
+            border: '1px solid rgba(var(--cyan-rgb),0.18)',
+            color: copied ? 'rgba(var(--cyan-rgb),0.95)' : 'rgba(var(--cyan-rgb),0.75)',
             borderRadius: '6px',
             padding: '3px 8px',
             fontSize: '9.5px',
@@ -328,7 +328,7 @@ function CodeBlock({
         customStyle={{
           margin: 0,
           background: 'rgba(0,4,16,0.85)',
-          border: '1px solid rgba(0,212,255,0.15)',
+          border: '1px solid rgba(var(--cyan-rgb),0.15)',
           borderRadius: '0 0 8px 8px',
           padding: '12px',
           fontFamily: "'SF Mono', 'Fira Code', 'JetBrains Mono', monospace",
@@ -353,10 +353,10 @@ const CustomMarkdown = ({ content }: { content: string }) => {
               fontSize: '18px',
               fontWeight: 700,
               margin: '16px 0 8px 0',
-              background: 'linear-gradient(135deg, #00d4ff, #8b5cf6)',
+              background: 'linear-gradient(135deg, var(--cyan), #8b5cf6)',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
-              textShadow: '0 0 15px rgba(0,220,255,0.15)',
+              textShadow: '0 0 15px rgba(var(--cyan-rgb),0.15)',
             }}
             {...props}
           />
@@ -367,8 +367,8 @@ const CustomMarkdown = ({ content }: { content: string }) => {
               fontSize: '16px',
               fontWeight: 600,
               margin: '14px 0 6px 0',
-              color: 'rgba(0, 220, 255, 0.95)',
-              borderBottom: '1px solid rgba(0, 212, 255, 0.1)',
+              color: 'rgba(var(--cyan-rgb), 0.95)',
+              borderBottom: '1px solid rgba(var(--cyan-rgb), 0.1)',
               paddingBottom: '4px',
             }}
             {...props}
@@ -398,9 +398,9 @@ const CustomMarkdown = ({ content }: { content: string }) => {
         a: ({ node, ...props }) => (
           <a
             style={{
-              color: '#00d4ff',
+              color: 'var(--cyan)',
               textDecoration: 'none',
-              borderBottom: '1px dashed rgba(0, 212, 255, 0.4)',
+              borderBottom: '1px dashed rgba(var(--cyan-rgb), 0.4)',
               transition: 'border-color 0.2s',
             }}
             target="_blank"
@@ -411,8 +411,8 @@ const CustomMarkdown = ({ content }: { content: string }) => {
         blockquote: ({ node, ...props }) => (
           <blockquote
             style={{
-              borderLeft: '3px solid rgba(0, 212, 255, 0.5)',
-              background: 'rgba(0, 212, 255, 0.03)',
+              borderLeft: '3px solid rgba(var(--cyan-rgb), 0.5)',
+              background: 'rgba(var(--cyan-rgb), 0.03)',
               padding: '8px 16px',
               margin: '12px 0',
               color: 'rgba(200, 240, 255, 0.7)',
@@ -424,7 +424,7 @@ const CustomMarkdown = ({ content }: { content: string }) => {
           />
         ),
         table: ({ node, ...props }) => (
-          <div style={{ overflowX: 'auto', margin: '12px 0', borderRadius: '8px', border: '1px solid rgba(0, 212, 255, 0.15)' }}>
+          <div style={{ overflowX: 'auto', margin: '12px 0', borderRadius: '8px', border: '1px solid rgba(var(--cyan-rgb), 0.15)' }}>
             <table
               style={{
                 width: '100%',
@@ -437,15 +437,15 @@ const CustomMarkdown = ({ content }: { content: string }) => {
           </div>
         ),
         thead: ({ node, ...props }) => (
-          <thead style={{ background: 'rgba(0, 212, 255, 0.08)' }} {...props} />
+          <thead style={{ background: 'rgba(var(--cyan-rgb), 0.08)' }} {...props} />
         ),
         th: ({ node, ...props }) => (
           <th
             style={{
               padding: '8px 12px',
               fontWeight: 600,
-              color: 'rgba(0, 220, 255, 0.95)',
-              borderBottom: '1px solid rgba(0, 212, 255, 0.2)',
+              color: 'rgba(var(--cyan-rgb), 0.95)',
+              borderBottom: '1px solid rgba(var(--cyan-rgb), 0.2)',
             }}
             {...props}
           />
@@ -455,7 +455,7 @@ const CustomMarkdown = ({ content }: { content: string }) => {
             style={{
               padding: '8px 12px',
               color: 'rgba(200, 240, 255, 0.8)',
-              borderBottom: '1px solid rgba(0, 212, 255, 0.1)',
+              borderBottom: '1px solid rgba(var(--cyan-rgb), 0.1)',
             }}
             {...props}
           />
@@ -496,8 +496,8 @@ const CustomMarkdown = ({ content }: { content: string }) => {
             return (
               <code
                 style={{
-                  background: 'rgba(0, 212, 255, 0.12)',
-                  color: '#00d4ff',
+                  background: 'rgba(var(--cyan-rgb), 0.12)',
+                  color: 'var(--cyan)',
                   padding: '2px 5px',
                   borderRadius: '4px',
                   fontFamily: 'monospace',
@@ -538,8 +538,8 @@ function renderContent(text: string) {
           display: 'inline-block',
           borderRadius: '12px',
           overflow: 'hidden',
-          border: '1px solid rgba(0,212,255,0.25)',
-          boxShadow: '0 0 24px rgba(0,212,255,0.12), 0 8px 32px rgba(0,0,0,0.4)',
+          border: '1px solid rgba(var(--cyan-rgb),0.25)',
+          boxShadow: '0 0 24px rgba(var(--cyan-rgb),0.12), 0 8px 32px rgba(0,0,0,0.4)',
           maxWidth: '100%',
           marginTop: '10px',
           marginBottom: '10px',
@@ -565,7 +565,7 @@ function renderContent(text: string) {
             padding: '6px 10px',
             background: 'linear-gradient(transparent, rgba(0,4,18,0.85))',
             fontSize: '10px',
-            color: 'rgba(0,220,255,0.6)',
+            color: 'rgba(var(--cyan-rgb),0.6)',
             letterSpacing: '1px',
           }}>AERIS · AI GENERATED</div>
         </div>
@@ -582,8 +582,8 @@ function renderContent(text: string) {
           marginBottom: '10px',
           borderRadius: '16px',
           overflow: 'hidden',
-          border: '1px solid rgba(0,212,255,0.2)',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,212,255,0.05)',
+          border: '1px solid rgba(var(--cyan-rgb),0.2)',
+          boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(var(--cyan-rgb),0.05)',
           width: '100%',
         }}>
           <iframe
@@ -637,7 +637,7 @@ function StreamingBubble({ content, onDone }: StreamingBubbleProps) {
         display: 'inline-block',
         width: '2px',
         height: '13px',
-        background: 'rgba(0,220,255,0.8)',
+        background: 'rgba(var(--cyan-rgb),0.8)',
         marginLeft: '2px',
         verticalAlign: 'middle',
         animation: 'cursor-blink 0.65s ease-in-out infinite',
@@ -726,9 +726,9 @@ const ChatMessage = memo(function ChatMessage({ message, onStreamDone }: ChatMes
         flexShrink: 0,
         marginTop: '3px',
         ...(isAI ? {
-          background: 'radial-gradient(circle at 35% 30%, rgba(0,220,255,0.32) 0%, transparent 60%), radial-gradient(circle, #020820 0%, #050f32 100%)',
-          border: '1px solid rgba(0,200,255,0.3)',
-          boxShadow: '0 0 10px rgba(0,200,255,0.18)',
+          background: 'radial-gradient(circle at 35% 30%, rgba(var(--cyan-rgb),0.32) 0%, transparent 60%), radial-gradient(circle, #020820 0%, #050f32 100%)',
+          border: '1px solid rgba(var(--cyan-rgb),0.3)',
+          boxShadow: '0 0 10px rgba(var(--cyan-rgb),0.18)',
         } : {
           background: 'linear-gradient(135deg, rgba(139,92,246,0.28), rgba(0,100,200,0.18))',
           border: '1px solid rgba(139,92,246,0.28)',
@@ -752,8 +752,8 @@ const ChatMessage = memo(function ChatMessage({ message, onStreamDone }: ChatMes
         fontSize: '13px',
         lineHeight: 1.65,
         ...(isAI ? {
-          background: 'rgba(0,212,255,0.05)',
-          border: '1px solid rgba(0,212,255,0.1)',
+          background: 'rgba(var(--cyan-rgb),0.05)',
+          border: '1px solid rgba(var(--cyan-rgb),0.1)',
           color: 'rgba(200,240,255,0.88)',
         } : {
           background: 'rgba(139,92,246,0.09)',

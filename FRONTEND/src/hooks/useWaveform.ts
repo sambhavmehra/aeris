@@ -36,12 +36,18 @@ export function useWaveform(
       }
       ctx.closePath();
 
-      const grad = ctx.createRadialGradient(cx, cy, r - 24, cx, cy, r + 24);
-      grad.addColorStop(0, 'rgba(0,255,255,0.28)');
-      grad.addColorStop(0.5, 'rgba(0,255,255,0.14)');
-      grad.addColorStop(1, 'rgba(0,255,170,0.07)');
+      const isHacker = typeof document !== 'undefined' && document.body.classList.contains('hacker');
+      const cyanColor = isHacker ? 'rgba(255,51,51,0.28)' : 'rgba(0,255,255,0.28)';
+      const cyanMid = isHacker ? 'rgba(255,51,51,0.14)' : 'rgba(0,255,255,0.14)';
+      const purpleEnd = isHacker ? 'rgba(255,102,0,0.07)' : 'rgba(0,255,170,0.07)';
+      const strokeCol = isHacker ? 'rgba(255,51,51,0.55)' : 'rgba(0,255,255,0.55)';
 
-      ctx.strokeStyle = 'rgba(0,255,255,0.55)';
+      const grad = ctx.createRadialGradient(cx, cy, r - 24, cx, cy, r + 24);
+      grad.addColorStop(0, cyanColor);
+      grad.addColorStop(0.5, cyanMid);
+      grad.addColorStop(1, purpleEnd);
+
+      ctx.strokeStyle = strokeCol;
       ctx.lineWidth = 1.5;
       ctx.stroke();
       ctx.fillStyle = grad;

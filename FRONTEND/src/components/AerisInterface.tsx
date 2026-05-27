@@ -21,8 +21,19 @@ export default function AerisInterface() {
     const checkStatus = async () => {
       try {
         const res = await fetch('http://localhost:8000/api/status');
-        if (res.ok) setIsOnline(true);
-        else setIsOnline(false);
+        if (res.ok) {
+          setIsOnline(true);
+          const data = await res.json();
+          if (data && typeof data.hacker_mode === 'boolean') {
+            if (data.hacker_mode) {
+              document.body.classList.add('hacker');
+            } else {
+              document.body.classList.remove('hacker');
+            }
+          }
+        } else {
+          setIsOnline(false);
+        }
       } catch (e) {
         setIsOnline(false);
       }
@@ -60,11 +71,11 @@ export default function AerisInterface() {
   const closeChat = () => { setChatOpen(false); setIsSpeaking(false); };
 
   const greetingAccent = {
-    primary: '#00ffff',
-    secondary: '#00ffaa',
-    glow1: 'rgba(0,255,255,0.8)',
-    glow2: 'rgba(0,255,255,0.4)',
-    glow3: 'rgba(0,255,170,0.2)',
+    primary: 'var(--cyan)',
+    secondary: 'var(--purple)',
+    glow1: 'rgba(var(--cyan-rgb),0.8)',
+    glow2: 'rgba(var(--cyan-rgb),0.4)',
+    glow3: 'rgba(var(--purple-rgb),0.2)',
   };
 
   const greetingTextShadow = `0 0 20px ${greetingAccent.glow1}, 0 0 40px ${greetingAccent.glow2}, 0 0 60px ${greetingAccent.glow3}`;
@@ -77,7 +88,7 @@ export default function AerisInterface() {
         id="aeris-cursor-glow"
         style={{
           position: 'fixed', width: '220px', height: '220px', borderRadius: '50%',
-          background: 'radial-gradient(circle, rgba(0,255,255,0.065) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(var(--cyan-rgb),0.065) 0%, transparent 70%)',
           pointerEvents: 'none', transform: 'translate(-50%, -50%)',
           zIndex: 9999, transition: 'opacity 0.3s',
         }}
@@ -86,9 +97,9 @@ export default function AerisInterface() {
         id="aeris-cursor-dot"
         style={{
           position: 'fixed', width: '6px', height: '6px', borderRadius: '50%',
-          background: 'rgba(0,255,255,0.85)', pointerEvents: 'none',
+          background: 'rgba(var(--cyan-rgb),0.85)', pointerEvents: 'none',
           transform: 'translate(-50%, -50%)', zIndex: 10000,
-          boxShadow: '0 0 12px rgba(0,255,255,0.9)',
+          boxShadow: '0 0 12px rgba(var(--cyan-rgb),0.9)',
         }}
       />
 
@@ -99,8 +110,8 @@ export default function AerisInterface() {
       <div style={{
         position: 'fixed', inset: 0, zIndex: 0,
         backgroundImage: `
-          linear-gradient(rgba(0,255,255,0.03) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(0,255,255,0.03) 1px, transparent 1px)
+          linear-gradient(rgba(var(--cyan-rgb),0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(var(--cyan-rgb),0.03) 1px, transparent 1px)
         `,
         backgroundSize: '30px 30px',
       }} />
@@ -110,8 +121,8 @@ export default function AerisInterface() {
         position: 'fixed', inset: 0, zIndex: 0,
         background: `
           radial-gradient(ellipse 60% 55% at 50% 50%, rgba(0,20,40,0.55) 0%, transparent 70%),
-          radial-gradient(ellipse 35% 35% at 20% 80%, rgba(0,255,170,0.04) 0%, transparent 60%),
-          radial-gradient(ellipse 35% 35% at 80% 20%, rgba(0,255,255,0.05) 0%, transparent 60%)
+          radial-gradient(ellipse 35% 35% at 20% 80%, rgba(var(--purple-rgb),0.04) 0%, transparent 60%),
+          radial-gradient(ellipse 35% 35% at 80% 20%, rgba(var(--cyan-rgb),0.05) 0%, transparent 60%)
         `,
       }} />
 
@@ -121,36 +132,36 @@ export default function AerisInterface() {
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
       }}>
-        {/* Top status (AERIS brand removed) */}
+        {/* Top status */}
         <div style={{
           position: 'absolute', top: '36px', left: '50%', transform: 'translateX(-50%)',
           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px',
         }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: '7px',
-            background: 'rgba(0,255,255,0.08)', border: '1px solid rgba(0,255,255,0.3)',
+            background: 'rgba(var(--cyan-rgb),0.08)', border: '1px solid rgba(var(--cyan-rgb),0.3)',
             borderRadius: '20px', padding: '5px 14px',
-            boxShadow: '0 0 12px rgba(0,255,255,0.08)',
+            boxShadow: '0 0 12px rgba(var(--cyan-rgb),0.08)',
           }}>
             <div style={{
               width: '6px', height: '6px', borderRadius: '50%',
-              background: !isOnline ? '#ff4444' : (isSpeaking ? '#00ffaa' : '#00ffff'),
-              boxShadow: `0 0 10px ${!isOnline ? '#ff4444' : (isSpeaking ? '#00ffaa' : '#00ffff')}`,
+              background: !isOnline ? '#ff4444' : (isSpeaking ? 'var(--purple)' : 'var(--cyan)'),
+              boxShadow: `0 0 10px ${!isOnline ? '#ff4444' : (isSpeaking ? 'var(--purple)' : 'var(--cyan)')}`,
               animation: 'status-blink 2s ease-in-out infinite',
             }} />
-            <span style={{ fontSize: '10px', color: !isOnline ? 'rgba(255,100,100,0.9)' : 'rgba(0,255,255,0.85)', letterSpacing: '2.5px', fontWeight: 500 }}>
+            <span style={{ fontSize: '10px', color: !isOnline ? 'rgba(255,100,100,0.9)' : 'rgba(var(--cyan-rgb),0.85)', letterSpacing: '2.5px', fontWeight: 500 }}>
               {!isOnline ? 'OFFLINE' : (isSpeaking ? 'PROCESSING' : 'IDLE')}
             </span>
           </div>
           <a href="/codepipeline" style={{
             display: 'flex', alignItems: 'center', gap: '6px',
-            background: 'rgba(0,255,170,0.1)', border: '1px solid rgba(0,255,170,0.35)',
+            background: 'rgba(var(--purple-rgb),0.1)', border: '1px solid rgba(var(--purple-rgb),0.35)',
             borderRadius: '20px', padding: '5px 14px', textDecoration: 'none',
             cursor: 'pointer', transition: 'all 0.3s', marginTop: '6px',
-            boxShadow: '0 0 12px rgba(0,255,170,0.1)',
+            boxShadow: '0 0 12px rgba(var(--purple-rgb),0.1)',
           }}>
             <span style={{ fontSize: '10px' }}>🤖</span>
-            <span style={{ fontSize: '10px', color: 'rgba(0,255,170,0.9)', letterSpacing: '2px', fontWeight: 500 }}>CODE PIPELINE</span>
+            <span style={{ fontSize: '10px', color: 'var(--purple)', letterSpacing: '2px', fontWeight: 500 }}>CODE PIPELINE</span>
           </a>
         </div>
 

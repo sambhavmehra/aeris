@@ -70,7 +70,7 @@ export default function Orb({ isSpeaking, onClick }: OrbProps) {
             position: 'absolute',
             inset: 0,
             borderRadius: '50%',
-            background: 'conic-gradient(from 0deg, transparent 0%, rgba(0,255,255,0.05) 30%, transparent 60%, rgba(0,255,170,0.05) 80%, transparent 100%)',
+            background: 'conic-gradient(from 0deg, transparent 0%, rgba(var(--cyan-rgb),0.05) 30%, transparent 60%, rgba(var(--purple-rgb),0.05) 80%, transparent 100%)',
             animation: 'particle-orbit 14s linear infinite',
           }}
         />
@@ -82,8 +82,8 @@ export default function Orb({ isSpeaking, onClick }: OrbProps) {
               inset: 0,
               borderRadius: '50%',
               backgroundImage: `
-                linear-gradient(rgba(0,255,255,0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0,255,255,0.1) 1px, transparent 1px)
+                linear-gradient(rgba(var(--cyan-rgb),0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(var(--cyan-rgb),0.1) 1px, transparent 1px)
               `,
               backgroundSize: '10px 10px',
               animation: 'grid-move 4s linear infinite',

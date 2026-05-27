@@ -39,6 +39,9 @@ class VoiceResult:
     spoken: bool = False
     execution_time: float = 0.0
     error: Optional[str] = None
+    hacker_mode_activated: Optional[bool] = None
+    hacker_mode_challenge: Optional[bool] = None
+    hacker_mode_deactivated: Optional[bool] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +52,9 @@ class VoiceResult:
             "spoken": self.spoken,
             "execution_time": self.execution_time,
             "error": self.error,
+            "hacker_mode_activated": self.hacker_mode_activated,
+            "hacker_mode_challenge": self.hacker_mode_challenge,
+            "hacker_mode_deactivated": self.hacker_mode_deactivated,
         }
 
 
@@ -154,6 +160,10 @@ class VoiceOrchestrator:
             intent = result.get("intent", "chat")
             success = result.get("success", True)
 
+            hacker_mode_activated = result.get("hacker_mode_activated")
+            hacker_mode_challenge = result.get("hacker_mode_challenge")
+            hacker_mode_deactivated = result.get("hacker_mode_deactivated")
+
             # -- Speak response (non-blocking) --
             spoken = False
             if speak_response and response_text:
@@ -171,6 +181,9 @@ class VoiceOrchestrator:
                 success=success,
                 spoken=spoken,
                 execution_time=elapsed,
+                hacker_mode_activated=hacker_mode_activated,
+                hacker_mode_challenge=hacker_mode_challenge,
+                hacker_mode_deactivated=hacker_mode_deactivated,
             )
 
         except Exception as e:

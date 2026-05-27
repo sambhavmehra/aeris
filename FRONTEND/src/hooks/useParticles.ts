@@ -105,9 +105,14 @@ export function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>, isSp
         // Alpha is higher for particles closer to the camera and lower for particles further away
         let alpha = Math.min(1, Math.max(0.1, scale * 0.7));
         
-        ctx.fillStyle = p.colorType
-          ? `rgba(0, 255, 255, ${alpha})` // Neon cyan
-          : `rgba(0, 255, 170, ${alpha * 0.9})`; // Cyber green
+        const isHacker = typeof document !== 'undefined' && document.body.classList.contains('hacker');
+        ctx.fillStyle = isHacker
+          ? (p.colorType
+            ? `rgba(255, 51, 51, ${alpha})`
+            : `rgba(255, 102, 0, ${alpha * 0.9})`)
+          : (p.colorType
+            ? `rgba(0, 255, 255, ${alpha})`
+            : `rgba(0, 255, 170, ${alpha * 0.9})`);
         
         // Add a subtle glow for the cyber aesthetic
         ctx.shadowBlur = 4 * scale;
@@ -119,9 +124,15 @@ export function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>, isSp
 
       // Draw a subtle center core glow to make it look cohesive like the image
       ctx.beginPath();
+      const isHacker = typeof document !== 'undefined' && document.body.classList.contains('hacker');
       const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, currentRadius);
-      grad.addColorStop(0, speaking ? 'rgba(0, 255, 255, 0.15)' : 'rgba(0, 255, 255, 0.08)');
-      grad.addColorStop(0.8, speaking ? 'rgba(0, 255, 255, 0.05)' : 'rgba(0, 255, 255, 0.02)');
+      if (isHacker) {
+        grad.addColorStop(0, speaking ? 'rgba(255, 51, 51, 0.15)' : 'rgba(255, 51, 51, 0.08)');
+        grad.addColorStop(0.8, speaking ? 'rgba(255, 51, 51, 0.05)' : 'rgba(255, 51, 51, 0.02)');
+      } else {
+        grad.addColorStop(0, speaking ? 'rgba(0, 255, 255, 0.15)' : 'rgba(0, 255, 255, 0.08)');
+        grad.addColorStop(0.8, speaking ? 'rgba(0, 255, 255, 0.05)' : 'rgba(0, 255, 255, 0.02)');
+      }
       grad.addColorStop(1, 'transparent');
       ctx.fillStyle = grad;
       ctx.arc(cx, cy, currentRadius, 0, Math.PI * 2);

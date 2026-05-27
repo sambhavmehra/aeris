@@ -23,6 +23,7 @@ class UserProfileStore:
             "tone_preference": "natural agentic",
             "common_tasks": [],
             "preferred_response_style": "natural, brief, helpful, using code blocks where necessary",
+            "hacker_mode": False,
         }
         self.load()
 

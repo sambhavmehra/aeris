@@ -1,19 +1,3 @@
-"""
-AERIS Brain — Hybrid Multi-Task Orchestrator.
-
-Routing pipeline (fastest to slowest):
-  1. Neural ML fast-route  → local PyTorch (zero latency, <1ms)
-  2. Keyword rules         → hard-coded patterns (fallback for edge-cases)
-  3. LLM Multi-Task Plan   → Groq / Gemini generates a full task execution plan
-
-Execution:
-  - Each task in the plan is routed to the correct sub-agent (chat, security,
-    system, research, code).
-  - Sequential execution injects context from previous steps into the next.
-  - Parallel execution runs independent tasks concurrently.
-  - Memory is saved after every run for conversational context.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -32,10 +16,10 @@ from memory.store import memory_store
 from neural.core import neural_core
 from config import settings
 
-logger = logging.getLogger("aeris.brain")
+logger = logging.getLogger("aeris.hacker_brain")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Pydantic schemas for multi-task plan & Agentic Loop
+# Pydantic schemas for multi-task plan & Agentic Loop (Standalone definitions)
 # ──────────────────────────────────────────────────────────────────────────────
 
 class BrainTask(BaseModel):
@@ -84,66 +68,8 @@ class FinalResponse(BaseModel):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# LLM Multi-Task Planning & Agentic Prompts
+# Helper Functions (Standalone definitions)
 # ──────────────────────────────────────────────────────────────────────────────
-
-PLANNER_PROMPT = """You are the AI Planner for AERIS.
-Decompose the user's request into a sequential plan of tool calls to achieve the goal.
-For each step, specify the tool to call, the arguments (as a JSON object), and a short description.
-
-AVAILABLE TOOLS:
-{tools_summary}
-
-WORKSPACE DIRECTORY: {workspace_dir}
-All file paths for write_file/read_file/edit_file MUST be relative paths (e.g. "report.txt") or within the workspace directory above.
-NEVER use paths like "C:/", "D:/", "/tmp", or any absolute path outside the workspace.
-
-CRITICAL RULES:
-- When the user asks about "agents" (e.g. "kitne agent hai", "list agents", "how many agents"), use the `list_agents` tool, NOT `list_tools`.
-- `list_tools` is ONLY for listing executable tool functions. `list_agents` is for listing AI agents.
-- For ANY security-related request (SSL check, port scan, DNS lookup, recon, VAPT, vulnerability scan, WHOIS, subdomain enumeration), use the `security_scan` tool. NEVER use `smart_shell_generate` or `run_bash` for security scanning tasks.
-- If the user wants to schedule any task, reminder, alarm, meeting, or event, or if they confirm (e.g. saying 'yes', 'okay', 'ok', 'haan', 'sure', 'do it', 'kar do') a scheduling/reminder proposal made by the assistant in the conversation history (e.g. 'Should I put it in pending tasks and check in 30 minutes?'), you MUST use the `schedule_execution` tool.
-  - If it is a confirmation to a proposal, set the 'instruction' to the task that was proposed to be scheduled (e.g. "Analyze website sambhavmehra.me"), and set 'time_spec' to the proposed time spec (e.g. "in 30 minutes").
-  - Otherwise, if it is a reminder/alarm/meeting (e.g. "remind me to call Rahul"), set the 'instruction' parameter to a descriptive reminder message (e.g. "Remind user: Call Rahul").
-  - If it is a system task/command (e.g. "open chrome"), set the 'instruction' parameter to the exact command/task to execute.
-  - Set the 'time_spec' parameter to when it should run (e.g., 'in 1 minute', 'in 30 minutes', 'at 6pm').
-- If the user wants to schedule a task/reminder or put a task in the pending tasks/list, but has NOT specified a time or delay (e.g., 'is task ko pending task mein daal le' without saying when), you MUST call `chat_with_ai` and pass the user's message, so the conversational agent can ask the user for the time. Do NOT run `schedule_execution` with a blank or guessed `time_spec`.
-- If the user wants to read, write, or list files/folders located outside the workspace (e.g. absolute paths starting with a drive letter like C:\\, D:\\, or starting with ~ or /), you MUST use `read_system_file` or `list_system_dir` instead of `read_file` or `list_dir`. `read_file` and `list_dir` are strictly for relative paths inside the workspace directory.
-- If you need to search the host system for a file by name, use `find_system_file`.
-- For quick search, live facts, news, weather, or real-time info (e.g. looking up a person, site status, or current events), use `realtime_search` (which routes through the SearchAgent). If they request deep synthesis, comparison, academic research, or detailed reports on complex topics, use `web_research` (which routes through the ResearchAgent).
-- Read each tool's description carefully and pick the BEST match for the user's intent.
-
-ARGUMENT CONSTRUCTION RULES (VERY IMPORTANT):
-- Read the parameter list under each tool carefully. Each parameter shows its TYPE and whether it is REQUIRED.
-- For email tools: "to" expects an ARRAY of objects like [{{"email": "recipient@example.com", "name": "Name"}}]. "sender" expects an object {{"email": "sender@example.com", "name": "AERIS"}}. "subject" is a string. "htmlContent" is a string with HTML body.
-- If the user's message does not contain a required parameter value (e.g. no recipient email), use chat_with_ai to ask the user for the missing info INSTEAD of guessing or leaving it blank.
-- For write_file: "path" must be a RELATIVE path like "output.txt" or "reports/scan.md". It will be resolved within the workspace.
-- NEVER fabricate placeholder values for required params. If info is missing, ask the user.
-
-CONVERSATION CONTEXT:
-{history}
-{memory_context}
-
-USER PROFILE:
-{profile_context}
-
-USER MESSAGE: "{message}"
-
-Respond with ONLY valid JSON matching this schema:
-{{
-  "steps": [
-    {{
-      "step_id": "s1",
-      "tool_name": "<name of tool>",
-      "args": {{ ... }},
-      "description": "<what this step does>"
-    }}
-  ],
-  "reasoning": "<short explanation of your plan>"
-}}
-"""
-
-
 
 async def query_llm_json(prompt: str, system_prompt: str = "You are a helpful assistant. Respond ONLY with valid JSON.") -> dict:
     """Query LLM and guarantee valid JSON response."""
@@ -178,8 +104,6 @@ def parse_memory_command(message: str) -> Optional[str]:
     """Intercept and parse memory commands."""
     import re
     text = message.strip()
-    # Match "remember that", "remember", "forget that", "forget", "update memory"
-    # optionally followed by a colon and spaces
     m = re.match(r"^(remember\s+that|remember|forget\s+that|forget|update\s+memory)\s*:?\s*(.*)$", text, re.IGNORECASE)
     if not m:
         return None
@@ -215,7 +139,84 @@ def parse_memory_command(message: str) -> Optional[str]:
             
     return None
 
-MULTI_TASK_PROMPT = """You are the routing brain of AERIS (Autonomous Enhanced Reasoning Intelligence System).
+
+HACKER_PLANNER_PROMPT = """You are the Cybersecurity AI Planner for AERIS (Hacker Brain Mode).
+Decompose the user's security request into a sequential plan of tool calls to achieve the goal.
+For each step, specify the tool to call, the arguments (as a JSON object), and a short description.
+
+AVAILABLE TOOLS:
+{tools_summary}
+
+WORKSPACE DIRECTORY: {workspace_dir}
+All file paths for write_file/read_file/edit_file MUST be relative paths (e.g. "report.txt") or within the workspace directory above.
+NEVER use paths like "C:/", "D:/", "/tmp", or any absolute path outside the workspace.
+
+CRITICAL RULES:
+- For ANY security-related request (SSL check, port scan, DNS lookup, recon, VAPT, vulnerability scan, WHOIS, subdomain enumeration), use the appropriate recon tool (e.g., `dns_lookup`, `subdomain_enum`, `port_scan`, `whois_lookup`, `header_analysis`, `ssl_check`).
+- If you need to search the web for CVE vulnerabilities, exploit databases, or threat intelligence, use `web_research` (which routes through the ResearchAgent) or `realtime_search` (which routes through the SearchAgent).
+- If the user wants to schedule any security task, reminder, or periodic scan, use the `schedule_execution` tool.
+
+CONVERSATION CONTEXT:
+{history}
+{memory_context}
+
+USER PROFILE:
+{profile_context}
+
+USER MESSAGE: "{message}"
+
+Respond with ONLY valid JSON matching this schema:
+{{
+  "steps": [
+    {{
+      "step_id": "s1",
+      "tool_name": "<name of tool>",
+      "args": {{ ... }},
+      "description": "<what this step does>"
+    }}
+  ],
+  "reasoning": "<short explanation of your plan>"
+}}
+"""
+
+HACKER_FINAL_PROMPT = """You are AERIS, operating in Hacker Brain Mode.
+Provide the final response to the user's request based on the security tool execution results.
+
+USER MESSAGE: "{message}"
+
+CONVERSATION HISTORY:
+{history}
+
+USER PROFILE:
+{profile_context}
+
+MEMORY CONTEXT:
+{memory_context}
+
+EXECUTED PLAN:
+{plan_json}
+
+OBSERVATIONS & TOOL OUTPUTS:
+{observations_json}
+
+CYBERSECURITY PERSONA & HINGLISH RULES:
+1. Address the user as "Sir" (or "sir") in every single response. NEVER address the user as "bhai", "bro", "buddy", or other informal/colloquial terms.
+2. Maintain a professional, technically-dense Hinglish persona. Use correct English technical terms (e.g., "reconnaissance", "vulnerabilities", "payloads", "subdomain enumeration", "port scanning", "endpoint protection", "exploit vector", "CVEs") with smooth, colloquial Hindi/Hinglish connectors (e.g., "Sir, maine target domain pe port scan complete kar liya hai, but firewall configuration triggers evaluate karne ki zaroorat padegi.").
+3. Stay strictly within ethical hacking boundaries. If any results show vulnerabilities, explain them clearly and suggest remediation/mitigation steps. If the user asks for illegal hacking/cracking, refuse politely and suggest defensive alternative scenarios, local lab testing, or security controls check.
+4. Keep the language flow natural and modern. Avoid robotic translations.
+
+PROACTIVE SCHEDULING RULES (CRITICAL):
+- If a scan or query failed, suggest putting it in pending tasks to run later.
+- Example: "Sir, port scan/subdomain enum search fail ho gaya. Kya main isko pending tasks mein daal du aur baad mein auto-retry karu?"
+
+Respond with ONLY valid JSON matching this schema:
+{{
+  "text": "<your conversational answer to the user in hacker Hinglish>",
+  "summary_of_actions": "<brief summary of security tools called and what was accomplished>"
+}}
+"""
+
+MULTI_TASK_PROMPT = """You are the routing brain of AERIS in Hacker Brain Mode.
 Your ONLY job: decompose the user's message into an ordered execution plan.
 
 AVAILABLE INTENTS:
@@ -223,7 +224,7 @@ AVAILABLE INTENTS:
 - "security" : Port scanning, recon, vulnerability testing, VAPT, DNS lookup, SSL checks, zero-day analysis
 - "system"   : Open/close apps, run shell commands, file operations, OS info, system control
 - "research" : Deep academic research, synthesis of complex technical topics, multi-source information gathering
-- "search"   : Realtime internet search, current events, news, live prices, trending topics, quick web lookups, weather, user location (where am i), scraping
+- "search"   : Realtime background web search (not opening a browser window), current events, news, live prices, trending topics, quick internet lookups, weather, user location (where am i), scraping
 - "code"     : Write code, debug, explain code, refactor, generate scripts
 - "image"    : Generate, create, or draw images/pictures/photos from a text description
 - "diagram"  : Create flowcharts, system diagrams, architecture charts, mind maps, flow charts, graphs, charts, widgets
@@ -231,7 +232,7 @@ AVAILABLE INTENTS:
 - "analyze"  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents
 - "osint"   : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation
 - "email"   : Send emails, send mail, compose and send mail via SMTP/Brevo relay
-- "scheduler" : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword (e.g., 'cancel meeting', 'list scheduled tasks', 'is task ko cancel kar do')
+- "scheduler" : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword
 - "drana"    : Bug bounty hunting, JS recon, manual VAPT, XSS payload generation, traffic analysis
 
 === CONVERSATION HISTORY (last 3 messages) ===
@@ -244,10 +245,7 @@ AVAILABLE INTENTS:
 
 CURRENT USER MESSAGE: "{message}"
 
-IMPORTANT: Use the conversation history to resolve pronouns ("it", "that", "iska", "uska") and understand follow-up queries.
-If the current message is a follow-up to a previous security/osint task (e.g., "investigate it", "stalk that user", "check its social profile"), resolve the target from history.
-
-Respond with ONLY valid JSON, no markdown, no extra text:
+Respond with ONLY valid JSON:
 {{
   "tasks": [
     {{
@@ -259,36 +257,20 @@ Respond with ONLY valid JSON, no markdown, no extra text:
   ],
   "is_parallel": false
 }}
-
-RULES:
-- If the message has only ONE request, output exactly ONE task.
-- If the message has MULTIPLE requests, split into multiple tasks with correct dependencies.
-- Set is_parallel=true ONLY if tasks are completely independent.
-- "description" MUST be self-contained — replace pronouns with the actual resolved target/subject from history.
-- When unsure between "chat" and "research", prefer "research".
-- For investigations, profile traces, social mapping, footprint checks, or email/username lookups, choose "osint".
 """
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Keyword hard-coded fast routes (bypass LLM even if neural is not confident)
-# ──────────────────────────────────────────────────────────────────────────────
 
 _KEYWORD_MAP: List[Tuple[List[str], str]] = [
     (["scan", "port", "recon", "vulnerability", "nmap", "ssl", "hack",
       "header", "fuzz", "whois", "dns", "subdomain"], "security"),
-    # ── System / OS automation ─────────────────────────────────────────────
     ([
-      # App control
       "open ", "close ", "run ", "execute ", "shutdown", "restart",
       "screenshot", "kill process", "list files", "list directory",
       "system info", "disk space", "os info", "volume",
-      # Browser search — must open a real browser window
       "search on browser", "search the browser", "search on google",
       "google search", "search google", "open browser", "open chrome",
       "open edge", "browse to", "go to website",
       "on google", "in google", "google pe", "google par", "open google", "google open",
       "google par search", "google pe search", "google par dhoondo", "google pe dhoondo",
-      # YouTube / music playback — open YouTube visibly
       "play ", "play a song", "play music", "play video",
       "youtube search", "search on youtube", "search youtube",
       "open youtube", "youtube pe", "youtube par",
@@ -308,24 +290,20 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
     (["write code", "debug", "write a function", "write a script",
       "fix this code", "refactor", "explain this code",
       "generate a class", "create a flask", "create an api",
-      # Hindi / Hinglish code keywords — must come before image block
       "game banao", "code banao", "program banao", "script banao",
       "function banao", "api banao", "app banao", "website banao",
       "code likho", "program likho", "algorithm banao",
       "python mein", "javascript mein", "java mein",
       "mein banao", "mein bana do", "mein bana de",
     ], "code"),
-    # ── Image generation ──────────────────────────────────────────────────────
     ([
       "generate image", "create image", "make image", "draw ",
       "generate a picture", "create a picture", "make a picture",
       "generate photo", "create photo", "make photo",
       "image of ", "picture of ", "photo of ",
-      # Hindi / Hinglish — image-specific only (no generic "banao")
       "photo de", "photo bana", "image bana", "tasveer",
       "phot de", "phot bana",
     ], "image"),
-    # ── Autonomous code pipeline ──────────────────────────────────────────────
     ([
       "build a project", "build me a project", "build me an app",
       "create a project", "scaffold a project", "autonomous code",
@@ -333,7 +311,6 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "generate a full project", "full project", "code pipeline",
       "project bana", "project banao", "app bana do",
     ], "codepipeline"),
-    # ── Diagram / flowchart / widget ─────────────────────────────────────────
     ([
       "flowchart", "flow chart", "diagram", "chart", "mind map", "mindmap",
       "architecture diagram", "system diagram", "sequence diagram",
@@ -341,7 +318,6 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "widget", "visualize", "visualise", "flow banao", "chart banao",
       "diagram banao", "diagram bana", "chart bana",
     ], "diagram"),
-    # ── Analyze / inspect / diagnose ──────────────────────────────────────────
     ([
       "analyze", "analyse", "inspect", "diagnose", "summarize file",
       "analyze file", "analyse file", "check this file", "check this data",
@@ -349,18 +325,15 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "analyze karo", "analyse karo", "check karo", "dekhke batao",
       "file analyze", "log analyze", "data analyze", "analysis", "analysis karo"
     ], "analyze"),
-    # ── OSINT investigations ──────────────────────────────────────────────────
     ([
       "osint", "investigate", "target intel", "email search", "username lookup",
       "social footprint", "trace target", "footprint check", "profile check",
       "target search", "profile trace", "stalk target", "stalk user", "recon target"
     ], "osint"),
-    # ── Drana Agent ───────────────────────────────────────────────────────────
     ([
       "drana", "drafna", "js recon", "js analysis", "xss payload", "xss generate",
       "vapt analysis", "http analysis", "bug bounty", "pentest advice"
     ], "drana"),
-    # ── Email routing ──────────────────────────────────────────────────────────
     ([
       "send email", "send mail", "email to", "mail to", "email send", "mail send",
       "compose email", "compose mail", "mail bhejo", "email bhejo", "mail bhej", "email bhej"
@@ -377,32 +350,25 @@ def _keyword_route(text: str) -> Optional[str]:
             if kw.endswith(" "):
                 pattern = r'\b' + re.escape(kw.rstrip()) + r'\b'
                 if re.search(pattern, lower):
-                    logger.debug(f"[Brain] Keyword route → {intent} (kw='{kw}')")
+                    logger.debug(f"[HackerBrain] Keyword route → {intent} (kw='{kw}')")
                     return intent
             elif " " in kw or "-" in kw:
                 if kw in lower:
-                    logger.debug(f"[Brain] Keyword route → {intent} (kw='{kw}')")
+                    logger.debug(f"[HackerBrain] Keyword route → {intent} (kw='{kw}')")
                     return intent
             else:
                 pattern = r'\b' + re.escape(kw) + r'\b'
                 if re.search(pattern, lower):
-                    logger.debug(f"[Brain] Keyword route → {intent} (kw='{kw}')")
+                    logger.debug(f"[HackerBrain] Keyword route → {intent} (kw='{kw}')")
                     return intent
     return None
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Brain
-# ──────────────────────────────────────────────────────────────────────────────
-
-class Brain:
+class HackerBrain:
     """
-    Hybrid multi-task orchestrator for AERIS.
-
-    Routing order (fastest → most powerful):
-      1. Neural ML (local PyTorch, <1ms, if confidence > 80%)
-      2. Keyword rules (instant string matching, edge-case safety net)
-      3. LLM multi-task planner (Groq primary, Gemini fallback)
+    Specialized standalone Hacker Brain orchestrator for AERIS.
+    Has ALL the features of brain.py (swarm delegation, parallel execution, codepipelines)
+    but tailored with high-vis cybersecurity templates and prompts.
     """
 
     NEURAL_CONFIDENCE_THRESHOLD = 0.80
@@ -426,9 +392,6 @@ class Brain:
         }
         self.audit_agent = AuditAgent()
         self.observer_agent = ObserverAgent()
-
-        # ── Hacker Mode challenge state (for voice 2-step activation) ──
-        self._hacker_challenge_pending = False
 
         # ── Register Core agents in the Universal Agent Registry ──
         for intent, agent in self.agents.items():
@@ -478,21 +441,14 @@ class Brain:
                         return True
                 agent_registry.register(_SubAgentStub(sa_name, domain, caps), parent="ProjectBuilderSystem")
 
-            logger.info(f"[Brain] Registered {len(agent_registry)} agents in AgentRegistry (Core + Sub-Agents).")
+            logger.info(f"[HackerBrain] Registered {len(agent_registry)} agents in AgentRegistry (Core + Sub-Agents).")
         except Exception as e:
-            logger.warning(f"[Brain] Sub-agent registration partial: {e}")
+            logger.warning(f"[HackerBrain] Sub-agent registration partial: {e}")
 
-        # ── Run initial health check ──
-        agent_registry.run_health_checks()
-        logger.info(f"[Brain] Initialized with {len(self.agents)} core agents, 1 Auditor, 1 Observer.")
-
-    # ─────────────────────────── System Health ────────────────────────────────
+        logger.info("[HackerBrain] Initialized standalone HackerBrain with all core agents.")
 
     def get_system_health(self) -> dict:
-        """
-        Return the full health status of all agents (core + sub-agents).
-        Used by the ChatAgent to answer "what can you do?" and health queries.
-        """
+        """Return the full health status of all agents."""
         agent_registry.run_health_checks()
         return {
             "total_agents": len(agent_registry),
@@ -505,12 +461,9 @@ class Brain:
         return agent_registry.get_capabilities_summary()
 
     async def approve_agent_delegation(self, requester_name: str, target_name: str, purpose: str) -> bool:
-        """
-        Evaluate and approve/deny a delegation request from one agent to another.
-        Uses the LLM/ai_engine to make the authorization decision.
-        """
+        """Evaluate and approve/deny a delegation request from one agent to another."""
         prompt = (
-            f"You are the central AERIS Brain. An agent is requesting permission to use another agent.\n\n"
+            f"You are the central AERIS central central central центральный Brain. An agent is requesting permission to use another agent.\n\n"
             f"Requester Agent: {requester_name}\n"
             f"Target Agent to Use: {target_name}\n"
             f"Purpose / Task: {purpose}\n\n"
@@ -522,8 +475,6 @@ class Brain:
             f"}}"
         )
         try:
-            from ai_engine import ai_engine
-            import json
             response = await ai_engine.classify(prompt)
             response = response.strip()
             if response.startswith("```"):
@@ -533,13 +484,11 @@ class Brain:
                 response = response.strip()
             decision = json.loads(response)
             approved = decision.get("approved", False)
-            logger.info(f"[Brain] Delegation request: {requester_name} -> {target_name} ({purpose[:60]}...) | Approved: {approved} | Reason: {decision.get('reason')}")
+            logger.info(f"[HackerBrain] Central central central Delegation request: {requester_name} -> {target_name} | Approved: {approved}")
             return approved
         except Exception as e:
-            logger.warning(f"[Brain] Error evaluating delegation: {e}. Defaulting to True.")
+            logger.warning(f"[HackerBrain] Error evaluating central delegation: {e}. Defaulting to True.")
             return True
-
-    # ─────────────────────────── Intent Routing ───────────────────────────────
 
     def _build_history_summary(self, limit: int = 3) -> str:
         """Format last N memory messages as a compact context string for LLM prompts."""
@@ -581,36 +530,27 @@ class Brain:
                     )
             return "\n".join(lines) if lines else "No recent tasks executed."
         except Exception as e:
-            logger.warning(f"Failed to build task summary: {e}")
+            logger.warning(f"[HackerBrain] Failed to build task summary: {e}")
             return "No recent tasks executed."
 
     async def _classify_intent(self, message: str) -> str:
-        """
-        Single-intent classification with conversation context.
-
-        Priority:
-          1. Neural ML — only at high confidence (85%+) for instant routing
-          2. LLM classification — primary classifier, understands any language + history
-          3. Keyword fallback — only if LLM fails entirely
-        """
+        """Single-intent classification with conversation context."""
         # 1. Neural ML fast-route (high confidence only)
         if neural_core.is_intent_ready:
             try:
                 label, confidence = neural_core.predict_intent_from_text(message)
                 if label in self.VALID_INTENTS and confidence >= 0.85:
-                    logger.info(f"[Brain] Neural fast-route -> '{label}' (conf={confidence:.2f})")
+                    logger.info(f"[HackerBrain] Neural fast-route -> '{label}' (conf={confidence:.2f})")
                     return label
-                else:
-                    logger.debug(f"[Brain] Neural not confident enough ({confidence:.2f}) for '{label}', using LLM.")
             except Exception as e:
-                logger.warning(f"[Brain] Neural routing failed: {e}")
+                logger.warning(f"[HackerBrain] Neural routing failed: {e}")
 
-        # 2. LLM classification — primary, understands any language + conversation context
+        # 2. LLM classification
         history_summary = self._build_history_summary(3)
         recent_tasks_summary = self._build_recent_tasks_summary(3)
         try:
             raw = await ai_engine.classify(
-                f"You are an intent classifier. Classify the following user message into EXACTLY ONE intent.\n\n"
+                f"You are an intent classifier for AERIS Hacker Brain Mode. Classify the following user message into EXACTLY ONE intent.\n\n"
                 f"INTENTS:\n"
                 f"- chat     : Casual conversation, greetings, general knowledge, jokes, math, definitions\n"
                 f"- security : Port scanning, network recon, vulnerability scanning, DNS lookup, SSL checks, zero-day analysis\n"
@@ -624,21 +564,10 @@ class Brain:
                 f"- analyze  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents of files\n"
                 f"- osint    : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation\n"
                 f"- email    : Send emails, send mail, compose and send mail via SMTP/Brevo relay\n"
-                f"- scheduler : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword (e.g., 'cancel meeting', 'list scheduled tasks', 'is task ko cancel kar do')\n"
+                f"- scheduler : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword\n"
                 f"- drana    : Bug bounty hunting, JS recon, manual VAPT, XSS payload generation, traffic analysis\n\n"
-                f"FEW-SHOT EXAMPLES:\n"
-                f"- \"search sambhav mehra on google\" -> system (reason: requests browser search visually)\n"
-                f"- \"google pe python dhoondo\" -> system (reason: requests opening browser to search Google)\n"
-                f"- \"search what is the weather today\" -> search (reason: requests quick realtime news/weather check in background)\n"
-                f"- \"check ssl certificate for google.com\" -> security (reason: technical SSL scan)\n"
-                f"- \"what is gravity?\" -> chat (reason: general knowledge definition)\n"
-                f"- \"analyze log.txt and find errors\" -> analyze (reason: inspects file contents)\n"
-                f"- \"write a node.js web server\" -> code (reason: requests code snippet implementation)\n"
-                f"- \"send an email to boss@company.com saying I am sick\" -> email (reason: requests sending mail)\n"
-                f"- \"rahul ko mail bhejo hello bolne ke liye\" -> email (reason: requests composing and sending email)\n\n"
                 f"The message may be in ANY language (English, Hindi, Hinglish, etc). Understand the MEANING, not just keywords.\n"
-                f"Use the conversation history to resolve follow-up queries and pronouns (e.g., 'it', 'that', 'iska').\n"
-                f"IMPORTANT: If the user message is a confirmation (e.g. 'yes', 'okay', 'ok', 'haan', 'sure', 'do it') to a scheduling or reminder proposal made by the assistant in the conversation history, you MUST classify the intent as 'scheduler'.\n\n"
+                f"Use the conversation history to resolve follow-up queries and pronouns (e.g., 'it', 'that', 'iska').\n\n"
                 f"=== CONVERSATION HISTORY (last 3 messages) ===\n{history_summary}\n=== END HISTORY ===\n\n"
                 f"=== RECENT AGENT TASK EXECUTIONS ===\n{recent_tasks_summary}\n=== END RECENT TASKS ===\n\n"
                 f'Current user message: "{message}"\n\n'
@@ -648,26 +577,22 @@ class Brain:
             data = json.loads(raw)
             intent = data.get("intent", "chat")
             if intent in self.VALID_INTENTS:
-                logger.info(f"[Brain] LLM classify -> '{intent}' (reason: {data.get('reason', 'n/a')[:60]})")
+                logger.info(f"[HackerBrain] LLM classify -> '{intent}'")
                 return intent
         except Exception as e:
-            logger.warning(f"[Brain] LLM classify failed: {e}")
+            logger.warning(f"[HackerBrain] LLM classify failed: {e}")
 
         # 3. Keyword fallback — only if LLM failed
         keyword_intent = _keyword_route(message)
         if keyword_intent:
-            logger.info(f"[Brain] Keyword fallback -> '{keyword_intent}'")
+            logger.info(f"[HackerBrain] Keyword fallback -> '{keyword_intent}'")
             return keyword_intent
 
-        logger.warning("[Brain] All classifiers failed. Defaulting to 'chat'.")
+        logger.warning("[HackerBrain] All classifiers failed. Defaulting to 'chat'.")
         return "chat"
 
     async def _plan_multi_task(self, message: str) -> BrainPlan:
-        """
-        Use LLM to parse complex, multi-step queries into a BrainPlan.
-        Injects conversation history to resolve follow-up queries and pronouns.
-        Falls back to a single-task plan on any error.
-        """
+        """Use LLM to parse complex, multi-step queries into a BrainPlan."""
         history_summary = self._build_history_summary(3)
         recent_tasks_summary = self._build_recent_tasks_summary(3)
         try:
@@ -676,14 +601,13 @@ class Brain:
             )
             raw = raw.strip().strip("```json").strip("```").strip()
             plan = BrainPlan(**json.loads(raw))
-            # Validate all intents
             for t in plan.tasks:
                 if t.intent not in self.VALID_INTENTS:
                     t.intent = "chat"
-            logger.info(f"[Brain] Multi-task plan: {len(plan.tasks)} task(s), parallel={plan.is_parallel}")
+            logger.info(f"[HackerBrain] Multi-task plan: {len(plan.tasks)} task(s)")
             return plan
         except Exception as e:
-            logger.warning(f"[Brain] Multi-task plan failed ({e}), building single-task fallback.")
+            logger.warning(f"[HackerBrain] Multi-task plan failed ({e}), fallback single-task plan.")
             intent = await self._classify_intent(message)
             return BrainPlan(
                 tasks=[BrainTask(task_id="t1", intent=intent, description=message)],
@@ -691,36 +615,21 @@ class Brain:
             )
 
     def _is_complex_query(self, message: str) -> bool:
-        """
-        Heuristic: is this a multi-step query?
-        Long messages or messages with conjunctions are treated as complex.
-        """
+        """Heuristic: check if this is a multi-step request."""
         lower = message.lower()
-        multi_step_signals = [" and then ", " after that ", " also ", " additionally ",
-                              " furthermore ", " then ", " next ", " followed by ",
-                              # Hindi / Hinglish conjunctions for multi-step requests
-                              " or ", " aur ", " phir ", " uske baad ", " krke ", " karke ",
-                              " kar ke ", " karne ke baad ", " fir ", " bhi ",
-                              " convert ", " convert kr", " convert kar",]
-        if any(sig in lower for sig in multi_step_signals):
+        conjunctions = [" and then ", " after that ", " also ", " additionally ", " then ", " next ", " followed by ",
+                        " aur ", " phir ", " uske baad ", " karke ", " karne ke baad ", " fir ", " also "]
+        if any(sig in lower for sig in conjunctions):
             return True
         if len(message) > 150:
             return True
         return False
 
-    # ─────────────────────────── Task Execution ───────────────────────────────
-
-    async def _run_task(
-        self,
-        task: BrainTask,
-        context: dict,
-        step_idx: int,
-        total: int,
-    ) -> dict:
+    async def _run_task(self, task: BrainTask, context: dict, step_idx: int, total: int) -> dict:
         """Execute a single BrainTask through the appropriate agent."""
-        logger.info(f"[Brain] Task {step_idx + 1}/{total}: intent='{task.intent}' — {task.description[:80]}")
+        logger.info(f"[HackerBrain] Task {step_idx + 1}/{total}: intent='{task.intent}' — {task.description[:80]}")
 
-        # Handle diagram intent — generate an interactive React Flow widget
+        # Handle diagram intent
         if task.intent == "diagram":
             try:
                 from agents.diagram_agent import get_diagram_agent
@@ -733,7 +642,6 @@ class Brain:
                     "success": True, "execution_time": 0.0,
                 }
             except Exception as e:
-                logger.error(f"[Brain] DiagramAgent failed: {e}")
                 return {
                     "task_id": task.task_id, "intent": task.intent,
                     "agent": "DiagramAgent",
@@ -741,7 +649,7 @@ class Brain:
                     "success": False, "execution_time": 0.0, "error": str(e),
                 }
 
-        # Handle codepipeline intent — run the autonomous pipeline
+        # Handle codepipeline intent
         if task.intent == "codepipeline":
             try:
                 from agents.planner_agent import PlannerAgent
@@ -775,7 +683,7 @@ class Brain:
                             ap.write_text(content, encoding="utf-8")
                             written.append(fs.path)
                     except Exception as e:
-                        logger.warning(f"[Brain] Pipeline: failed {fs.path}: {e}")
+                        logger.warning(f"[HackerBrain] Scaffold: failed {fs.path}: {e}")
 
                 verifier = VerifierAgent()
                 report = await verifier.verify_workspace(project_path, manifest.entry_point, manifest.language)
@@ -799,7 +707,7 @@ class Brain:
                     "success": True, "execution_time": 0.0,
                 }
             except Exception as e:
-                logger.error(f"[Brain] CodePipeline failed: {e}")
+                logger.error(f"[HackerBrain] CodePipeline failed: {e}")
                 return {
                     "task_id": task.task_id, "intent": task.intent,
                     "agent": "CodePipeline",
@@ -820,18 +728,16 @@ class Brain:
                 "error": result.get("error"),
             }
         except Exception as e:
-            logger.error(f"[Brain] Task '{task.task_id}' raised exception: {e}")
+            logger.error(f"[HackerBrain] Task '{task.task_id}' raised exception: {e}")
             return {
                 "task_id": task.task_id,
                 "intent": task.intent,
                 "agent": agent.name,
-                "response": f"I encountered an error while processing this task: {str(e)}",
+                "response": f"Sir, task process karte waqt error aaya: {str(e)}",
                 "success": False,
                 "execution_time": 0.0,
                 "error": str(e),
             }
-
-    # ─────────────────────────── Plan Execution ───────────────────────────────
 
     async def _execute_plan(self, plan: BrainPlan, base_context: dict) -> List[dict]:
         """Execute all tasks in a BrainPlan — sequentially or in parallel."""
@@ -839,7 +745,7 @@ class Brain:
         total = len(plan.tasks)
 
         if plan.is_parallel and total > 1:
-            logger.info("[Brain] Running tasks in PARALLEL.")
+            logger.info("[HackerBrain] Running tasks in PARALLEL.")
             coros = [
                 self._run_task(task, base_context, i, total)
                 for i, task in enumerate(plan.tasks)
@@ -850,12 +756,10 @@ class Brain:
                     results.append({"success": False, "response": str(r), "error": str(r)})
                 else:
                     results.append(r)
-
         else:
-            logger.info("[Brain] Running tasks SEQUENTIALLY.")
+            logger.info("[HackerBrain] Running tasks SEQUENTIALLY.")
             accumulated_context = ""
             for i, task in enumerate(plan.tasks):
-                # Inject context from previous successful steps
                 ctx = dict(base_context)
                 if accumulated_context:
                     ctx["prior_step_context"] = accumulated_context
@@ -867,71 +771,67 @@ class Brain:
                     snippet = result["response"][:600]
                     accumulated_context += f"\n--- [{task.intent.upper()}] ---\n{snippet}\n"
 
-                    # Extract file paths from results so downstream tasks can use them directly
                     import re
                     paths_found = re.findall(r'[A-Za-z]:\\[^\s\n\r\'"<>|]+\.\w+', snippet)
                     if paths_found:
                         accumulated_context += f"\n[FILE_PATHS_FOUND]: {'; '.join(paths_found)}\n"
-                        logger.info(f"[Brain] Extracted file paths for downstream tasks: {paths_found}")
 
         return results
-
-    # ─────────────────────────── Public API ───────────────────────────────────
 
     async def execute_agentic_loop(self, message: str, pending_state: Optional[dict] = None) -> dict:
         """
         Execute the agentic loop: plan -> tool call -> observe -> reflect -> final response.
-        Supports resuming from pending_state if user approved a tool call.
+        Uses Hacker Brain customized templates.
         """
         start = time.time()
         task_id = pending_state.get("task_id") if pending_state else f"task_{int(time.time())}"
-        self._retry_counts = {}  # Reset retry counters for each new execution
+        self._retry_counts = {}
         workspace_dir = str(Path(settings.BASE_DIR).parent / "workspace")
-        
+
         # 1. Plan / Resume Plan
         if pending_state:
-            # Resume from saved state
             plan_dict = pending_state.get("plan")
             plan = AgenticPlan(**plan_dict)
             current_step_index = pending_state.get("current_step_index", 0)
             observations = [Observation(**obs) for obs in pending_state.get("observations", [])]
-            logger.info(f"[Brain] Resuming agentic plan execution from step {current_step_index}")
+            logger.info(f"[HackerBrain] Resuming agentic plan execution from step {current_step_index}")
         else:
-            # Generate new plan
-            # 1. Intent Classifier (small model is used by default in _classify_intent)
+            # Classification
             intent = await self._classify_intent(message)
-            logger.info(f"[Brain] Plan Generation intent classification: {intent}")
+            logger.info(f"[HackerBrain] Plan Generation intent classification: {intent}")
 
-            # 2. Tool Retriever
+            # Tool Retrieval
             from tools.universal_registry import get_universal_registry
             from intelligence.selection_intelligence import get_selection_intelligence
-            
-            # Retrieve top 10 relevant tools using SelectionIntelligence
+
             selection_intel = get_selection_intelligence()
             retrieved_candidates = selection_intel.select(message, intent=intent, top_k=10)
             retrieved_names = {c.tool_name for c in retrieved_candidates}
-            
-            # Always ensure core utility tools are available to prevent planner getting stuck
-            core_utilities = {"chat_with_ai", "run_bash", "read_file", "write_file", "edit_file", "web_research", "realtime_search", "schedule_execution", "read_system_file", "find_system_file", "list_system_dir"}
-            selected_names = retrieved_names.union(core_utilities)
-            
+
+            # Prioritize security tools in selection
+            security_recon_tools = {
+                "dns_lookup", "whois_lookup", "port_scan", "header_analysis",
+                "ssl_check", "subdomain_enum", "chat_with_ai", "run_bash",
+                "read_file", "write_file", "edit_file", "web_research",
+                "realtime_search", "schedule_execution", "read_system_file",
+                "find_system_file", "list_system_dir"
+            }
+            selected_names = retrieved_names.union(security_recon_tools)
+
             registry = get_universal_registry()
             selected_tools = []
             for name in selected_names:
                 tool_def = registry.get_tool(name)
                 if tool_def and tool_def.is_enabled:
                     selected_tools.append(tool_def)
-            
-            # Format selected tools for the planner prompt
+
             tools_summary = "\n".join(t.to_llm_string() for t in selected_tools)
             all_tools_count = len(registry.get_enabled_tools())
-            logger.info(f"[Brain] Retracted tools list from {all_tools_count} to {len(selected_tools)} (savings: {round((1 - len(selected_tools)/all_tools_count)*100, 1)}%)")
-            
+            logger.info(f"[HackerBrain] Retracted tools list from {all_tools_count} to {len(selected_tools)}")
+
             history = self._build_history_summary(10)
-            
-            # 3. Memory Retriever
             memory_context = memory_store.get_relevant_memory_context(message)
-            
+
             from memory.user_profile import user_profile_store
             profile = user_profile_store.get_profile()
             profile_context = (
@@ -940,8 +840,8 @@ class Brain:
                 f"Tone Preference: {profile.get('tone_preference', 'natural agentic')}\n"
                 f"Preferred Response Style: {profile.get('preferred_response_style', '')}"
             )
-            
-            prompt = PLANNER_PROMPT.format(
+
+            prompt = HACKER_PLANNER_PROMPT.format(
                 tools_summary=tools_summary,
                 history=history,
                 memory_context=memory_context,
@@ -949,24 +849,23 @@ class Brain:
                 message=message,
                 workspace_dir=workspace_dir
             )
-            
-            plan_data = await query_llm_json(prompt)
+
+            plan_data = await query_llm_json(prompt, system_prompt="You are a cybersecurity AI planner. Respond ONLY with valid JSON.")
             if not plan_data or "steps" not in plan_data:
-                raise ValueError("LLM failed to generate a valid plan structure.")
-            
+                raise ValueError("LLM failed to generate a valid security plan structure.")
+
             plan = AgenticPlan(**plan_data)
             current_step_index = 0
             observations = []
-            logger.info(f"[Brain] Generated new agentic plan with {len(plan.steps)} step(s)")
+            logger.info(f"[HackerBrain] Generated new security agentic plan with {len(plan.steps)} step(s)")
 
         # 2. Loop Execution
         while current_step_index < len(plan.steps):
             step = plan.steps[current_step_index]
-            
-            # Check permissions first (Task 3: explicit approval check)
+
             from tools.universal_registry import get_universal_registry
             from tools.tool_permissions import get_permission_system
-            
+
             tool_def = get_universal_registry().get_tool(step.tool_name)
             if not tool_def:
                 obs = Observation(
@@ -980,11 +879,10 @@ class Brain:
                 observations.append(obs)
                 current_step_index += 1
                 continue
-                
+
             decision = get_permission_system().check(tool_def, step.args)
             if not decision.allowed:
                 if decision.requires_user_approval:
-                    # PAUSE execution and wait for user approval
                     pending_file = settings.DATA_DIR / "pending_approval.json"
                     state_to_save = {
                         "plan": plan.dict(),
@@ -998,7 +896,7 @@ class Brain:
                     pending_file.parent.mkdir(parents=True, exist_ok=True)
                     with open(pending_file, "w", encoding="utf-8") as f:
                         json.dump(state_to_save, f, indent=2)
-                        
+
                     return {
                         "response": (
                             f"🛡️ **Security Check**: Executing `{step.tool_name}` requires your approval.\n"
@@ -1007,7 +905,7 @@ class Brain:
                             f"Reply with **'yes'** or **'approve'** to execute, or **'no'** / **'cancel'** to abort."
                         ),
                         "intent": "system",
-                        "agent": "Brain",
+                        "agent": "HackerBrain",
                         "tasks_executed": current_step_index,
                         "tasks_succeeded": sum(1 for o in observations if o.success),
                         "tasks_failed": sum(1 for o in observations if not o.success),
@@ -1018,7 +916,6 @@ class Brain:
                         "tool_name_pending": step.tool_name
                     }
                 else:
-                    # Hard block: record as failure immediately
                     obs = Observation(
                         step_id=step.step_id,
                         tool_name=step.tool_name,
@@ -1030,12 +927,8 @@ class Brain:
                     observations.append(obs)
                     current_step_index += 1
                     continue
-                
-            # ── Pre-execution argument sanitizer ────────────────────────
-            # Fix common planner mistakes before they cause runtime failures
+
             sanitized_args = dict(step.args)
-            
-            # Fix 1: write_file / edit_file paths — ensure they stay within workspace
             if step.tool_name in ("write_file", "edit_file", "read_file") and "path" in sanitized_args:
                 raw_path = sanitized_args["path"]
                 ws_dir = Path(settings.BASE_DIR).parent / "workspace"
@@ -1043,11 +936,8 @@ class Brain:
                 try:
                     resolved.relative_to(ws_dir.resolve())
                 except ValueError:
-                    # Path is outside workspace — use just the filename inside workspace
                     sanitized_args["path"] = Path(raw_path).name
-                    logger.info(f"[Brain] Sanitized path: '{raw_path}' → '{sanitized_args['path']}' (kept within workspace)")
-            
-            # Fix 2: Check required params exist before execution
+
             skip_execution = False
             if tool_def and tool_def.input_schema:
                 missing = [p.name for p in tool_def.input_schema.params if p.required and p.name not in sanitized_args]
@@ -1057,14 +947,13 @@ class Brain:
                         tool_name=step.tool_name,
                         success=False,
                         result="",
-                        error=f"Missing required arguments: {', '.join(missing)}. The planner must provide these values.",
+                        error=f"Missing required arguments: {', '.join(missing)}",
                         duration_ms=0.0
                     )
                     skip_execution = True
-            
+
             step.args = sanitized_args
-            
-            # Execute tool call (only if pre-validation passed)
+
             if not skip_execution:
                 start_time = time.perf_counter()
                 try:
@@ -1095,13 +984,12 @@ class Brain:
                         error=str(e),
                         duration_ms=elapsed_ms
                     )
-                
+
             observations.append(obs)
             current_step_index += 1
-            
-            # Reflection step: only run if the step failed, to self-correct
+
             if not obs.success:
-                reflection_prompt = f"""You are the AI Reflector for AERIS — your job is to SELF-CORRECT failures.
+                reflection_prompt = f"""You are the Central AI Reflector — self-correct failures.
 
 ORIGINAL PLAN:
 {json.dumps(plan.dict(), indent=2)}
@@ -1109,36 +997,25 @@ ORIGINAL PLAN:
 OBSERVATIONS SO FAR:
 {json.dumps([o.dict() for o in observations], indent=2)}
 
+WORKSPACE DIRECTORY: {workspace_dir}
 CURRENT STEP ID: {step.step_id}
-WORKSPACE DIRECTORY: {workspace_dir if 'workspace_dir' in dir() else str(Path(settings.BASE_DIR).parent / 'workspace')}
 
-Analyze the LAST observation:
-
-IF THE STEP SUCCEEDED:
-- Set should_continue = true, suggested_changes = null
-- Continue with the remaining plan steps
-
-IF THE STEP FAILED — YOU MUST SELF-CORRECT (do NOT just abort):
-1. **Missing/invalid arguments**: Provide a corrected retry step with the SAME tool but FIXED args.
-   - Missing "to" in email → add a step using chat_with_ai to ask the user for the recipient
-   - Wrong param types → fix the types (e.g., "to" should be an array of objects [{{"email":"...", "name":"..."}}])
-2. **Path errors** (workspace boundary, file not found):
-   - Replace absolute paths with workspace-relative paths (e.g., "report.txt" instead of "C:/report.txt")
-3. **SECURITY_BLOCKED**: Skip the blocked step and continue with remaining steps. Do NOT retry blocked tools.
-4. Only set should_continue = false if the ENTIRE goal is impossible (e.g., the requested tool doesn't exist).
+Analyze the LAST observation and adjust:
+1. If arguments are invalid/missing, suggest a corrected retry step with same tool but fixed args.
+2. If blocked by security, skip and continue. Do not infinite retry.
+3. If files are not found, correct the paths.
 
 Respond with ONLY valid JSON:
 {{
   "step_id": "{step.step_id}",
-  "thought": "<your analysis of what went wrong and how to fix it>",
+  "thought": "<your analysis>",
   "should_continue": true,
   "suggested_changes": null or [{{"step_id": "retry_1", "tool_name": "tool_name", "args": {{}}, "description": "description"}}]
 }}
 """
-                ref_data = await query_llm_json(reflection_prompt)
+                ref_data = await query_llm_json(reflection_prompt, system_prompt="You are a central AI reflector. Respond ONLY with valid JSON.")
                 if ref_data:
                     try:
-                        # Robust fix: check if suggested_changes is a dictionary instead of a list
                         suggested = ref_data.get("suggested_changes")
                         if isinstance(suggested, dict):
                             if "steps" in suggested:
@@ -1147,45 +1024,34 @@ Respond with ONLY valid JSON:
                                 ref_data["suggested_changes"] = suggested["new_plan"]["steps"]
                             else:
                                 ref_data["suggested_changes"] = None
-                        
+
                         if not ref_data.get("suggested_changes"):
                             if "new_plan" in ref_data and isinstance(ref_data["new_plan"], dict) and "steps" in ref_data["new_plan"]:
                                 ref_data["suggested_changes"] = ref_data["new_plan"]["steps"]
                             elif "steps" in ref_data and isinstance(ref_data["steps"], list):
                                 ref_data["suggested_changes"] = ref_data["steps"]
-                        
+
                         reflection = Reflection(**ref_data)
-                        logger.info(f"[Brain] Reflection step {step.step_id}: {reflection.thought}")
-                        
-                        # Track retries to prevent infinite correction loops
+                        logger.info(f"[HackerBrain] Reflection step {step.step_id}: {reflection.thought}")
+
                         retry_key = f"{step.step_id}_{step.tool_name}"
-                        if not hasattr(self, '_retry_counts'):
-                            self._retry_counts = {}
-                        
                         if not reflection.should_continue:
-                            # Check if reflection is aborting a failed step — give it one more chance
                             if not obs.success and self._retry_counts.get(retry_key, 0) < 2 and reflection.suggested_changes:
-                                logger.info(f"[Brain] Overriding abort — applying self-correction (retry {self._retry_counts.get(retry_key, 0) + 1}/2)")
                                 self._retry_counts[retry_key] = self._retry_counts.get(retry_key, 0) + 1
                                 plan.steps = plan.steps[:current_step_index] + reflection.suggested_changes
-                                logger.info(f"[Brain] Self-correction applied. New plan length: {len(plan.steps)}")
                             else:
-                                logger.info(f"[Brain] Reflection decided to abort further steps.")
                                 break
                         elif reflection.suggested_changes:
                             self._retry_counts[retry_key] = self._retry_counts.get(retry_key, 0) + 1
                             if self._retry_counts[retry_key] <= 2:
                                 plan.steps = plan.steps[:current_step_index] + reflection.suggested_changes
-                                logger.info(f"[Brain] Reflection updated plan steps. New plan length: {len(plan.steps)}")
-                            else:
-                                logger.warning(f"[Brain] Max retries reached for {retry_key}. Skipping correction.")
                     except Exception as re_err:
-                        logger.warning(f"Failed to parse reflection JSON: {re_err}")
-                        
+                        logger.warning(f"Failed to parse hacker reflection: {re_err}")
+
         # 3. Final Response Generation
         history = self._build_history_summary(10)
         memory_context = memory_store.get_memory_context()
-        
+
         from memory.user_profile import user_profile_store
         profile = user_profile_store.get_profile()
         profile_context = (
@@ -1194,46 +1060,16 @@ Respond with ONLY valid JSON:
             f"Tone Preference: {profile.get('tone_preference', 'natural agentic')}\n"
             f"Preferred Response Style: {profile.get('preferred_response_style', '')}"
         )
-        
-        final_prompt = f"""You are AERIS, a real agentic assistant.
-Provide the final response to the user's request based on the plan execution results.
 
-USER MESSAGE: "{message}"
+        final_prompt = HACKER_FINAL_PROMPT.format(
+            message=message,
+            history=history,
+            profile_context=profile_context,
+            memory_context=memory_context,
+            plan_json=json.dumps(plan.dict(), indent=2),
+            observations_json=json.dumps([o.dict() for o in observations], indent=2)
+        )
 
-CONVERSATION HISTORY:
-{history}
-
-USER PROFILE:
-{profile_context}
-
-MEMORY CONTEXT:
-{memory_context}
-
-EXECUTED PLAN:
-{json.dumps(plan.dict(), indent=2)}
-
-OBSERVATIONS & TOOL OUTPUTS:
-{json.dumps([o.dict() for o in observations], indent=2)}
-
-HINGLISH PERSONALIZATION RULES:
-- If the user writes in Hinglish (Hindi written in Latin/Roman script, e.g., "kaise ho", "kya chal raha hai") or Hindi, you MUST naturally respond in modern, conversational Hinglish.
-- Keep the language flow smooth, colloquial, and friendly (e.g., "Haan, bilkul!", "Main isko check karta hoon").
-- Do not use overly formal/robotic Google-translated Hindi. Match the user's Roman-script Hindi style.
-- ALWAYS address the user as "Sir" (or "sir") in all responses. NEVER address the user as "bhai", "bro", "buddy", or any other informal/colloquial terms, even if the user addresses you informally.
-
-PROACTIVE SCHEDULING RULES (CRITICAL):
-- Look at the "OBSERVATIONS & TOOL OUTPUTS" above. If any step failed, had errors, or if a web/RAG search or scraper tool returned no results, you MUST suggest to the user to put it in pending tasks to run or check again later.
-- Example: "Sir, RAG search/website scrape failed. Kya main isko pending tasks mein daal du aur 30 minutes baad check karu?" (Feel free to suggest scheduling it for later).
-- If the user asked you to schedule a meeting, set a reminder, or run a command after a delay, let them know you are scheduling it.
-- If the user wants to schedule a task or put something in "pending tasks" but no schedule tool was executed because the time was not specified, you MUST ask the user for the time (e.g., "Sir, aap is task ko kitne baje ya kitni der baad run karna chahte hain?"). NEVER suggest or hallucinate about requiring external APIs (like Google News API) or fake commands (like "Dal Task").
-
-Respond with ONLY valid JSON matching this schema:
-{{
-  "text": "<your conversational answer to the user>",
-  "summary_of_actions": "<brief summary of tools called and what was accomplished>"
-}}
-"""
-        # Check if any step was blocked by security
         is_blocked = False
         blocked_reason = ""
         for obs in observations:
@@ -1243,32 +1079,39 @@ Respond with ONLY valid JSON matching this schema:
                 break
 
         if is_blocked:
-            text_resp = f"🛡️ SECURITY_BLOCKED: The request was blocked because it contains dangerous or destructive commands: {blocked_reason}"
+            text_resp = f"🛡️ SECURITY_BLOCKED: The request was blocked because it violates security boundaries: {blocked_reason}"
             summary_actions = f"Blocked execution of tool due to security policy."
         else:
-            final_data = await query_llm_json(final_prompt)
+            final_data = await query_llm_json(final_prompt, system_prompt="You are AERIS in Hacker Brain Mode. Respond ONLY with valid JSON.")
             if not final_data or "text" not in final_data:
-                text_resp = "I have completed the requested actions."
-                summary_actions = "Execution complete."
+                text_resp = "Sir, security assessment complete ho gayi hai."
+                summary_actions = "Security execution complete."
             else:
                 final_response = FinalResponse(**final_data)
                 text_resp = final_response.text
                 summary_actions = final_response.summary_of_actions
 
-            
         elapsed = round(time.time() - start, 2)
         succeeded = [o for o in observations if o.success]
         failed = [o for o in observations if not o.success]
-        
+
         primary_tool = observations[0].tool_name if observations else "none"
-        
-        # Save message to memory store
-        memory_store.add_message("assistant", text_resp)
-        
+
+        memory_store.add_message(
+            "assistant",
+            text_resp,
+            {
+                "agent": "HackerBrain",
+                "tasks": len(observations),
+                "execution_time": elapsed,
+                "intent": primary_tool,
+            },
+        )
+
         return {
             "response": text_resp,
             "intent": primary_tool,
-            "agent": "AgenticLoop",
+            "agent": "HackerBrain",
             "tasks_executed": len(observations),
             "tasks_succeeded": len(succeeded),
             "tasks_failed": len(failed),
@@ -1280,126 +1123,19 @@ Respond with ONLY valid JSON matching this schema:
 
     async def process(self, message: str) -> dict:
         """
-        Main entry point: receive user message, check memory commands,
-        check pending approvals, execute agentic loop, or run legacy flow.
+        Specialized process router for Hacker Brain.
+        Intercepts toggles, memory commands, checks approvals, and executes.
         """
-        # Intercept Hacker Mode Toggle Commands
+        # Intercept deactivation / switch back commands
         lower_msg = message.lower()
-
-        # ── Voice 2-step flow: if a challenge was pending, check for password keyword ──
-        if self._hacker_challenge_pending:
-            self._hacker_challenge_pending = False  # Always clear after one attempt
-            
-            # Allow cancelling the challenge/switching back to normal mode
-            if any(cmd in lower_msg for cmd in ["off hacker mode", "switch to productivity", "switch to productivity mode", "productivity mode", "switch back", "back to normal", "normal mode", "cancel", "abort", "nevermind"]):
-                return {
-                    "response": "Security clearance cancelled. Main Normal Mode mein hi hoon, Sir.",
-                    "intent": "chat",
-                    "agent": "Brain",
-                    "hacker_mode_challenge": False,
-                    "hacker_mode_activated": False,
-                    "success": True,
-                    "tasks_executed": 1,
-                    "tasks_succeeded": 1,
-                    "tasks_failed": 0,
-                    "execution_time": 0.0,
-                    "task_id": f"hac_{int(time.time())}"
-                }
-                
-            if "sambhav" in lower_msg:
-                from memory.user_profile import user_profile_store
-                user_profile_store.update_profile(hacker_mode=True)
-                return {
-                    "response": "Security clearance verified, Sir. Hacker Brain Mode activated. Full security, OSINT, aur Drana capabilities online hain.",
-                    "intent": "hacker_mode_activation",
-                    "agent": "Brain",
-                    "hacker_mode_activated": True,
-                    "success": True,
-                    "tasks_executed": 1,
-                    "tasks_succeeded": 1,
-                    "tasks_failed": 0,
-                    "execution_time": 0.0,
-                    "task_id": f"hac_{int(time.time())}"
-                }
-            else:
-                return {
-                    "response": "Access Denied, Sir. Invalid security clearance keyword. Hacker Brain Mode activate nahi hua.",
-                    "intent": "hacker_mode_activation",
-                    "agent": "Brain",
-                    "hacker_mode_activated": False,
-                    "success": False,
-                    "tasks_executed": 1,
-                    "tasks_succeeded": 0,
-                    "tasks_failed": 1,
-                    "execution_time": 0.0,
-                    "task_id": f"hac_{int(time.time())}"
-                }
-
-        if any(cmd in lower_msg for cmd in ["on hacker mode", "switch to hacker brain", "switch to hacker mode", "hacker brain mode", "hacker mode", "activate hacker mode"]) and "off" not in lower_msg and "back" not in lower_msg and "normal" not in lower_msg:
-            from memory.user_profile import user_profile_store
-            profile = user_profile_store.get_profile()
-            if profile.get("hacker_mode", False):
-                return {
-                    "response": "Sir, Hacker Brain Mode already active hai! Main deep security analysis ke liye completely ready hoon.",
-                    "intent": "chat",
-                    "agent": "Brain",
-                    "tasks_executed": 1,
-                    "tasks_succeeded": 1,
-                    "tasks_failed": 0,
-                    "execution_time": 0.0,
-                    "success": True,
-                    "task_id": f"hac_{int(time.time())}"
-                }
-            # Voice-friendly: if keyword "sambhav" is spoken in the same command, auto-activate
-            if "sambhav" in lower_msg:
-                user_profile_store.update_profile(hacker_mode=True)
-                return {
-                    "response": "Security clearance verified, Sir. Hacker Brain Mode activated. Full security, OSINT, aur Drana capabilities online hain.",
-                    "intent": "hacker_mode_activation",
-                    "agent": "Brain",
-                    "hacker_mode_activated": True,
-                    "success": True,
-                    "tasks_executed": 1,
-                    "tasks_succeeded": 1,
-                    "tasks_failed": 0,
-                    "execution_time": 0.0,
-                    "task_id": f"hac_{int(time.time())}"
-                }
-            # Show password challenge prompt AND set pending flag for voice 2-step flow
-            self._hacker_challenge_pending = True
-            return {
-                "response": "To activate Hacker Brain Mode, please enter your security clearance keyword.",
-                "intent": "hacker_mode_activation",
-                "agent": "Brain",
-                "hacker_mode_challenge": True,
-                "success": True,
-                "tasks_executed": 1,
-                "tasks_succeeded": 1,
-                "tasks_failed": 0,
-                "execution_time": 0.0,
-                "task_id": f"hac_{int(time.time())}"
-            }
-
         if any(cmd in lower_msg for cmd in ["off hacker mode", "switch to productivity", "switch to productivity mode", "productivity mode", "switch back", "back to normal", "normal mode"]):
             from memory.user_profile import user_profile_store
-            profile = user_profile_store.get_profile()
-            if not profile.get("hacker_mode", False):
-                return {
-                    "response": "Sir, aap already Productivity Mode mein hain.",
-                    "intent": "chat",
-                    "agent": "Brain",
-                    "tasks_executed": 1,
-                    "tasks_succeeded": 1,
-                    "tasks_failed": 0,
-                    "execution_time": 0.0,
-                    "success": True,
-                    "task_id": f"hac_{int(time.time())}"
-                }
+            
             user_profile_store.update_profile(hacker_mode=False)
             return {
                 "response": "Productivity Mode active ho gaya hai, Sir. Daily tasks, scheduling aur coding help ke liye system online hai.",
                 "intent": "hacker_mode_deactivation",
-                "agent": "Brain",
+                "agent": "HackerBrain",
                 "hacker_mode_deactivated": True,
                 "success": True,
                 "tasks_executed": 1,
@@ -1409,31 +1145,6 @@ Respond with ONLY valid JSON matching this schema:
                 "task_id": f"hac_{int(time.time())}"
             }
 
-        # If hacker mode is active, delegate all message processing directly to HackerBrain
-        from memory.user_profile import user_profile_store
-        if user_profile_store.get_profile().get("hacker_mode", False):
-            try:
-                from hacker_brain import hacker_brain
-                return await hacker_brain.process(message)
-            except Exception as e:
-                logger.exception("Failed to run hacker_brain, falling back to normal brain.")
-
-        # Check if the query intent is security/osint/drana in normal mode
-        intent = await self._classify_intent(message)
-        if intent in ("security", "osint", "drana"):
-            return {
-                "response": "Sir, yeh security assessment/OSINT/Drana capability restricted hai. Kripya Hacker Brain Mode activate karein.",
-                "intent": "chat",
-                "agent": "Brain",
-                "success": False,
-                "tasks_executed": 0,
-                "tasks_succeeded": 0,
-                "tasks_failed": 0,
-                "execution_time": 0.0,
-                "task_id": f"restricted_{int(time.time())}"
-            }
-
-        # 1. Intercept memory commands
         mem_cmd_res = parse_memory_command(message)
         if mem_cmd_res:
             memory_store.add_message("user", message)
@@ -1450,7 +1161,7 @@ Respond with ONLY valid JSON matching this schema:
                 "task_id": f"mem_{int(time.time())}"
             }
 
-        # 2. Check pending approvals
+        # Check pending approvals
         pending_file = settings.DATA_DIR / "pending_approval.json"
         if pending_file.exists():
             state = None
@@ -1459,34 +1170,33 @@ Respond with ONLY valid JSON matching this schema:
                     state = json.load(f)
             except Exception as e:
                 logger.warning(f"Failed to load pending approval state: {e}")
-            
+
             if state:
                 clean_msg = message.strip().lower().strip(".*!#")
-                if clean_msg in ["yes", "y", "approve", "approve token", "approve <token>"]:
+                if clean_msg in ["yes", "y", "approve"]:
                     tool_name = state.get("tool_name_pending")
                     from tools.tool_permissions import get_permission_system
                     get_permission_system().approve_for_session(tool_name)
-                    
+
                     try:
                         pending_file.unlink()
                     except Exception:
                         pass
-                        
+
                     try:
                         return await self.execute_agentic_loop(state.get("message", ""), pending_state=state)
                     except Exception as e:
-                        logger.exception("Failed to resume agentic loop after approval. Falling back to legacy process.")
-                        return await self.legacy_process(message)
+                        logger.exception("Failed to resume agentic loop after approval in HackerBrain.")
                 elif clean_msg in ["no", "n", "cancel", "stop", "abort"]:
                     try:
                         pending_file.unlink()
                     except Exception:
                         pass
-                    
+
                     return {
-                        "response": "Execution cancelled. The tool execution request was rejected.",
+                        "response": "Sir, security command execution cancelled.",
                         "intent": "chat",
-                        "agent": "Brain",
+                        "agent": "HackerBrain",
                         "tasks_executed": 0,
                         "tasks_succeeded": 0,
                         "tasks_failed": 0,
@@ -1495,22 +1205,17 @@ Respond with ONLY valid JSON matching this schema:
                         "task_id": state.get("task_id", f"task_{int(time.time())}")
                     }
                 else:
-                    # Cancel approval on any other input and execute new command
                     try:
                         pending_file.unlink()
                     except Exception:
                         pass
 
-        # 3. Normal execution: try agentic loop
         try:
             memory_store.add_message("user", message)
 
-            # ── Direct OSINT Agent routing ─────────────────────────────────────
-            # If intent is OSINT, bypass the generic agentic loop and run
-            # the specialised multi-stage OSINTAgent pipeline directly.
             intent = await self._classify_intent(message)
             if intent == "osint":
-                logger.info("[Brain] Routing OSINT intent directly to OSINTAgent")
+                logger.info("[HackerBrain] Routing OSINT intent directly to OSINTAgent")
                 agent = self.agents["osint"]
                 base_context = {
                     "chat_history": memory_store.get_context(10),
@@ -1548,23 +1253,20 @@ Respond with ONLY valid JSON matching this schema:
                 })
 
                 return {
-                    "response":       final_response,
-                    "intent":         "osint",
-                    "agent":          "OSINTAgent",
+                    "response": final_response,
+                    "intent": "osint",
+                    "agent": "OSINTAgent",
                     "tasks_executed": 1,
                     "tasks_succeeded": 1 if success else 0,
-                    "tasks_failed":   0 if success else 1,
+                    "tasks_failed": 0 if success else 1,
                     "execution_time": elapsed,
-                    "success":        success,
-                    "task_id":        task_id,
-                    "attempts":       1,
+                    "success": success,
+                    "task_id": task_id,
+                    "attempts": 1,
                 }
 
-            # ── Direct Drana Agent routing ─────────────────────────────────────
-            # If intent is drana, bypass the generic agentic loop and run
-            # the DranaAgent pipeline directly.
             if intent == "drana":
-                logger.info("[Brain] Routing Drana intent directly to DranaAgent")
+                logger.info("[HackerBrain] Routing Drana intent directly to DranaAgent")
                 agent = self.agents["drana"]
                 from memory.drana_store import drana_store
                 base_context = {
@@ -1604,21 +1306,23 @@ Respond with ONLY valid JSON matching this schema:
                 })
 
                 return {
-                    "response":       final_response,
-                    "intent":         "drana",
-                    "agent":          "DranaAgent",
+                    "response": final_response,
+                    "intent": "drana",
+                    "agent": "DranaAgent",
                     "tasks_executed": 1,
                     "tasks_succeeded": 1 if success else 0,
-                    "tasks_failed":   0 if success else 1,
+                    "tasks_failed": 0 if success else 1,
                     "execution_time": elapsed,
-                    "success":        success,
-                    "task_id":        task_id,
-                    "attempts":       1,
+                    "success": success,
+                    "task_id": task_id,
+                    "attempts": 1,
                 }
 
+            # Try Agentic loop
             return await self.execute_agentic_loop(message)
-        except Exception as e:
-            logger.exception(f"Agentic loop failed: {e}. Falling back to legacy process.")
+
+        except Exception as err:
+            logger.exception("HackerBrain loop failed. Falling back to legacy process.")
             # Remove last user message since legacy_process will add it again
             if memory_store.chat_history and memory_store.chat_history[-1]["content"] == message:
                 memory_store.chat_history.pop()
@@ -1626,15 +1330,15 @@ Respond with ONLY valid JSON matching this schema:
 
     async def legacy_process(self, message: str) -> dict:
         """
-        Legacy processing fallback pipeline (classify -> route -> agent -> audit).
+        Legacy processing fallback pipeline for HackerBrain.
         """
         start = time.time()
-        logger.info(f"[Brain] Fallback Legacy Processing: {message[:120]}")
+        logger.info(f"[HackerBrain] Fallback Legacy Processing: {message[:120]}")
 
         # 1. Log user message
         memory_store.add_message("user", message)
 
-        # 2. Build base context (last 10 messages)
+        # 2. Build base context
         base_context = {
             "chat_history": memory_store.get_context(10),
             "recent_tasks": self._build_recent_tasks_summary(5),
@@ -1647,7 +1351,7 @@ Respond with ONLY valid JSON matching this schema:
         plan = None
         is_fast_route = False
 
-        # Try delegator for complex queries first
+        # Try delegator for complex queries
         if self._is_complex_query(message):
             from agents.sub_agents.delegator import get_delegator
             try:
@@ -1660,10 +1364,8 @@ Respond with ONLY valid JSON matching this schema:
                     final_response = str(delegation_result.get("result", "Swarm execution completed."))
                     agents_used = delegation_result.get("agents_used", [])
                     
-                    # Audit the swarm response
                     audit_result = await self.audit_agent.think(message, {"task_results": [{"response": final_response, "intent": "swarm"}]})
                     if not audit_result.get("passed", True):
-                        logger.warning(f"[Brain] Swarm Audit FAILED: {audit_result.get('feedback')}")
                         final_response += f"\n\n*(Note: Audit flagged potential issues: {audit_result.get('feedback')})*"
                     
                     memory_store.add_message(
@@ -1690,13 +1392,12 @@ Respond with ONLY valid JSON matching this schema:
                         "attempts":       1
                     }
             except Exception as e:
-                logger.warning(f"[Brain] Delegator swarm failed, falling back to multi-task plan: {e}")
+                logger.warning(f"[HackerBrain] Swarm failed: {e}")
 
         while attempt < max_retries:
             attempt += 1
-            logger.info(f"[Brain] Execution Attempt {attempt}/{max_retries}")
+            logger.info(f"[HackerBrain] Execution Attempt {attempt}/{max_retries}")
             
-            # 3. Plan
             if self._is_complex_query(current_message):
                 plan = await self._plan_multi_task(current_message)
                 is_fast_route = False
@@ -1706,36 +1407,27 @@ Respond with ONLY valid JSON matching this schema:
                     tasks=[BrainTask(task_id="t1", intent=intent, description=current_message)],
                     is_parallel=False,
                 )
-                # If it's a simple command or a specialized pipeline, skip the audit
                 if intent in ["chat", "system", "codepipeline", "diagram", "image"] and attempt == 1:
                     is_fast_route = True
 
-            # 4. Execute
             task_results = await self._execute_plan(plan, base_context)
 
-            # 5. Audit (only if not fast-routed)
             if not is_fast_route and len(task_results) > 0 and attempt < max_retries:
                 audit_result = await self.audit_agent.think(message, {"task_results": task_results})
                 if not audit_result.get("passed", True):
                     feedback = audit_result.get("feedback", "Unknown error")
                     suggestion = audit_result.get("suggested_action", "")
-                    logger.warning(f"[Brain] Audit FAILED: {feedback} | Suggestion: {suggestion}")
-                    
-                    # Update message for next attempt
                     current_message = f"{message}\n\n[SYSTEM]: Your previous attempt failed. Feedback: {feedback}. Suggestion: {suggestion}. Please try again and correct the mistake."
-                    continue # Retry loop
+                    continue
                 else:
-                    logger.info("[Brain] Audit PASSED.")
-                    break # Success, exit loop
+                    break
             else:
-                break # Fast route or max retries reached, exit loop
+                break
 
-        # 6. Aggregate response
         elapsed = round(time.time() - start, 2)
         succeeded = [r for r in task_results if r.get("success")]
         failed = [r for r in task_results if not r.get("success")]
 
-        # Combine all task responses into a single reply
         if len(task_results) == 1:
             final_response = task_results[0]["response"]
         else:
@@ -1751,12 +1443,10 @@ Respond with ONLY valid JSON matching this schema:
                     err_summary += f"- {f.get('intent', 'unknown')}: {str(f.get('error', ''))[:120]}\n"
                 final_response += err_summary
 
-        # Add note if it took multiple attempts
         if attempt > 1:
             final_response += f"\n\n*(Note: This required {attempt} attempts to self-correct and verify)*"
 
-        # 7. Store in memory
-        primary_agent = task_results[0].get("agent", "Brain") if task_results else "Brain"
+        primary_agent = task_results[0].get("agent", "HackerBrain") if task_results else "HackerBrain"
         memory_store.add_message(
             "assistant",
             final_response,
@@ -1770,7 +1460,6 @@ Respond with ONLY valid JSON matching this schema:
         task_id = f"task_{len(memory_store.task_results) + 1}"
         memory_store.store_task(task_id, {"tasks": task_results, "elapsed": elapsed, "attempts": attempt})
 
-        # 8. Return enriched response
         return {
             "response":       final_response,
             "intent":         plan.tasks[0].intent if plan and plan.tasks else "chat",
@@ -1784,6 +1473,4 @@ Respond with ONLY valid JSON matching this schema:
             "attempts":       attempt
         }
 
-
-# ── Global singleton ──────────────────────────────────────────────────────────
-brain = Brain()
+hacker_brain = HackerBrain()
