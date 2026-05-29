@@ -16,11 +16,11 @@
     "last_error": null
   },
   "chat_with_ai": {
-    "total_runs": 65,
-    "successful_runs": 65,
+    "total_runs": 70,
+    "successful_runs": 70,
     "failed_runs": 0,
     "success_rate": 1.0,
-    "avg_execution_time_ms": 7766.918923076924,
+    "avg_execution_time_ms": 7280.153000000001,
     "last_error": null
   },
   "list_tools": {
@@ -80,11 +80,11 @@
     "last_error": null
   },
   "list_agents": {
-    "total_runs": 1,
-    "successful_runs": 1,
+    "total_runs": 2,
+    "successful_runs": 2,
     "failed_runs": 0,
     "success_rate": 1.0,
-    "avg_execution_time_ms": 0.49,
+    "avg_execution_time_ms": 0.425,
     "last_error": null
   },
   "generate_code": {
@@ -144,11 +144,11 @@
     "last_error": null
   },
   "schedule_execution": {
-    "total_runs": 10,
+    "total_runs": 15,
     "successful_runs": 0,
-    "failed_runs": 10,
+    "failed_runs": 15,
     "success_rate": 0.0,
-    "avg_execution_time_ms": 15006.493999999997,
+    "avg_execution_time_ms": 15007.127999999997,
     "last_error": "builtin_execution_error"
   },
   "find_system_file": {

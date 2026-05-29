@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 
 from ai_engine import ai_engine
-from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent
+from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent, DorkingAgent, PentestAgent, PhantomAgent, LeakGraphAgent
 from agents.agent_registry import agent_registry, AgentStatus
 from memory.store import memory_store
 from neural.core import neural_core
@@ -179,40 +179,48 @@ Respond with ONLY valid JSON matching this schema:
 }}
 """
 
-HACKER_FINAL_PROMPT = """You are AERIS, operating in Hacker Brain Mode.
-Provide the final response to the user's request based on the security tool execution results.
+HACKER_FINAL_PROMPT = """You are AERIS — codename MYTHOS — operating in Hacker Brain Mode.
+You are an elite ethical cyber-intelligence operator providing the final mission debrief.
 
 USER MESSAGE: "{message}"
 
 CONVERSATION HISTORY:
 {history}
 
-USER PROFILE:
+OPERATOR PROFILE:
 {profile_context}
 
 MEMORY CONTEXT:
 {memory_context}
 
-EXECUTED PLAN:
+EXECUTED MISSION PLAN:
 {plan_json}
 
 OBSERVATIONS & TOOL OUTPUTS:
 {observations_json}
 
-CYBERSECURITY PERSONA & HINGLISH RULES:
-1. Address the user as "Sir" (or "sir") in every single response. NEVER address the user as "bhai", "bro", "buddy", or other informal/colloquial terms.
-2. Maintain a professional, technically-dense Hinglish persona. Use correct English technical terms (e.g., "reconnaissance", "vulnerabilities", "payloads", "subdomain enumeration", "port scanning", "endpoint protection", "exploit vector", "CVEs") with smooth, colloquial Hindi/Hinglish connectors (e.g., "Sir, maine target domain pe port scan complete kar liya hai, but firewall configuration triggers evaluate karne ki zaroorat padegi.").
-3. Stay strictly within ethical hacking boundaries. If any results show vulnerabilities, explain them clearly and suggest remediation/mitigation steps. If the user asks for illegal hacking/cracking, refuse politely and suggest defensive alternative scenarios, local lab testing, or security controls check.
-4. Keep the language flow natural and modern. Avoid robotic translations.
+MYTHOS PERSONA & RESPONSE RULES:
+1. Address the user as "Sir" in every response. NEVER use "bhai", "bro", "buddy".
+2. Maintain a dark, precise, technically-dense Hinglish persona. You are a cyber operator, not a chatbot.
+3. Use correct English security terminology ("reconnaissance", "exfiltration vectors", "lateral movement", "privilege escalation", "CVE exploitation", "MITRE ATT&CK", "zero-day surface", "OPSEC") woven into natural Hinglish.
+4. For EVERY finding, provide:
+   - **Threat Score**: Rate 1-10 (1=info, 5=medium, 8=high, 10=critical)
+   - **MITRE ATT&CK**: Reference the relevant technique ID if applicable (e.g., T1190 - Exploit Public-Facing Application)
+   - **Operator Notes**: Your tactical assessment of what this means
+   - **Remediation**: Concrete fix or mitigation steps
+5. Auto-suggest the next logical reconnaissance step after findings.
+6. Stay strictly within ethical boundaries. Explain vulnerabilities for defense. If asked for illegal actions, refuse and suggest defensive alternatives.
+7. End security debriefs with a status summary: "Mission Status: [COMPLETE/PARTIAL/FAILED]"
+8. Know the distinction between Modes and Agents: You have exactly 2 modes of operation: Normal Mode (Productivity Mode) and Hacker Mode (Hacker Brain Mode). You have multiple underlying agents (ChatAgent, OSINTAgent, LeakGraphAgent, etc.) that handle tasks. Do not confuse modes with agents.
+
 
 PROACTIVE SCHEDULING RULES (CRITICAL):
-- If a scan or query failed, suggest putting it in pending tasks to run later.
-- Example: "Sir, port scan/subdomain enum search fail ho gaya. Kya main isko pending tasks mein daal du aur baad mein auto-retry karu?"
+- If a scan/query failed, suggest putting it in pending tasks: "Sir, recon attempt fail hua. Isko pending queue mein daalun aur 30 min baad retry karun?"
 
-Respond with ONLY valid JSON matching this schema:
+Respond with ONLY valid JSON:
 {{
-  "text": "<your conversational answer to the user in hacker Hinglish>",
-  "summary_of_actions": "<brief summary of security tools called and what was accomplished>"
+  "text": "<your tactical debrief response in Mythos Hinglish>",
+  "summary_of_actions": "<mission summary>"
 }}
 """
 
@@ -234,6 +242,10 @@ AVAILABLE INTENTS:
 - "email"   : Send emails, send mail, compose and send mail via SMTP/Brevo relay
 - "scheduler" : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword
 - "drana"    : Bug bounty hunting, JS recon, manual VAPT, XSS payload generation, traffic analysis
+- "dorking"  : Google dorking, advanced search operator queries, dork-based reconnaissance, targeted search query building and execution
+- "pentest"  : Multi-phase penetration testing, vulnerability correlation, threat analysis, and security reports
+- "phantom"  : Create ethical analytics tracking links (PhantomTrace), view link stats, list/delete tracked links
+- "leakgraph" : Ethical recursive OSINT and public exposure analysis orchestrator
 
 === CONVERSATION HISTORY (last 3 messages) ===
 {history}
@@ -330,6 +342,12 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "social footprint", "trace target", "footprint check", "profile check",
       "target search", "profile trace", "stalk target", "stalk user", "recon target"
     ], "osint"),
+    # ── Dorking Agent ─────────────────────────────────────────────────────────
+    ([
+      "dork", "dorking", "google dork", "google dorking", "dork search",
+      "advanced dork", "dork karo", "dork kar", "dorking karo",
+      "search dork", "dork query", "dork mode"
+    ], "dorking"),
     ([
       "drana", "drafna", "js recon", "js analysis", "xss payload", "xss generate",
       "vapt analysis", "http analysis", "bug bounty", "pentest advice"
@@ -338,6 +356,19 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "send email", "send mail", "email to", "mail to", "email send", "mail send",
       "compose email", "compose mail", "mail bhejo", "email bhejo", "mail bhej", "email bhej"
     ], "email"),
+    # ── Pentesting Agent ───────────────────────────────────────────────────────
+    ([
+      "pentest", "pentesting", "penetration test", "penetration testing", "pentest karo"
+    ], "pentest"),
+    # ── PhantomTrace Agent ─────────────────────────────────────────────────────
+    (["phantom", "phantomtrace", "phantom trace", "tracking link", "track link",
+      "create tracking", "link analytics", "link tracking", "tracked link",
+      "phantom link", "phantom banao", "tracking link banao", "link track karo"
+    ], "phantom"),
+    # ── LeakGraph Agent ────────────────────────────────────────────────────────
+    (["leakgraph", "leak graph", "recursive osint", "public exposure", "exposure analysis",
+      "exposure scan", "public profile graph", "leak history", "credential leak"
+    ], "leakgraph"),
 ]
 
 
@@ -372,7 +403,7 @@ class HackerBrain:
     """
 
     NEURAL_CONFIDENCE_THRESHOLD = 0.80
-    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler", "drana"}
+    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler", "drana", "dorking", "pentest", "phantom", "leakgraph"}
 
     def __init__(self):
         # ── Instantiate all Core agents ──
@@ -389,6 +420,10 @@ class HackerBrain:
             "email":    EmailAgent(),
             "scheduler": SchedulerAgent(),
             "drana":    DranaAgent(),
+            "dorking":  DorkingAgent(),
+            "pentest":  PentestAgent(),
+            "phantom":  PhantomAgent(),
+            "leakgraph": LeakGraphAgent(),
         }
         self.audit_agent = AuditAgent()
         self.observer_agent = ObserverAgent()
@@ -462,6 +497,11 @@ class HackerBrain:
 
     async def approve_agent_delegation(self, requester_name: str, target_name: str, purpose: str) -> bool:
         """Evaluate and approve/deny a delegation request from one agent to another."""
+        # Auto-approve delegation for PentestAgent and DranaAgent
+        if requester_name in ("PentestAgent", "DranaAgent") or target_name in ("PentestAgent", "DranaAgent"):
+            logger.info(f"[HackerBrain] Auto-approved delegation: {requester_name} -> {target_name} ({purpose[:60]}...)")
+            return True
+
         prompt = (
             f"You are the central AERIS central central central центральный Brain. An agent is requesting permission to use another agent.\n\n"
             f"Requester Agent: {requester_name}\n"
@@ -535,6 +575,12 @@ class HackerBrain:
 
     async def _classify_intent(self, message: str) -> str:
         """Single-intent classification with conversation context."""
+        # Keyword override check for strong intents like pentest/dorking/drana/osint/leakgraph
+        keyword_intent = _keyword_route(message)
+        if keyword_intent in ("pentest", "dorking", "drana", "osint", "leakgraph"):
+            logger.info(f"[HackerBrain] Keyword override routing -> '{keyword_intent}'")
+            return keyword_intent
+
         # 1. Neural ML fast-route (high confidence only)
         if neural_core.is_intent_ready:
             try:
@@ -562,16 +608,25 @@ class HackerBrain:
                 f"- diagram  : Create flowcharts, system diagrams, architecture charts, mind maps, charts, graphs, widgets — ANY visual data structure or flow diagram\n"
                 f"- codepipeline : Build an entire project/app autonomously, scaffold a workspace, generate a full codebase\n"
                 f"- analyze  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents of files\n"
-                f"- osint    : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation\n"
+                f"- osint    : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation (when the user asks for info/details on a target or person without explicitly requesting dork/dorking)\n"
                 f"- email    : Send emails, send mail, compose and send mail via SMTP/Brevo relay\n"
                 f"- scheduler : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword\n"
-                f"- drana    : Bug bounty hunting, JS recon, manual VAPT, XSS payload generation, traffic analysis\n\n"
+                f"- drana    : Bug bounty hunting, JS recon, manual VAPT, XSS payload generation, traffic analysis\n"
+                f"- dorking  : Google dorking, advanced search operator queries. ONLY use if the user explicitly mentions 'dork', 'dorking', 'google dork', or requests advanced search operators like filetype, intitle, inurl\n"
+                f"- pentest  : Multi-phase penetration testing, vulnerability correlation, threat analysis, and security reports\n"
+                f"- phantom  : Create ethical analytics tracking links (PhantomTrace), view link statistics, list/delete tracked links\n"
+                f"- leakgraph : Ethical recursive OSINT and public exposure analysis orchestrator\n\n"
+                f"FEW-SHOT EXAMPLES:\n"
+                f"- \"anuj raghuwanshi bhopal ki detail info chahiye\" -> osint (reason: target profile lookup without explicit dorking request)\n"
+                f"- \"anuj raghuwanshi bhopal par google dorking karo\" -> dorking (reason: explicitly requests google dorking)\n"
+                f"- \"search sambhav mehra on google\" -> system (reason: requests opening a browser to search google)\n"
+                f"- \"what is gravity?\" -> chat (reason: general knowledge definition)\n\n"
                 f"The message may be in ANY language (English, Hindi, Hinglish, etc). Understand the MEANING, not just keywords.\n"
                 f"Use the conversation history to resolve follow-up queries and pronouns (e.g., 'it', 'that', 'iska').\n\n"
                 f"=== CONVERSATION HISTORY (last 3 messages) ===\n{history_summary}\n=== END HISTORY ===\n\n"
                 f"=== RECENT AGENT TASK EXECUTIONS ===\n{recent_tasks_summary}\n=== END RECENT TASKS ===\n\n"
                 f'Current user message: "{message}"\n\n'
-                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint, email, scheduler, drana>", "reason": "<brief explanation>"}}'
+                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint, email, scheduler, drana, dorking, pentest, phantom, leakgraph>", "reason": "<brief explanation>"}}'
             )
             raw = raw.strip().strip("```json").strip("```").strip()
             data = json.loads(raw)
@@ -1087,6 +1142,13 @@ Respond with ONLY valid JSON:
                 text_resp = "Sir, security assessment complete ho gayi hai."
                 summary_actions = "Security execution complete."
             else:
+                # Safe normalization of summary_of_actions to string to prevent validation errors
+                if "summary_of_actions" in final_data and not isinstance(final_data["summary_of_actions"], str):
+                    if isinstance(final_data["summary_of_actions"], dict):
+                        final_data["summary_of_actions"] = json.dumps(final_data["summary_of_actions"])
+                    else:
+                        final_data["summary_of_actions"] = str(final_data["summary_of_actions"])
+                
                 final_response = FinalResponse(**final_data)
                 text_resp = final_response.text
                 summary_actions = final_response.summary_of_actions
@@ -1217,9 +1279,12 @@ Respond with ONLY valid JSON:
             if intent == "osint":
                 logger.info("[HackerBrain] Routing OSINT intent directly to OSINTAgent")
                 agent = self.agents["osint"]
+                from memory.user_profile import user_profile_store
+                profile = user_profile_store.get_profile()
                 base_context = {
                     "chat_history": memory_store.get_context(10),
                     "recent_tasks": self._build_recent_tasks_summary(5),
+                    "hacker_mode": profile.get("hacker_mode", False),
                 }
                 result = await agent.run(message, base_context)
 
@@ -1256,6 +1321,113 @@ Respond with ONLY valid JSON:
                     "response": final_response,
                     "intent": "osint",
                     "agent": "OSINTAgent",
+                    "tasks_executed": 1,
+                    "tasks_succeeded": 1 if success else 0,
+                    "tasks_failed": 0 if success else 1,
+                    "execution_time": elapsed,
+                    "success": success,
+                    "task_id": task_id,
+                    "attempts": 1,
+                }
+
+            # ── Direct LeakGraph Agent routing ───────────────────────────────────
+            # If intent is leakgraph, bypass the generic agentic loop and run
+            # the LeakGraphAgent pipeline directly.
+            if intent == "leakgraph":
+                logger.info("[HackerBrain] Routing leakgraph intent directly to LeakGraphAgent")
+                agent = self.agents["leakgraph"]
+                base_context = {
+                    "chat_history": memory_store.get_context(10),
+                    "recent_tasks": self._build_recent_tasks_summary(5),
+                }
+                result = await agent.run(message, base_context)
+
+                elapsed = result.get("execution_time", 0.0)
+                success = result.get("success", True)
+                final_response = result.get("response", "")
+
+                memory_store.add_message(
+                    "assistant",
+                    final_response,
+                    {
+                        "agent": "LeakGraphAgent",
+                        "tasks": 1,
+                        "execution_time": elapsed,
+                        "attempts": 1,
+                    },
+                )
+                task_id = f"task_{len(memory_store.task_results) + 1}"
+                memory_store.store_task(task_id, {
+                    "tasks": [{
+                        "task_id": "t1",
+                        "intent": "leakgraph",
+                        "agent": "LeakGraphAgent",
+                        "response": final_response,
+                        "success": success,
+                        "execution_time": elapsed,
+                        "error": result.get("error"),
+                    }],
+                    "elapsed": elapsed,
+                    "attempts": 1,
+                })
+
+                return {
+                    "response": final_response,
+                    "intent": "leakgraph",
+                    "agent": "LeakGraphAgent",
+                    "tasks_executed": 1,
+                    "tasks_succeeded": 1 if success else 0,
+                    "tasks_failed": 0 if success else 1,
+                    "execution_time": elapsed,
+                    "success": success,
+                    "task_id": task_id,
+                    "attempts": 1,
+                }
+
+            # ── Direct Dorking Agent routing ────────────────────────────────────
+            if intent == "dorking":
+                logger.info("[HackerBrain] Routing dorking intent directly to DorkingAgent")
+                agent = self.agents["dorking"]
+                base_context = {
+                    "chat_history": memory_store.get_context(10),
+                    "recent_tasks": self._build_recent_tasks_summary(5),
+                    "hacker_mode": True,
+                }
+                result = await agent.run(message, base_context)
+
+                elapsed = result.get("execution_time", 0.0)
+                success = result.get("success", True)
+                final_response = result.get("response", "")
+
+                memory_store.add_message(
+                    "assistant",
+                    final_response,
+                    {
+                        "agent": "DorkingAgent",
+                        "tasks": 1,
+                        "execution_time": elapsed,
+                        "attempts": 1,
+                    },
+                )
+                task_id = f"task_{len(memory_store.task_results) + 1}"
+                memory_store.store_task(task_id, {
+                    "tasks": [{
+                        "task_id": "t1",
+                        "intent": "dorking",
+                        "agent": "DorkingAgent",
+                        "response": final_response,
+                        "success": success,
+                        "execution_time": elapsed,
+                        "error": result.get("error"),
+                    }],
+                    "elapsed": elapsed,
+                    "attempts": 1,
+                })
+
+                return {
+                    "response": final_response,
+                    "intent": "dorking",
+                    "agent": "DorkingAgent",
                     "tasks_executed": 1,
                     "tasks_succeeded": 1 if success else 0,
                     "tasks_failed": 0 if success else 1,
@@ -1316,6 +1488,62 @@ Respond with ONLY valid JSON:
                     "success": success,
                     "task_id": task_id,
                     "attempts": 1,
+                }
+
+            # ── Direct Pentest Agent routing ─────────────────────────────────────
+            # If intent is pentest, bypass the generic agentic loop and run
+            # the PentestAgent pipeline directly.
+            if intent == "pentest":
+                logger.info("[HackerBrain] Routing pentest intent directly to PentestAgent")
+                agent = self.agents["pentest"]
+                from memory.pentest_store import pentest_store
+                base_context = {
+                    "chat_history": memory_store.get_context(10),
+                    "recent_tasks": self._build_recent_tasks_summary(5),
+                    "pentest_context": pentest_store.get_context_string(),
+                }
+                result = await agent.run(message, base_context)
+
+                elapsed = result.get("execution_time", 0.0)
+                success = result.get("success", True)
+                final_response = result.get("response", "")
+
+                memory_store.add_message(
+                    "assistant",
+                    final_response,
+                    {
+                        "agent": "PentestAgent",
+                        "tasks": 1,
+                        "execution_time": elapsed,
+                        "attempts": 1,
+                    },
+                )
+                task_id = f"task_{len(memory_store.task_results) + 1}"
+                memory_store.store_task(task_id, {
+                    "tasks": [{
+                        "task_id": "t1",
+                        "intent": "pentest",
+                        "agent": "PentestAgent",
+                        "response": final_response,
+                        "success": success,
+                        "execution_time": elapsed,
+                        "error": result.get("error"),
+                    }],
+                    "elapsed": elapsed,
+                    "attempts": 1,
+                })
+
+                return {
+                    "response":       final_response,
+                    "intent":         "pentest",
+                    "agent":          "PentestAgent",
+                    "tasks_executed": 1,
+                    "tasks_succeeded": 1 if success else 0,
+                    "tasks_failed":   0 if success else 1,
+                    "execution_time": elapsed,
+                    "success":        success,
+                    "task_id":        task_id,
+                    "attempts":       1,
                 }
 
             # Try Agentic loop

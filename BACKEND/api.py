@@ -113,6 +113,10 @@ _IMAGES_DIR = Path(__file__).resolve().parent / "data" / "generated_images"
 _IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/images", StaticFiles(directory=str(_IMAGES_DIR)), name="images")
 
+# ── PhantomTrace ethical link analytics routes ──────────────────────────────
+from services.phantom_routes import router as phantom_router
+app.include_router(phantom_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

@@ -15,6 +15,7 @@ import httpx
 
 from agents.base_agent import BaseAgent
 from ai_engine import ai_engine
+from agents.dorking_agent import DorkingAgent
 from tools.tool_registry import global_tool_registry as tool_registry
 
 logger = logging.getLogger("aeris.agent.osint")
@@ -203,6 +204,9 @@ class OSINTAgent(BaseAgent):
             return {"success": False, "error": "No targets found to investigate"}
 
         results = []
+        # Mode affects which Google dork templates are generated for social/news queries.
+        mode = "hacker" if plan.get("hacker_mode") or plan.get("mode") == "hacker" else "normal"
+        dork_agent = DorkingAgent()
         original_targets_str = ", ".join(f"{t['value']} ({t['type']})" for t in targets)
 
         # ── Phase 1: Initial Investigation ─────────────────────────────────
@@ -213,7 +217,7 @@ class OSINTAgent(BaseAgent):
             self.logger.info(f"[OSINTAgent] Phase 1: Investigating '{target_value}' of type '{target_type}'")
 
             # Perform customized searches depending on target type
-            intel = await self._run_target_search(target_value, target_type)
+            intel = await self._run_target_search(target_value, target_type, mode=mode, dork_agent=dork_agent)
             phase1_data.append({
                 "target": target_value,
                 "type": target_type,
@@ -259,7 +263,7 @@ class OSINTAgent(BaseAgent):
             pivot_type = pivot["type"]
             self.logger.info(f"[OSINTAgent] Phase 2 (Pivot): Investigating '{pivot_val}' of type '{pivot_type}'")
             
-            intel = await self._run_target_search(pivot_val, pivot_type)
+            intel = await self._run_target_search(pivot_val, pivot_type, mode=mode, dork_agent=dork_agent)
             phase2_data.append({
                 "target": pivot_val,
                 "type": pivot_type,
@@ -318,13 +322,13 @@ class OSINTAgent(BaseAgent):
 
     # ────────────────────────── Helpers ───────────────────────────────────────
 
-    async def _run_target_search(self, value: str, target_type: str) -> Any:
+    async def _run_target_search(self, value: str, target_type: str, mode: str = "normal", dork_agent: Optional[DorkingAgent] = None) -> Any:
         """Run parallel social-footprint + news/media searches for every target type."""
         import asyncio
 
         # 1. Specialized domains and IP lookups (uses fast recon)
+        infra_data = {}
         if target_type == "domain_ip":
-            infra_data = {}
             for tool_name in ["dns_lookup", "whois_lookup", "ssl_check"]:
                 tool = tool_registry.get(tool_name)
                 if tool:
@@ -336,64 +340,63 @@ class OSINTAgent(BaseAgent):
                     except Exception as e:
                         infra_data[tool_name] = {"error": str(e)}
 
-            # Parallel web + news searches for the domain
-            social_q = f"site:{value} OR \"{value}\" social profile OR footprint OR about"
-            news_q = f"\"{value}\" news OR press OR announcement OR article OR interview"
-            social_fut = self._run_tavily_search(social_q)
-            news_fut = self._run_tavily_search(news_q)
-            social_data, news_data = await asyncio.gather(social_fut, news_fut)
-            return {"infrastructure": infra_data, "social_footprint": social_data, "news_mentions": news_data}
-
-        # 2. Build dual queries for all other target types
-        social_query = ""
-        news_query = ""
-
-        if target_type == "email":
-            social_query = f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com OR site:facebook.com OR site:instagram.com OR site:reddit.com OR social profile'
-            news_query = f'"{value}" news OR article OR press OR interview OR mention'
-        elif target_type == "username":
-            clean = value.lstrip("@")
-            social_query = (
-                f'"{clean}" OR "@{clean}" '
-                f'site:twitter.com OR site:x.com OR site:linkedin.com OR site:github.com '
-                f'OR site:instagram.com OR site:reddit.com OR site:facebook.com '
-                f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
-                f'OR site:pinterest.com social profile'
-            )
-            news_query = f'"{clean}" OR "@{clean}" news OR article OR interview OR press OR mention'
-        elif target_type == "person":
-            social_query = (
-                f'"{value}" '
-                f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
-                f'OR site:instagram.com OR site:facebook.com OR site:reddit.com '
-                f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
-                f'OR site:pinterest.com profile'
-            )
-            news_query = f'"{value}" news OR article OR interview OR press release OR media OR achievement OR announcement'
-        elif target_type == "organization":
-            social_query = (
-                f'"{value}" '
-                f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
-                f'OR site:facebook.com OR site:youtube.com OR site:instagram.com '
-                f'profile OR about OR headquarters OR official'
-            )
-            news_query = f'"{value}" news OR press release OR announcement OR article OR funding OR acquisition'
-        elif target_type == "phone":
-            social_query = f'"{value}" social profile OR contact OR directory'
-            news_query = f'"{value}" news OR mention OR article'
-        elif target_type == "cryptocurrency":
-            social_query = f'"{value}" crypto wallet OR blockchain OR address lookup'
-            news_query = f'"{value}" news OR transaction OR mention OR scam OR alert'
+        # 2. Build dual queries for all target types
+        if dork_agent:
+            social_query, news_query = dork_agent.build_queries(value, target_type, mode=mode)
         else:
-            social_query = f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com OR site:instagram.com OR site:reddit.com profile OR footprint'
-            news_query = f'"{value}" news OR article OR interview OR press OR mention'
+            # Manual fallback queries
+            if target_type == "domain_ip":
+                social_query = f"site:{value} OR \"{value}\" social profile OR footprint OR about"
+                news_query = f"\"{value}\" news OR press OR announcement OR article OR interview"
+            elif target_type == "email":
+                social_query = f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com OR site:facebook.com OR site:instagram.com OR site:reddit.com OR social profile'
+                news_query = f'"{value}" news OR article OR press OR interview OR mention'
+            elif target_type == "username":
+                clean = value.lstrip("@")
+                social_query = (
+                    f'"{clean}" OR "@{clean}" '
+                    f'site:twitter.com OR site:x.com OR site:linkedin.com OR site:github.com '
+                    f'OR site:instagram.com OR site:reddit.com OR site:facebook.com '
+                    f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
+                    f'OR site:pinterest.com social profile'
+                )
+                news_query = f'"{clean}" OR "@{clean}" news OR article OR interview OR press OR mention'
+            elif target_type == "person":
+                social_query = (
+                    f'"{value}" '
+                    f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
+                    f'OR site:instagram.com OR site:facebook.com OR site:reddit.com '
+                    f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
+                    f'OR site:pinterest.com profile'
+                )
+                news_query = f'"{value}" news OR article OR interview OR press release OR media OR achievement OR announcement'
+            elif target_type == "organization":
+                social_query = (
+                    f'"{value}" '
+                    f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
+                    f'OR site:facebook.com OR site:youtube.com OR site:instagram.com '
+                    f'profile OR about OR headquarters OR official'
+                )
+                news_query = f'"{value}" news OR press release OR announcement OR article OR funding OR acquisition'
+            elif target_type == "phone":
+                social_query = f'"{value}" social profile OR contact OR directory'
+                news_query = f'"{value}" news OR mention OR article'
+            elif target_type == "cryptocurrency":
+                social_query = f'"{value}" crypto wallet OR blockchain OR address lookup'
+                news_query = f'"{value}" news OR transaction OR mention OR scam OR alert'
+            else:
+                social_query = f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com OR site:instagram.com OR site:reddit.com profile OR footprint'
+                news_query = f'"{value}" news OR article OR interview OR press OR mention'
 
         # Run both searches in parallel
         social_fut = self._run_tavily_search(social_query)
         news_fut = self._run_tavily_search(news_query)
         social_data, news_data = await asyncio.gather(social_fut, news_fut)
 
-        return {"social_footprint": social_data, "news_mentions": news_data}
+        if target_type == "domain_ip":
+            return {"infrastructure": infra_data, "social_footprint": social_data, "news_mentions": news_data}
+        else:
+            return {"social_footprint": social_data, "news_mentions": news_data}
 
     async def _run_tavily_search(self, query: str) -> dict:
         """Wrapper for calling the Tavily Search API — advanced depth, 8 results."""

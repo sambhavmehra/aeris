@@ -15,6 +15,10 @@ from agents.osint_agent import OSINTAgent
 from agents.email_agent import EmailAgent
 from agents.scheduler_agent import SchedulerAgent
 from agents.drana_agent import DranaAgent
+from agents.dorking_agent import DorkingAgent
+from agents.pentest_agent import PentestAgent
+from agents.phantom_agent import PhantomAgent
+from agents.leak_graph_agent import LeakGraphAgent
 
 __all__ = [
     "BaseAgent",
@@ -33,4 +37,10 @@ __all__ = [
     "EmailAgent",
     "SchedulerAgent",
     "DranaAgent",
+    "DorkingAgent",
+    "PentestAgent",
+    "PhantomAgent",
+    "LeakGraphAgent",
 ]
+
+

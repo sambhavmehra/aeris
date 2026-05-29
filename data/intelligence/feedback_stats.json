@@ -191,5 +191,45 @@
     "consecutive_failures": 12,
     "avg_time_ms": 15006.639166666668,
     "errors": []
+  },
+  "subdomain_enum": {
+    "total": 2,
+    "success": 2,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 646.1,
+    "errors": []
+  },
+  "dns_lookup": {
+    "total": 2,
+    "success": 2,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 0.78,
+    "errors": []
+  },
+  "ssl_check": {
+    "total": 2,
+    "success": 2,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 162.45999999999998,
+    "errors": []
+  },
+  "port_scan": {
+    "total": 2,
+    "success": 2,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 12181.485,
+    "errors": []
+  },
+  "header_analysis": {
+    "total": 2,
+    "success": 2,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 2024.3700000000001,
+    "errors": []
   }
 }

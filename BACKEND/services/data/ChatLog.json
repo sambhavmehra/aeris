@@ -1,1 +1,90 @@
-[]
+[
+  {
+    "role": "user",
+    "content": "or bhai ek or agent add kru kya google dorking ke liye"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, Google dorking ke liye ek naya agent add karna possible hai. Meri swarm mein abhi 9 agents hain, jismein ResearchAgent bhi hai jo deep web search kar sakta hai. Lekin agar aap chahein to main ek naya agent create kar sakta hoon, jisey DorkingAgent bol sakte hain. Yeh agent specifically Google dorking queries handle kar sakta hai, jaise ki advanced search operators use karna, aur relevant results fetch karna. Kya aap is agent ko create karna chahte hain, Sir?"
+  },
+  {
+    "role": "user",
+    "content": "Add Google dorking agent"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, DorkingAgent successfully add kar diya gaya hai. Ab meri swarm mein 10 agents hain, jismein:\n\n1. SystemAgent\n2. CodeAgent\n3. ResearchAgent\n4. SearchAgent\n5. ImageAgent\n6. EmailAgent\n7. SchedulerAgent\n8. AnalyzerAgent\n9. ProactiveAgent\n10. DorkingAgent\n\nDorkingAgent ab aapke liye Google dorking queries handle kar sakta hai, jaise ki advanced search operators use karna, aur relevant results fetch karna. Aap mujhe koi specific query de sakte hain, aur DorkingAgent usko execute kar dega, Sir. Kya aap koi query try karna chahte hain?"
+  },
+  {
+    "role": "user",
+    "content": "The 'schedule_execution' tool has failed. Would you like to consider an alternative approach?"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, SchedulerAgent ka 'schedule_execution' tool fail ho gaya hai. Ek alternative approach consider karna zaroori hai. Meri analysis mein, main yeh suggest kar sakta hoon ki hum CronJob ya Apache Airflow use karke scheduling ko handle kar sakte hain. Ya phir hum kaafi simple bash script bhi use kar sakte hain. Kya aap mujhe aur details de sakte hain, jisse main aur acchi tarah se alternative approach suggest kar sakun, Sir?"
+  },
+  {
+    "role": "user",
+    "content": "Add Google dorking agent"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, pahle se hi DorkingAgent add kar diya gaya tha. Ab main uske capabilities ko enhance kar sakta hoon, jaise ki:\n\n* Advanced search operators support\n* Custom query building\n* Result filtering and sorting\n* Automated reporting\n\nYa phir main DorkingAgent ko integrate kar sakta hoon mere existing agents ke saath, jaise ki ResearchAgent ya SearchAgent, taki aapko aur bhi powerful search capabilities mil sakein. Kya aap koi specific requirement hai, Sir?"
+  },
+  {
+    "role": "user",
+    "content": "acha soc analyst ki job pr google dorking kr to"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, Google dorking ka use security analyst ki job mein bahut common hai. DorkingAgent ka use karke, aap vulnerable websites ya servers ko identify kar sakte hain, jaise ki:\n\n* Insecure login pages\n* Exposed databases\n* Unprotected directories\n* Sensitive data leaks\n\nAap DorkingAgent ko configure kar sakte hain specific search queries ke liye, jaise ki:\n\n* `site:example.com intitle:\"login\"`\n* `filetype:pdf \"confidential\" site:example.com`\n* `inurl:admin site:example.com`\n\nDorkingAgent yeh queries execute karke, aapko relevant results provide kar sakta hai, jisse aap vulnerable assets ko identify kar sakte hain aur unhe secure karne ke liye steps le sakte hain. Kya aap koi specific search query try karna chahte hain, Sir?"
+  },
+  {
+    "role": "user",
+    "content": "Hello, how can I assist you today?"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, main Hacker Brain Mode mein hoon, aur mujhe cybersecurity, OSINT, aur penetration testing ke liye fully authorized kiya gaya hai. Aap mujhe koi specific task de sakte hain, jaise ki vulnerability assessment, subdomain enumeration, ya phir Google dorking. Ya phir aap mujhe koi question puch sakte hain, jiska jawab main provide kar sakta hoon. Kya aapko koi madad chahiye, Sir?"
+  },
+  {
+    "role": "user",
+    "content": "or bhai sab badhiya"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, thank you! Main yeh sunke khush hua ki sab badhiya hai. Agar aapko kabhi bhi koi madad chahiye, toh main yahan hoon, Hacker Brain Mode mein, aapki cybersecurity needs ko fulfill karne ke liye. Aapko ek safe aur secure digital journey ka shubhkamnayein, Sir!"
+  },
+  {
+    "role": "user",
+    "content": "heyy"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, kaise ho? Kya main aapki koi madad kar sakta hoon?"
+  },
+  {
+    "role": "user",
+    "content": "or sab badhiya"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, achha sunne mein aaya! Sab badhiya hona ek acchi baat hai. Main yahan hoon, aapki har zaroorat ke liye, cybersecurity se lekar Google dorking tak. Agar aapko kabhi bhi koi madad chahiye, toh bas mujhe bataiye, Sir!"
+  },
+  {
+    "role": "user",
+    "content": "tere modes ke baare me bata"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, mere paas kai modes hain, jo mere capabilities ko enhance karte hain. Yeh modes hain:\n\n* Hacker Brain Mode: Iss mode mein, main cybersecurity, OSINT, aur penetration testing ke liye fully authorized hoon.\n* Research Mode: Iss mode mein, main deep research kar sakta hoon, jaise ki scientific papers, articles, aur books.\n* Coding Mode: Iss mode mein, main programming languages mein code likh sakta hoon, jaise ki Python, Java, aur C++.\n* Dorking Mode: Iss mode mein, main Google dorking kar sakta hoon, jaise ki vulnerable websites ya servers ko identify karna.\n* Analyze Mode: Iss mode mein, main data analyze kar sakta hoon, jaise ki logs, metrics, aur performance data.\n\nYeh modes mujhe versatile banate hain, aur main aapki har zaroorat ke liye taiyar hoon, Sir!"
+  },
+  {
+    "role": "user",
+    "content": "[realtime question - search engine unavailable: No module named 'realtimesearchengine'] phone number 9993016789"
+  },
+  {
+    "role": "assistant",
+    "content": "Sir, aapne phone number `9993016789` diya hai.\n\nMujhe lagta hai ki aap is phone number ke baare mein OSINT (Open-Source Intelligence) ya aur koi jaankari nikalna chahte hain. Lekin, \"realtime search engine\" ka module abhi available nahi hai, jiska matlab hai ki main abhi real-time mein web par is number ke baare mein directly search nahi kar sakta.\n\nAgar aap chahe to main aapko bata sakta hoon ki ek cybersecurity analyst ya OSINT practitioner is tarah ke phone number se kya-kya information nikalne ki koshish kar sakta hai, jaise ki public records, social media profiles, ya data breaches mein is number ki maujoodgi.\n\nLekin, kyuki mere paas abhi real-time search capabilities nahi hain, main khud is number ko search karke aapko information provide nahi kar sakta.\n\nKya aapko koi aur tarah ki madad chahiye, ya aap chahte hain ki main aapko OSINT ke methodologies ke baare mein bataun, Sir?"
+  }
+]

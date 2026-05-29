@@ -23,18 +23,67 @@
 }
 
 body.hacker {
-  --cyan: #ff3333;
-  --cyan-rgb: 255, 51, 51;
-  --cyan-dim: rgba(255, 51, 51, 0.15);
-  --cyan-glow: rgba(255, 51, 51, 0.4);
-  --purple: #ff6600;
-  --purple-rgb: 255, 102, 0;
-  --purple-dim: rgba(255, 102, 0, 0.15);
-  --text-primary: #ff3333;
-  --text-secondary: rgba(255, 51, 51, 0.65);
-  --text-muted: rgba(255, 51, 51, 0.4);
-  --border-cyan: rgba(255, 51, 51, 0.2);
-  --border-purple: rgba(255, 102, 0, 0.2);
+  --cyan: #ff2222;
+  --cyan-rgb: 255, 34, 34;
+  --cyan-dim: rgba(255, 34, 34, 0.15);
+  --cyan-glow: rgba(255, 34, 34, 0.5);
+  --purple: #ff5500;
+  --purple-rgb: 255, 85, 0;
+  --purple-dim: rgba(255, 85, 0, 0.15);
+  --text-primary: #ff2222;
+  --text-secondary: rgba(255, 34, 34, 0.65);
+  --text-muted: rgba(255, 34, 34, 0.4);
+  --border-cyan: rgba(255, 34, 34, 0.2);
+  --border-purple: rgba(255, 85, 0, 0.2);
+}
+
+/* Hacker Mode — Scanline overlay */
+body.hacker::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 34, 34, 0.015) 2px,
+    rgba(255, 34, 34, 0.015) 4px
+  );
+  animation: scanline-scroll 8s linear infinite;
+}
+
+@keyframes scanline-scroll {
+  from { background-position: 0 0; }
+  to { background-position: 0 100vh; }
+}
+
+/* Hacker Mode — Glitch text effect */
+@keyframes glitch-text {
+  0%, 90%, 100% { transform: none; opacity: 1; }
+  92% { transform: translate(-2px, 1px) skewX(-1deg); opacity: 0.85; }
+  94% { transform: translate(2px, -1px) skewX(1deg); opacity: 0.9; }
+  96% { transform: translate(-1px, 2px); opacity: 0.85; }
+  98% { transform: translate(1px, -2px) skewX(-0.5deg); opacity: 0.95; }
+}
+
+body.hacker .greeting-text-split {
+  animation:
+    glitch-text 4s ease-in-out infinite,
+    greeting-glow 3s ease-in-out infinite;
+}
+
+/* Hacker Mode — Threat pulse on status dot */
+body.hacker .tap-hint {
+  color: rgba(255, 34, 34, 0.75);
+  text-shadow: 0 0 12px rgba(255, 34, 34, 0.5);
+  animation: hint-pulse-visible 2s ease-in-out infinite;
+}
+
+/* Hacker Mode — Deeper vignette */
+body.hacker {
+  background: radial-gradient(ellipse at center, #0a0000 0%, #000000 70%);
 }
 
 html, body {

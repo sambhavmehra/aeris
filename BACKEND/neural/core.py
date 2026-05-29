@@ -23,7 +23,7 @@ logger = logging.getLogger("aeris.neural.core")
 INTENT_LABELS = [
     "chat", "security", "system", "research", "search",
     "code", "image", "diagram", "codepipeline", "analyze",
-    "osint", "email",
+    "osint", "email", "scheduler", "drana", "dorking", "pentest"
 ]
 
 # --------------- Training Data ---------------
@@ -177,6 +177,31 @@ TRAINING_DATA: List[Tuple[str, str]] = [
     ("send email using brevo", "email"),
     ("brevo se email send karo", "email"),
     ("mail send kar do", "email"),
+    # -- scheduler --
+    ("schedule a meeting for tomorrow at 2pm", "scheduler"),
+    ("set a reminder to call team at 6pm", "scheduler"),
+    ("cancel my task with id scheduler_1", "scheduler"),
+    ("list all scheduled tasks", "scheduler"),
+    ("task pending list dikhao", "scheduler"),
+    ("remind me to check server status in 10 minutes", "scheduler"),
+    # -- drana --
+    ("run js recon on target", "drana"),
+    ("generate custom xss payload for input field", "drana"),
+    ("perform manual vapt on endpoint", "drana"),
+    ("drana security scan website", "drana"),
+    ("js files analysis kro", "drana"),
+    # -- dorking --
+    ("google dorking check example.com", "dorking"),
+    ("advanced search operators for config files", "dorking"),
+    ("run google dork on domain", "dorking"),
+    ("search dork query for databases", "dorking"),
+    # -- pentest --
+    ("pentest karo vinusxtech.me", "pentest"),
+    ("run a full penetration test on example.com", "pentest"),
+    ("pentest recon check on website", "pentest"),
+    ("perform security assessment on target", "pentest"),
+    ("target website pr pentesting kro", "pentest"),
+    ("run pentest check", "pentest"),
 ]
 
 

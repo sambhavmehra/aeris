@@ -1335,7 +1335,19 @@ Respond with ONLY valid JSON matching this schema:
                     "task_id": f"hac_{int(time.time())}"
                 }
 
-        if any(cmd in lower_msg for cmd in ["on hacker mode", "switch to hacker brain", "switch to hacker mode", "hacker brain mode", "hacker mode", "activate hacker mode"]) and "off" not in lower_msg and "back" not in lower_msg and "normal" not in lower_msg:
+        # Refined trigger logic to ensure we only activate hacker mode when explicitly requested,
+        # avoiding triggers on questions like "do you have hacker mode?".
+        activation_keywords = [
+            "on hacker mode", "switch to hacker brain", "switch to hacker mode",
+            "hacker brain mode on", "activate hacker mode", "enable hacker mode",
+            "turn on hacker mode", "hacker mode on", "hacker mode chalu",
+            "hacker mode activate", "start hacker mode", "hacker brain mode chalu",
+            "chalu karo hacker mode", "enter hacker mode", "go to hacker mode",
+            "run hacker mode", "toggle hacker mode"
+        ]
+        is_activation_request = any(cmd in lower_msg for cmd in activation_keywords) or lower_msg.strip(" .*!#?") in ("hacker mode", "hacker brain mode", "hacker mode chalu", "hacker mode on")
+
+        if is_activation_request and "off" not in lower_msg and "back" not in lower_msg and "normal" not in lower_msg:
             from memory.user_profile import user_profile_store
             profile = user_profile_store.get_profile()
             if profile.get("hacker_mode", False):
