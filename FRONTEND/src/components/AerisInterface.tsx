@@ -1,9 +1,12 @@
 'use client';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import Orb from './Orb';
 import ChatPanel from './ChatPanel';
 import { useParticles } from '@/hooks/useParticles';
 import { useCursor } from '@/hooks/useCursor';
+import { useAgentStore } from '@/store/agentStore';
+import { AssemblySequence } from './assembly/AssemblySequence';
+import { CommandCenter } from './command/CommandCenter';
 
 const BRAND = 'AERIS';
 
@@ -14,8 +17,21 @@ export default function AerisInterface() {
   const [dynamicGreeting, setDynamicGreeting] = useState<string>('Sir, ready when you are.');
   const particleRef = useRef<HTMLCanvasElement>(null);
 
+  // Zustand multi-agent state
+  const phase = useAgentStore((state) => state.phase);
+  const setPhase = useAgentStore((state) => state.setPhase);
+  const restoreAssembled = useAgentStore((state) => state.restoreAssembled);
+
   useParticles(particleRef, isSpeaking);
   useCursor();
+
+  // Restore command center session if active
+  useEffect(() => {
+    const saved = sessionStorage.getItem('aeris-assembly-state');
+    if (saved === 'assembled') {
+      restoreAssembled();
+    }
+  }, [restoreAssembled]);
 
   useEffect(() => {
     const checkStatus = async () => {
@@ -79,6 +95,31 @@ export default function AerisInterface() {
   };
 
   const greetingTextShadow = `0 0 20px ${greetingAccent.glow1}, 0 0 40px ${greetingAccent.glow2}, 0 0 60px ${greetingAccent.glow3}`;
+
+  const handleAssemblyComplete = useCallback(() => {
+    if (phase === 'assembling') {
+      setPhase('assembled');
+    } else {
+      setPhase('idle');
+    }
+  }, [phase, setPhase]);
+
+  if (phase === 'assembling' || phase === 'disassembling') {
+    return (
+      <AssemblySequence
+        onComplete={handleAssemblyComplete}
+      />
+    );
+  }
+
+  if (phase === 'assembled') {
+    return (
+      <CommandCenter
+        onDisassemble={() => setPhase('idle')}
+        onSpeakingChange={setIsSpeaking}
+      />
+    );
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--navy)', overflow: 'hidden', cursor: 'none' }}>

@@ -90,6 +90,7 @@ html, body {
   height: 100%;
   width: 100%;
   overflow: hidden;
+  position: fixed;
   background: var(--navy);
   color: var(--text-primary);
   font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
@@ -273,5 +274,95 @@ html, body {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ASSEMBLY SEQUENCE — Animations & Tokens
+   ═══════════════════════════════════════════════════════════ */
+
+/* Glassmorphism Tokens */
+:root {
+  --glass-bg: rgba(10, 15, 30, 0.6);
+  --glass-bg-solid: rgba(5, 8, 20, 0.95);
+  --glass-border: rgba(0, 255, 255, 0.1);
+  --glass-blur: blur(16px);
+  --core-accent: #00e5ff;
+  --control-accent: #ff9100;
+  --swarm-accent: #a855f7;
+  --special-accent: #ff3366;
+}
+
+/* Holographic scan line sweeping top to bottom */
+@keyframes holographic-scan {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+/* Character-by-character text glow reveal */
+@keyframes char-glow {
+  0% { opacity: 0; text-shadow: 0 0 20px rgba(0,255,255,0.8); filter: blur(4px); }
+  60% { opacity: 1; text-shadow: 0 0 30px rgba(0,255,255,1), 0 0 60px rgba(0,255,255,0.5); filter: blur(0px); }
+  100% { opacity: 1; text-shadow: 0 0 10px rgba(0,255,255,0.4); filter: blur(0px); }
+}
+
+/* Loading bar progress glow */
+@keyframes progress-glow {
+  0%, 100% { box-shadow: 0 0 6px rgba(0,255,255,0.4), 0 0 12px rgba(0,255,255,0.2); }
+  50% { box-shadow: 0 0 12px rgba(0,255,255,0.8), 0 0 24px rgba(0,255,255,0.4); }
+}
+
+/* Agent card materialization */
+@keyframes card-materialize {
+  0% { opacity: 0; transform: translateX(40px) scale(0.95); filter: blur(4px); }
+  60% { opacity: 1; filter: blur(0px); }
+  100% { opacity: 1; transform: translateX(0) scale(1); filter: blur(0px); }
+}
+
+/* Status color transition glow */
+@keyframes status-transition {
+  0% { background: #ff4444; box-shadow: 0 0 8px #ff4444; }
+  50% { background: #ffab00; box-shadow: 0 0 8px #ffab00; }
+  100% { background: #00e676; box-shadow: 0 0 8px #00e676; }
+}
+
+/* Synchronization wave ripple */
+@keyframes sync-wave {
+  0% { transform: scale(0.8); opacity: 0.6; }
+  50% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(0.8); opacity: 0.6; }
+}
+
+/* Ambient background pulse for assembly */
+@keyframes ambient-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+/* Glitch effect for text transitions */
+@keyframes text-glitch {
+  0%, 90%, 100% { transform: none; opacity: 1; }
+  91% { transform: translate(-3px, 1px) skewX(-2deg); opacity: 0.8; }
+  93% { transform: translate(3px, -1px) skewX(2deg); opacity: 0.9; }
+  95% { transform: translate(-1px, 2px); opacity: 0.85; }
+  97% { transform: translate(2px, -2px) skewX(-1deg); opacity: 0.95; }
+}
+
+/* Data stream flowing effect */
+@keyframes data-stream {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 100px; }
+}
+
+/* Initializing blink for status dots */
+@keyframes init-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Assembly title entrance */
+@keyframes assembly-title-enter {
+  0% { opacity: 0; transform: scale(0.7); filter: blur(10px); }
+  60% { opacity: 1; transform: scale(1.02); filter: blur(0); }
+  100% { opacity: 1; transform: scale(1); filter: blur(0); }
 }
 

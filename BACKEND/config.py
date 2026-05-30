@@ -57,9 +57,18 @@ class Settings:
         self.OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.2")
 
         # --- Paths ---
-        self.BASE_DIR: Path = Path(__file__).resolve().parent
-        self.DATA_DIR: Path = self.BASE_DIR / "data"
-        self.DATA_DIR.mkdir(exist_ok=True)
+        import sys
+        if getattr(sys, "frozen", False):
+            self.BASE_DIR = Path(sys.executable).resolve().parent
+            self.DATA_DIR = Path.home() / ".aeris" / "data"
+            self.WORKSPACE_DIR = Path.home() / "AerisProjects"
+        else:
+            self.BASE_DIR = Path(__file__).resolve().parent
+            self.DATA_DIR = self.BASE_DIR / "data"
+            self.WORKSPACE_DIR = self.BASE_DIR.parent / "workspace"
+
+        self.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        self.WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
 
         # --- Model Defaults ---
         self.GROQ_PRIMARY_MODEL: str = "llama-3.3-70b-versatile"

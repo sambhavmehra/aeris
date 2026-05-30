@@ -206,7 +206,16 @@ class UniversalToolDef:
 
     def to_llm_string(self) -> str:
         """Detailed LLM-friendly description with full parameter info."""
-        lines = [f"- **{self.name}**: {self.description} [risk: {self.risk_level.value}]"]
+        header = f"- **{self.name}**: {self.description} [risk: {self.risk_level.value}]"
+        try:
+            from intelligence.tool_awareness import get_tool_awareness
+            tk = get_tool_awareness().get_tool_knowledge(self.name)
+            if tk and tk.anti_patterns:
+                header += f" ⚠ NOT for: {'; '.join(tk.anti_patterns[:2])}"
+        except Exception:
+            pass
+            
+        lines = [header]
         if self.input_schema and self.input_schema.params:
             for p in self.input_schema.params:
                 req_tag = "REQUIRED" if p.required else f"optional, default={p.default}"

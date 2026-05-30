@@ -205,7 +205,7 @@ class RuntimeAgent(BaseAgent):
 
     def _get_workspace(self) -> Path:
         """Get the workspace directory for temporary scripts."""
-        base = Path(__file__).resolve().parent.parent.parent.parent
-        workspace = base / "workspace"
-        workspace.mkdir(exist_ok=True)
+        from config import settings
+        workspace = Path(settings.WORKSPACE_DIR)
+        workspace.mkdir(parents=True, exist_ok=True)
         return workspace

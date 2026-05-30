@@ -275,8 +275,8 @@ DECISION_EXAMPLES = [
 
 
 # ── Chat history storage ─────────────────────────────────────────────
-DATA_DIR = Path(__file__).resolve().parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
+from config import settings
+DATA_DIR = settings.DATA_DIR
 CHATLOG_PATH = DATA_DIR / "ChatLog.json"
 
 

@@ -125,7 +125,8 @@ class PlannerAgent(BaseAgent):
                 "Dependency Analysis",
             ],
         )
-        self.base_dir = (Path(__file__).resolve().parent.parent.parent / "workspace").resolve()
+        from config import settings
+        self.base_dir = Path(settings.WORKSPACE_DIR).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     # ── BaseAgent interface ──────────────────────────────────────────────

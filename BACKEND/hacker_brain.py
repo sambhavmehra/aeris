@@ -153,6 +153,7 @@ NEVER use paths like "C:/", "D:/", "/tmp", or any absolute path outside the work
 
 CRITICAL RULES:
 - For ANY security-related request (SSL check, port scan, DNS lookup, recon, VAPT, vulnerability scan, WHOIS, subdomain enumeration), use the appropriate recon tool (e.g., `dns_lookup`, `subdomain_enum`, `port_scan`, `whois_lookup`, `header_analysis`, `ssl_check`).
+- For sending email or mail notifications, ALWAYS use the `send_email` tool. Do NOT use `brevo_send_email` or `brevo_send_test_email` as they are meant for Brevo campaign/contact lists and will cause API authentication failures.
 - If you need to search the web for CVE vulnerabilities, exploit databases, or threat intelligence, use `web_research` (which routes through the ResearchAgent) or `realtime_search` (which routes through the SearchAgent).
 - If the user wants to schedule any security task, reminder, or periodic scan, use the `schedule_execution` tool.
 
@@ -841,7 +842,7 @@ class HackerBrain:
         start = time.time()
         task_id = pending_state.get("task_id") if pending_state else f"task_{int(time.time())}"
         self._retry_counts = {}
-        workspace_dir = str(Path(settings.BASE_DIR).parent / "workspace")
+        workspace_dir = str(settings.WORKSPACE_DIR)
 
         # 1. Plan / Resume Plan
         if pending_state:
@@ -986,7 +987,7 @@ class HackerBrain:
             sanitized_args = dict(step.args)
             if step.tool_name in ("write_file", "edit_file", "read_file") and "path" in sanitized_args:
                 raw_path = sanitized_args["path"]
-                ws_dir = Path(settings.BASE_DIR).parent / "workspace"
+                ws_dir = Path(settings.WORKSPACE_DIR)
                 resolved = Path(raw_path).resolve() if Path(raw_path).is_absolute() else (ws_dir / raw_path).resolve()
                 try:
                     resolved.relative_to(ws_dir.resolve())

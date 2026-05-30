@@ -39,7 +39,8 @@ class ProjectBuilderSystem:
         self.doc_agent = DocumentationAgent()
 
         # Determine base directory
-        self.base_dir = (Path(__file__).resolve().parent.parent.parent / "workspace").resolve()
+        from config import settings
+        self.base_dir = Path(settings.WORKSPACE_DIR).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def build_project(self, objective: str) -> Dict[str, Any]:

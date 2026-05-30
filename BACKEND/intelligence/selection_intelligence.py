@@ -66,7 +66,7 @@ _INTENT_CATEGORY_MAP: Dict[str, List[str]] = {
     "volume": ["system"], "mute": ["system"], "shutdown": ["system"],
     "restart": ["system"], "lock": ["system"], "screenshot": ["system"],
     # Email
-    "email": ["email", "mcp"], "mail": ["email", "mcp"], "brevo": ["email", "mcp"],
+    "email": ["email"], "mail": ["email"], "brevo": ["email", "mcp"],
 }
 
 # ─── Common Pipeline Patterns ────────────────────────────────────────
@@ -126,8 +126,8 @@ class SelectionResult:
 
 _INTENT_TO_TOOL_MAP: Dict[str, Dict[str, Any]] = {
     "email": {
-        "categories": ["email", "mcp"],
-        "keywords": ["email", "mail", "brevo", "send"],
+        "categories": ["email"],
+        "keywords": ["email", "mail", "send"],
         "must_include_names": ["send_email"]
     },
     "security": {

@@ -56,8 +56,12 @@ from tools.tool_interface import (
 
 
 # ─── Default directories ─────────────────────────────────────────────
+import sys
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
-_DEFAULT_TOOLS_DIR = _BACKEND_DIR.parent / "aeris_tools"
+if getattr(sys, "frozen", False):
+    _DEFAULT_TOOLS_DIR = Path.home() / ".aeris" / "aeris_tools"
+else:
+    _DEFAULT_TOOLS_DIR = _BACKEND_DIR.parent / "aeris_tools"
 _DEFAULT_MANIFEST = _DEFAULT_TOOLS_DIR / "tool_manifest.json"
 
 

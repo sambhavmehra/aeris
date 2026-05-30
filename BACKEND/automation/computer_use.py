@@ -85,6 +85,8 @@ class ComputerUseEngine:
     MAX_RETRIES = 3
 
     def __init__(self):
+        from config import settings
+        self.DATA_DIR = settings.DATA_DIR / "computer_use"
         self.DATA_DIR.mkdir(parents=True, exist_ok=True)
         from ai_engine import ai_engine
         self._ai_engine = ai_engine

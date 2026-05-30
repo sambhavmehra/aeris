@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import ChatMessage, { Message } from './ChatMessage';
+import { useAgentStore } from '@/store/agentStore';
+
 
 const QUICK_ACTIONS = [
   { label: 'Capabilities', msg: 'What can you do?' },
@@ -47,6 +49,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasOpened = useRef(false);
   const thinkingTimers = useRef<NodeJS.Timeout[]>([]);
@@ -112,11 +115,40 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   }, [isOpen, isHacker, fetchHistory]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = chatScrollContainerRef.current;
+    if (container) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
   }, [messages, isTyping]);
 
   useEffect(() => {
     if (isOpen) setTimeout(() => inputRef.current?.focus(), 600);
+  }, [isOpen]);
+
+  useEffect(() => {
+    const lockScroll = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0);
+      }
+      if (document.body && document.body.scrollTop !== 0) {
+        document.body.scrollTop = 0;
+      }
+      if (document.documentElement && document.documentElement.scrollTop !== 0) {
+        document.documentElement.scrollTop = 0;
+      }
+    };
+    if (isOpen) {
+      lockScroll();
+      window.addEventListener('scroll', lockScroll);
+      window.addEventListener('resize', lockScroll);
+    }
+    return () => {
+      window.removeEventListener('scroll', lockScroll);
+      window.removeEventListener('resize', lockScroll);
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -211,6 +243,14 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     const msg = (text ?? input).trim();
     if (!msg || isTyping) return;
     setInput('');
+    
+    // Intercept Assembly Command
+    if (msg.toLowerCase().includes('agent assemble') || msg.toLowerCase().trim() === 'assemble') {
+      onClose();
+      useAgentStore.getState().triggerAssembly();
+      return;
+    }
+
     setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: msg }]);
     startThinking();
     onSpeakingChange(true);
@@ -373,6 +413,14 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       }
       if (!transcript) return;
 
+      // Intercept Assembly Command
+      if (transcript.toLowerCase().includes('agent assemble') || transcript.toLowerCase().trim() === 'assemble') {
+        stopRecognition();
+        onClose();
+        useAgentStore.getState().triggerAssembly();
+        return;
+      }
+
       // Show user message (frontend only)
       setMessages(prev => [
         ...prev,
@@ -454,8 +502,8 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     };
 
     recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
       if (event?.error !== 'aborted' && event?.error !== 'no-speech') {
+        console.error('Speech recognition error:', event.error);
         addAIMessage(`Voice error: ${event.error}. Try again.`, false);
       }
       setIsListening(false);
@@ -706,10 +754,13 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
         )}
 
         {/* Messages */}
-        <div style={{
-          flex: 1, overflowY: 'auto', padding: '20px 24px',
-          display: 'flex', flexDirection: 'column', gap: '16px',
-        }}>
+        <div 
+          ref={chatScrollContainerRef}
+          style={{
+            flex: 1, overflowY: 'auto', padding: '20px 24px',
+            display: 'flex', flexDirection: 'column', gap: '16px',
+          }}
+        >
           {messages.map(msg => (
             <ChatMessage
               key={msg.id}

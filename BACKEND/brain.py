@@ -102,6 +102,7 @@ CRITICAL RULES:
 - When the user asks about "agents" (e.g. "kitne agent hai", "list agents", "how many agents"), use the `list_agents` tool, NOT `list_tools`.
 - `list_tools` is ONLY for listing executable tool functions. `list_agents` is for listing AI agents.
 - For ANY security-related request (SSL check, port scan, DNS lookup, recon, VAPT, vulnerability scan, WHOIS, subdomain enumeration), use the `security_scan` tool. NEVER use `smart_shell_generate` or `run_bash` for security scanning tasks.
+- For sending email or mail notifications, ALWAYS use the `send_email` tool. Do NOT use `brevo_send_email` or `brevo_send_test_email` as they are meant for Brevo campaign/contact lists and will cause API authentication failures.
 - If the user wants to schedule any task, reminder, alarm, meeting, or event, or if they confirm (e.g. saying 'yes', 'okay', 'ok', 'haan', 'sure', 'do it', 'kar do') a scheduling/reminder proposal made by the assistant in the conversation history (e.g. 'Should I put it in pending tasks and check in 30 minutes?'), you MUST use the `schedule_execution` tool.
   - If it is a confirmation to a proposal, set the 'instruction' to the task that was proposed to be scheduled (e.g. "Analyze website sambhavmehra.me"), and set 'time_spec' to the proposed time spec (e.g. "in 30 minutes").
   - Otherwise, if it is a reminder/alarm/meeting (e.g. "remind me to call Rahul"), set the 'instruction' parameter to a descriptive reminder message (e.g. "Remind user: Call Rahul").
@@ -886,7 +887,7 @@ class Brain:
         start = time.time()
         task_id = pending_state.get("task_id") if pending_state else f"task_{int(time.time())}"
         self._retry_counts = {}  # Reset retry counters for each new execution
-        workspace_dir = str(Path(settings.BASE_DIR).parent / "workspace")
+        workspace_dir = str(settings.WORKSPACE_DIR)
         
         # 1. Plan / Resume Plan
         if pending_state:
@@ -1038,7 +1039,7 @@ class Brain:
             # Fix 1: write_file / edit_file paths — ensure they stay within workspace
             if step.tool_name in ("write_file", "edit_file", "read_file") and "path" in sanitized_args:
                 raw_path = sanitized_args["path"]
-                ws_dir = Path(settings.BASE_DIR).parent / "workspace"
+                ws_dir = Path(settings.WORKSPACE_DIR)
                 resolved = Path(raw_path).resolve() if Path(raw_path).is_absolute() else (ws_dir / raw_path).resolve()
                 try:
                     resolved.relative_to(ws_dir.resolve())
@@ -1110,7 +1111,7 @@ OBSERVATIONS SO FAR:
 {json.dumps([o.dict() for o in observations], indent=2)}
 
 CURRENT STEP ID: {step.step_id}
-WORKSPACE DIRECTORY: {workspace_dir if 'workspace_dir' in dir() else str(Path(settings.BASE_DIR).parent / 'workspace')}
+WORKSPACE DIRECTORY: {workspace_dir if 'workspace_dir' in dir() else str(settings.WORKSPACE_DIR)}
 
 Analyze the LAST observation:
 

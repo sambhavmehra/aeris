@@ -240,6 +240,10 @@ def _get_rag_engine():
 
 @app.get("/")
 async def health_check():
+    from fastapi.responses import FileResponse
+    index_path = Path(__file__).resolve().parent / "dist" / "index.html"
+    if index_path.exists():
+        return FileResponse(str(index_path))
     return {"status": "ok", "assistant": settings.ASSISTANT_NAME, "mode": "autonomous"}
 
 
@@ -1134,7 +1138,7 @@ async def codepipeline_ws(websocket: WebSocket, pipeline_id: str):
 @app.get("/api/codepipeline/workspaces")
 async def list_codepipeline_workspaces():
     """List all generated project directories."""
-    base = (Path(__file__).resolve().parent.parent / "workspace").resolve()
+    base = Path(settings.WORKSPACE_DIR).resolve()
     if not base.exists():
         return {"workspaces": []}
     projects = []
@@ -1152,9 +1156,128 @@ async def list_codepipeline_workspaces():
     return {"workspaces": projects}
 
 
+# ── Assembly and Voice Multi-Agent Endpoints ───────────────────────────────
+
+class AgentSpeakRequest(BaseModel):
+    agent_id: str
+    text: str
+
+
+@app.get("/api/assembly/stream")
+async def api_assembly_stream():
+    """Streams Server-Sent Events for the agent assembly sequence."""
+    from fastapi.responses import StreamingResponse
+    from services.assembly_engine import AssemblyEngine
+    engine = AssemblyEngine()
+    return StreamingResponse(
+        engine.run_assembly(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@app.get("/api/disassembly/stream")
+async def api_disassembly_stream():
+    """Streams Server-Sent Events for the agent disassembly sequence."""
+    from fastapi.responses import StreamingResponse
+    from services.assembly_engine import AssemblyEngine
+    engine = AssemblyEngine()
+    return StreamingResponse(
+        engine.run_disassembly(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@app.post("/api/voice/agent-speak")
+async def api_agent_speak(req: AgentSpeakRequest):
+    """Speaks text using a specific agent's voice profile."""
+    try:
+        from services.voice_profiles import get_voice_profile
+        from services.texttospeech import text_to_speech
+        import threading
+        
+        profile = get_voice_profile(req.agent_id)
+        voice = profile.get("voice", "hi-IN-MadhurNeural")
+        pitch = profile.get("pitch", "+0Hz")
+        rate = profile.get("rate", "+0%")
+        
+        # Fire in a background thread to return response immediately
+        t = threading.Thread(
+            target=text_to_speech,
+            args=(req.text, voice, 3, 300, pitch, rate),
+            daemon=True,
+            name=f"aeris-agent-{req.agent_id}-speak"
+        )
+        t.start()
+        return {"success": True, "agent_id": req.agent_id, "voice": voice, "message": f"Speaking in {req.agent_id}'s voice."}
+    except Exception as e:
+        logger.exception("Agent speak error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/collaboration/stream")
+async def api_collaboration_stream(task_id: str):
+    """Streams real-time collaboration events for a given task_id."""
+    from services.collaboration_events import collaboration_bus
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        collaboration_bus.stream(task_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @app.websocket("/ws/{path:path}")
 async def ws_catchall(websocket: WebSocket, path: str):
     await websocket.close(code=1008, reason=f"Unknown WebSocket endpoint: /ws/{path}")
+
+
+# Serve static files from Next.js export in unified mode
+from fastapi.responses import FileResponse
+_DIST_DIR = Path(__file__).resolve().parent / "dist"
+
+if _DIST_DIR.exists():
+    _NEXT_DIR = _DIST_DIR / "_next"
+    if _NEXT_DIR.exists():
+        app.mount("/_next", StaticFiles(directory=str(_NEXT_DIR)), name="next_assets")
+    
+    @app.get("/{catchall:path}")
+    async def serve_spa(catchall: str):
+        # Do not intercept backend paths
+        if (
+            catchall.startswith("api")
+            or catchall.startswith("ws")
+            or catchall.startswith("images")
+            or catchall.startswith("phantom")
+        ):
+            raise HTTPException(status_code=404, detail="Not Found")
+            
+        file_path = _DIST_DIR / catchall
+        if file_path.is_file():
+            return FileResponse(str(file_path))
+            
+        html_path = _DIST_DIR / f"{catchall}.html"
+        if html_path.is_file():
+            return FileResponse(str(html_path))
+            
+        index_path = _DIST_DIR / "index.html"
+        if index_path.exists():
+            return FileResponse(str(index_path))
+            
+        raise HTTPException(status_code=404, detail="Not Found")
 
 
 if __name__ == "__main__":

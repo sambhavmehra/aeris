@@ -168,8 +168,19 @@ class VoiceOrchestrator:
             spoken = False
             if speak_response and response_text:
                 try:
+                    from services.voice_profiles import get_voice_profile
                     from services.texttospeech import speak_async
-                    speak_async(response_text)
+                    
+                    # Normalize agent ID (e.g., "RavenAgent" -> "raven")
+                    raw_agent = result.get("agent", "") or ""
+                    agent_id = raw_agent.lower().replace("agent", "").strip()
+                    
+                    profile = get_voice_profile(agent_id) if agent_id else {}
+                    voice = profile.get("voice", "hi-IN-MadhurNeural")
+                    pitch = profile.get("pitch", "+5Hz")
+                    rate = profile.get("rate", "+13%")
+                    
+                    speak_async(response_text, voice=voice, pitch=pitch, rate=rate)
                     spoken = True
                 except Exception as e:
                     logger.warning(f"VoiceOrchestrator: TTS failed: {e}")

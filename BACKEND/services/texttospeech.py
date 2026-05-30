@@ -119,7 +119,7 @@ def _decode_mp3_to_pcm(mp3_bytes: bytes) -> Optional[bytes]:
 # ---------------------------------------------------------------------------
 #  Core streaming playback
 # ---------------------------------------------------------------------------
-async def _stream_and_play(text: str, voice: str) -> bool:
+async def _stream_and_play(text: str, voice: str, pitch: str = "+5Hz", rate: str = "+13%") -> bool:
     """
     Stream audio from Edge-TTS and play chunks in real-time via PyAudio.
     Audio starts as soon as the first usable batch is decoded.
@@ -137,7 +137,7 @@ async def _stream_and_play(text: str, voice: str) -> bool:
     played_any = False
 
     try:
-        communicate = edge_tts.Communicate(text, voice, pitch="+5Hz", rate="+13%")
+        communicate = edge_tts.Communicate(text, voice, pitch=pitch, rate=rate)
 
         async for chunk in communicate.stream():
             if _stop_event.is_set():
@@ -205,7 +205,7 @@ async def _stream_and_play(text: str, voice: str) -> bool:
 _pygame_initialized = False
 
 
-async def _buffer_and_play_pygame(text: str, voice: str) -> bool:
+async def _buffer_and_play_pygame(text: str, voice: str, pitch: str = "+5Hz", rate: str = "+13%") -> bool:
     """
     Fallback: download full audio → play via pygame.
     Used only if PyAudio/miniaudio streaming fails entirely.
@@ -218,7 +218,7 @@ async def _buffer_and_play_pygame(text: str, voice: str) -> bool:
 
     try:
         audio_buf = io.BytesIO()
-        communicate = edge_tts.Communicate(text, voice, pitch="+5Hz", rate="+13%")
+        communicate = edge_tts.Communicate(text, voice, pitch=pitch, rate=rate)
         async for chunk in communicate.stream():
             if _stop_event.is_set():
                 return False
@@ -284,6 +284,8 @@ def text_to_speech(
     voice: str = DEFAULT_VOICE,
     max_spoken_sentences: int = 3,
     max_spoken_chars: int = 300,
+    pitch: str = "+5Hz",
+    rate: str = "+13%",
 ) -> bool:
     """
     Speak text using Edge-TTS with streaming PyAudio playback.
@@ -309,7 +311,7 @@ def text_to_speech(
     try:
         # Primary: streaming PyAudio playback (lowest latency)
         future = asyncio.run_coroutine_threadsafe(
-            _stream_and_play(spoken_text, voice), loop
+            _stream_and_play(spoken_text, voice, pitch=pitch, rate=rate), loop
         )
         result = future.result(timeout=120)
         if result:
@@ -318,7 +320,7 @@ def text_to_speech(
         # Fallback: pygame buffer playback
         logger.info("Streaming playback returned False, trying pygame fallback")
         future = asyncio.run_coroutine_threadsafe(
-            _buffer_and_play_pygame(spoken_text, voice), loop
+            _buffer_and_play_pygame(spoken_text, voice, pitch=pitch, rate=rate), loop
         )
         return future.result(timeout=120)
 
@@ -327,11 +329,11 @@ def text_to_speech(
         return False
 
 
-def speak_async(text: str, voice: str = DEFAULT_VOICE) -> None:
+def speak_async(text: str, voice: str = DEFAULT_VOICE, pitch: str = "+5Hz", rate: str = "+13%") -> None:
     """Non-blocking wrapper: fires TTS in a daemon thread."""
     t = threading.Thread(
         target=text_to_speech,
-        args=(text, voice),
+        args=(text, voice, 3, 300, pitch, rate),
         daemon=True,
         name="aeris-tts",
     )
