@@ -879,13 +879,13 @@ class Brain:
 
     # ─────────────────────────── Public API ───────────────────────────────────
 
-    async def execute_agentic_loop(self, message: str, pending_state: Optional[dict] = None) -> dict:
+    async def execute_agentic_loop(self, message: str, pending_state: Optional[dict] = None, task_id: Optional[str] = None) -> dict:
         """
         Execute the agentic loop: plan -> tool call -> observe -> reflect -> final response.
         Supports resuming from pending_state if user approved a tool call.
         """
         start = time.time()
-        task_id = pending_state.get("task_id") if pending_state else f"task_{int(time.time())}"
+        task_id = task_id or (pending_state.get("task_id") if pending_state else f"task_{int(time.time())}")
         self._retry_counts = {}  # Reset retry counters for each new execution
         workspace_dir = str(settings.WORKSPACE_DIR)
         
@@ -964,6 +964,19 @@ class Brain:
         while current_step_index < len(plan.steps):
             step = plan.steps[current_step_index]
             
+            # If this is a background job, update its progress
+            from services.job_manager import get_job_manager
+            job_mgr = get_job_manager()
+            if job_mgr.get_job(task_id):
+                progress_pct = int((current_step_index / len(plan.steps)) * 100)
+                job_mgr.update_job(
+                    task_id,
+                    status="running",
+                    current_agent=step.tool_name,
+                    progress=progress_pct,
+                    event=f"Executing step {current_step_index + 1}/{len(plan.steps)}: {step.tool_name} - {step.description}"
+                )
+            
             # Check permissions first (Task 3: explicit approval check)
             from tools.universal_registry import get_universal_registry
             from tools.tool_permissions import get_permission_system
@@ -985,6 +998,21 @@ class Brain:
             decision = get_permission_system().check(tool_def, step.args)
             if not decision.allowed:
                 if decision.requires_user_approval:
+                    # If this is a background job, update status to paused
+                    from services.job_manager import get_job_manager
+                    job_mgr = get_job_manager()
+                    if job_mgr.get_job(task_id):
+                        job_mgr.update_job(
+                            task_id,
+                            status="paused",
+                            event=f"Job paused. Security Check: Executing '{step.tool_name}' requires approval."
+                        )
+                        from services.notification_hub import notify_job_status
+                        asyncio.create_task(notify_job_status(
+                            task_id,
+                            status="paused",
+                            event=f"Security Check: Executing '{step.tool_name}' requires approval. Reason: {decision.reason}"
+                        ))
                     # PAUSE execution and wait for user approval
                     pending_file = settings.DATA_DIR / "pending_approval.json"
                     state_to_save = {
@@ -994,7 +1022,8 @@ class Brain:
                         "observations": [obs.dict() for obs in observations],
                         "tool_name_pending": step.tool_name,
                         "args_pending": step.args,
-                        "task_id": task_id
+                        "task_id": task_id,
+                        "agent": "Brain"
                     }
                     pending_file.parent.mkdir(parents=True, exist_ok=True)
                     with open(pending_file, "w", encoding="utf-8") as f:
@@ -1266,6 +1295,28 @@ Respond with ONLY valid JSON matching this schema:
         # Save message to memory store
         memory_store.add_message("assistant", text_resp)
         
+        # If this is a background job, update its completion
+        from services.job_manager import get_job_manager
+        job_mgr = get_job_manager()
+        if job_mgr.get_job(task_id):
+            status = "completed" if len(failed) == 0 else "failed"
+            error_msg = failed[0].error if failed else None
+            job_mgr.update_job(
+                task_id,
+                status=status,
+                progress=100,
+                final_result=text_resp,
+                error=error_msg,
+                event=f"Job execution completed with status: {status}."
+            )
+            from services.notification_hub import notify_job_status
+            asyncio.create_task(notify_job_status(
+                task_id,
+                status=status,
+                event=f"Job execution completed with status: {status}.",
+                results=text_resp
+            ))
+        
         return {
             "response": text_resp,
             "intent": primary_tool,
@@ -1286,6 +1337,148 @@ Respond with ONLY valid JSON matching this schema:
         """
         # Intercept Hacker Mode Toggle Commands
         lower_msg = message.lower()
+
+        # Check if the user query requests auto-repair of workspace syntax errors
+        from services.workspace_watcher import handle_conversational_repair
+        repair_res = await handle_conversational_repair(message)
+        if repair_res:
+            return repair_res
+
+        # Check if the user query is a status check or cancellation of a background job
+        from services.job_manager import get_job_manager
+        job_mgr = get_job_manager()
+        
+        import re
+        job_id_match = re.search(r'\b(job_\d+)\b', lower_msg)
+        
+        if job_id_match:
+            job_id = job_id_match.group(1)
+            # 1. Cancel request
+            if any(w in lower_msg for w in ("cancel", "stop", "kill", "abort", "band karo")):
+                success = job_mgr.cancel_job(job_id)
+                response_text = f"Sir, I have cancelled the background job `{job_id}`." if success else f"Sir, I could not find a running background job with ID `{job_id}`."
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "chat",
+                    "agent": "Brain",
+                    "success": success,
+                    "task_id": job_id
+                }
+            # 2. Pause request
+            elif "pause" in lower_msg:
+                success = job_mgr.pause_job(job_id)
+                response_text = f"Sir, I have paused the background job `{job_id}`." if success else f"Sir, I could not find a running background job with ID `{job_id}`."
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "chat",
+                    "agent": "Brain",
+                    "success": success,
+                    "task_id": job_id
+                }
+            # 3. Resume request
+            elif any(w in lower_msg for w in ("resume", "chalu", "continue")):
+                success = job_mgr.resume_job(job_id)
+                if success:
+                    # Check if there is pending approval to resume from
+                    pending_file = settings.DATA_DIR / "pending_approval.json"
+                    state = None
+                    if pending_file.exists():
+                        try:
+                            with open(pending_file, "r", encoding="utf-8") as f:
+                                state = json.load(f)
+                        except Exception:
+                            pass
+                    
+                    if state and state.get("task_id") == job_id:
+                        try:
+                            pending_file.unlink()
+                        except Exception:
+                            pass
+                        asyncio.create_task(self._run_background_job_resume(job_id, state))
+                        response_text = f"Sir, I have resumed the background job `{job_id}`."
+                    else:
+                        response_text = f"Sir, job `{job_id}` status has been set to queued and will be processed."
+                else:
+                    response_text = f"Sir, job `{job_id}` is not in a paused state."
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "chat",
+                    "agent": "Brain",
+                    "success": success,
+                    "task_id": job_id
+                }
+            # 4. Status check for specific job
+            else:
+                job = job_mgr.get_job(job_id)
+                if job:
+                    elapsed_str = ""
+                    if job.get("completed_at"):
+                        elapsed_str = f"Completed at: {job['completed_at']}"
+                    else:
+                        elapsed_str = f"Started at: {job['started_at']}"
+                    
+                    response_text = f"Sir, background job `{job_id}` status is **{job['status']}**.\n"
+                    response_text += f"- **Request**: \"{job['request']}\"\n"
+                    response_text += f"- **Current Agent/Tool**: `{job['current_agent']}`\n"
+                    response_text += f"- **Progress**: {job['progress']}%\n"
+                    response_text += f"- **Status Info**: {elapsed_str}\n"
+                    if job.get("error"):
+                        response_text += f"- **Error**: `{job['error']}`\n"
+                    if job.get("final_result"):
+                        response_text += f"- **Final Result Summary**: {job['final_result'][:600]}\n"
+                    
+                    if job.get("event_log"):
+                        last_events = job["event_log"][-3:]
+                        response_text += "\n**Recent Events:**\n"
+                        for evt in last_events:
+                            response_text += f"- [{evt['timestamp']}] ({evt['agent']}) {evt['event']}\n"
+                else:
+                    response_text = f"Sir, I could not find a background job with ID `{job_id}`."
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "chat",
+                    "agent": "Brain",
+                    "success": job is not None,
+                    "task_id": job_id
+                }
+        
+        # General active/recent background jobs list
+        if any(w in lower_msg for w in ("active jobs", "background tasks", "background jobs")) or lower_msg.strip(" .*!#?") in ("status", "progress", "jobs", "kaha tak pahucha", "mera task chal raha hai kya"):
+            active_jobs = job_mgr.list_active_jobs()
+            if not active_jobs:
+                # Get last 3 completed/failed jobs for history
+                all_jobs = job_mgr.list_all_jobs()
+                recent_jobs = [j for j in all_jobs if j["status"] not in ("queued", "running", "paused")][-3:]
+                
+                if not recent_jobs:
+                    response_text = "Sir, currently there are no background jobs."
+                else:
+                    response_text = "Sir, there are no active background jobs. Here are the most recent completed jobs:\n"
+                    for job in recent_jobs:
+                        response_text += f"- `{job['job_id']}`: **{job['status']}** - \"{job['request'][:50]}...\" (Finished at {job.get('completed_at')})\n"
+            else:
+                response_text = "Sir, here is the status of active background jobs:\n"
+                for job in active_jobs:
+                    response_text += f"- `{job['job_id']}`: **{job['status']}** - \"{job['request'][:50]}...\"\n"
+                    response_text += f"  - Current Agent: `{job['current_agent']}` | Progress: {job['progress']}%\n"
+            
+            memory_store.add_message("user", message)
+            memory_store.add_message("assistant", response_text)
+            return {
+                "response": response_text,
+                "intent": "chat",
+                "agent": "Brain",
+                "success": True,
+                "task_id": f"jobs_{int(time.time())}"
+            }
 
         # ── Voice 2-step flow: if a challenge was pending, check for password keyword ──
         if self._hacker_challenge_pending:
@@ -1486,6 +1679,20 @@ Respond with ONLY valid JSON matching this schema:
                         pass
                         
                     try:
+                        task_id = state.get("task_id")
+                        from services.job_manager import get_job_manager
+                        if get_job_manager().get_job(task_id):
+                            asyncio.create_task(self._run_background_job_resume(task_id, state))
+                            response_text = f"Sir, I have resumed the background job `{task_id}`."
+                            memory_store.add_message("assistant", response_text)
+                            return {
+                                "response": response_text,
+                                "intent": state.get("intent", "chat"),
+                                "agent": "Brain",
+                                "success": True,
+                                "task_id": task_id,
+                                "is_background": True
+                            }
                         return await self.execute_agentic_loop(state.get("message", ""), pending_state=state)
                     except Exception as e:
                         logger.exception("Failed to resume agentic loop after approval. Falling back to legacy process.")
@@ -1522,6 +1729,24 @@ Respond with ONLY valid JSON matching this schema:
             # If intent is OSINT, bypass the generic agentic loop and run
             # the specialised multi-stage OSINTAgent pipeline directly.
             intent = await self._classify_intent(message)
+            
+            # Check if this is a background job request
+            if self._is_long_running_task(message, intent):
+                job = job_mgr.create_job(message)
+                job_id = job["job_id"]
+                asyncio.create_task(self._run_background_job(job_id, message, intent))
+                
+                response_text = f"Sir, I have started a background job for your request: `{job_id}`.\nYou can keep chatting with me normally. To check its status, ask 'status {job_id}' or 'progress'."
+                memory_store.add_message("assistant", response_text)
+                
+                return {
+                    "response": response_text,
+                    "intent": intent,
+                    "agent": "Brain",
+                    "success": True,
+                    "task_id": job_id,
+                    "is_background": True
+                }
             if intent == "osint":
                 logger.info("[Brain] Routing OSINT intent directly to OSINTAgent")
                 agent = self.agents["osint"]
@@ -1796,6 +2021,148 @@ Respond with ONLY valid JSON matching this schema:
             "task_id":        task_id,
             "attempts":       attempt
         }
+
+    def _is_long_running_task(self, message: str, intent: str) -> bool:
+        lower_msg = message.lower()
+        if any(phrase in lower_msg for phrase in [
+            "background job", "background task", "run in background", 
+            "background research", "background scan", "background project",
+            "bg run", "in background", "background mein", "background me"
+        ]):
+            return True
+        return intent in ("codepipeline", "research")
+
+    async def _run_background_job(self, job_id: str, message: str, intent: str):
+        current_task = asyncio.current_task()
+        from services.job_manager import get_job_manager
+        job_manager = get_job_manager()
+        job_manager._register_task(job_id, current_task)
+        
+        try:
+            job_manager.update_job(job_id, status="running", event="Background job execution started.")
+            from services.notification_hub import notify_job_status
+            asyncio.create_task(notify_job_status(job_id, "running", "Background job execution started."))
+            
+            if intent == "osint":
+                logger.info(f"[Background Job] Running OSINT pipeline for {job_id}")
+                agent = self.agents["osint"]
+                base_context = {
+                    "chat_history": memory_store.get_context(10),
+                    "recent_tasks": self._build_recent_tasks_summary(5),
+                }
+                result = await agent.run(message, base_context)
+                response_text = result.get("response", "")
+                success = result.get("success", True)
+                error_msg = result.get("error")
+                
+                status = "completed" if success else "failed"
+                job_manager.update_job(
+                    job_id,
+                    status=status,
+                    progress=100,
+                    final_result=response_text,
+                    error=error_msg,
+                    event=f"OSINT job finished with status: {status}."
+                )
+                asyncio.create_task(notify_job_status(job_id, status, f"OSINT job finished with status: {status}.", results=response_text))
+                memory_store.add_message("assistant", response_text)
+                memory_store.store_task(job_id, {
+                    "tasks": [{
+                        "task_id": "t1",
+                        "intent": "osint",
+                        "agent": "OSINTAgent",
+                        "response": response_text,
+                        "success": success,
+                        "execution_time": result.get("execution_time", 0.0),
+                        "error": error_msg,
+                    }],
+                    "elapsed": result.get("execution_time", 0.0),
+                    "attempts": 1,
+                })
+                
+            elif intent == "drana":
+                logger.info(f"[Background Job] Running Drana pipeline for {job_id}")
+                agent = self.agents["drana"]
+                from memory.drana_store import drana_store
+                base_context = {
+                    "chat_history": memory_store.get_context(10),
+                    "recent_tasks": self._build_recent_tasks_summary(5),
+                    "drana_context": drana_store.get_context_string(),
+                }
+                result = await agent.run(message, base_context)
+                response_text = result.get("response", "")
+                success = result.get("success", True)
+                error_msg = result.get("error")
+                
+                status = "completed" if success else "failed"
+                job_manager.update_job(
+                    job_id,
+                    status=status,
+                    progress=100,
+                    final_result=response_text,
+                    error=error_msg,
+                    event=f"Drana job finished with status: {status}."
+                )
+                asyncio.create_task(notify_job_status(job_id, status, f"Drana job finished with status: {status}.", results=response_text))
+                memory_store.add_message("assistant", response_text)
+                memory_store.store_task(job_id, {
+                    "tasks": [{
+                        "task_id": "t1",
+                        "intent": "drana",
+                        "agent": "DranaAgent",
+                        "response": response_text,
+                        "success": success,
+                        "execution_time": result.get("execution_time", 0.0),
+                        "error": error_msg,
+                    }],
+                    "elapsed": result.get("execution_time", 0.0),
+                    "attempts": 1,
+                })
+                
+            else:
+                logger.info(f"[Background Job] Running Agentic Loop for {job_id}")
+                await self.execute_agentic_loop(message, task_id=job_id)
+                
+        except asyncio.CancelledError:
+            job_manager.update_job(job_id, status="cancelled", event="Job was cancelled by the user.")
+            from services.notification_hub import notify_job_status
+            asyncio.create_task(notify_job_status(job_id, "cancelled", "Job was cancelled by the user."))
+            logger.info(f"[Background Job] Job {job_id} cancelled.")
+        except Exception as e:
+            logger.exception(f"[Background Job] Error executing job {job_id}: {e}")
+            job_manager.update_job(
+                job_id,
+                status="failed",
+                error=str(e),
+                event=f"Job failed with exception: {e}"
+            )
+            from services.notification_hub import notify_job_status
+            asyncio.create_task(notify_job_status(job_id, "failed", f"Job failed with exception: {e}"))
+        finally:
+            job_manager._deregister_task(job_id)
+
+    async def _run_background_job_resume(self, job_id: str, state: dict):
+        current_task = asyncio.current_task()
+        from services.job_manager import get_job_manager
+        job_manager = get_job_manager()
+        job_manager._register_task(job_id, current_task)
+        
+        try:
+            job_manager.update_job(job_id, status="running", event="Background job resumed.")
+            from services.notification_hub import notify_job_status
+            asyncio.create_task(notify_job_status(job_id, "running", "Background job resumed."))
+            await self.execute_agentic_loop(state.get("message", ""), pending_state=state)
+        except asyncio.CancelledError:
+            job_manager.update_job(job_id, status="cancelled", event="Job was cancelled by the user.")
+            from services.notification_hub import notify_job_status
+            asyncio.create_task(notify_job_status(job_id, "cancelled", "Job was cancelled by the user."))
+        except Exception as e:
+            logger.exception(f"[Background Job] Error resuming job {job_id}: {e}")
+            job_manager.update_job(job_id, status="failed", error=str(e), event=f"Job failed with exception: {e}")
+            from services.notification_hub import notify_job_status
+            asyncio.create_task(notify_job_status(job_id, "failed", f"Job failed with exception: {e}"))
+        finally:
+            job_manager._deregister_task(job_id)
 
 
 # ── Global singleton ──────────────────────────────────────────────────────────

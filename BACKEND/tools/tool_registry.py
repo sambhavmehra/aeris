@@ -341,7 +341,7 @@ def _register_all_tools():
                 return result["content"]
             raise RuntimeError(result.get("error", "Scrape failed"))
 
-        reg.register("web_research", "Research a topic using web search + AI synthesis.", web_research, ["query"], RiskLevel.SAFE, "research")
+        reg.register("web_research", "Research a topic using web search + AI synthesis.", web_research, ["query"], RiskLevel.SAFE, "research", timeout=90)
         reg.register("scrape_website", "Scrape text content from a URL.", scrape_website, ["url"], RiskLevel.LOW, "research")
         logger.info("Registered research tools")
     except Exception as e:
@@ -367,7 +367,7 @@ def _register_all_tools():
             return f"Indexed {result['indexed_files']} files ({result['total_chunks']} chunks) from {result['directory']}"
 
         reg.register("rag_search", "Semantic search across indexed workspace files.", rag_search, ["query"], RiskLevel.SAFE, "knowledge")
-        reg.register("rag_index", "Index a directory for RAG retrieval.", rag_index, ["directory"], RiskLevel.LOW, "knowledge")
+        reg.register("rag_index", "Index a directory for RAG retrieval.", rag_index, ["directory"], RiskLevel.LOW, "knowledge", timeout=90)
         logger.info("Registered RAG tools")
     except Exception as e:
         logger.warning(f"Failed to register RAG tools: {e}")
@@ -399,11 +399,11 @@ def _register_all_tools():
             import json
             return json.dumps(result, indent=2)
 
-        reg.register("analyze_screen", "AI analysis of the current screen content.", analyze_screen, [], RiskLevel.SAFE, "vision")
-        reg.register("analyze_camera", "AI analysis of camera feed. Use this to SEE/LOOK through the camera and describe what's visible (e.g. 'room dekho', 'camera se dekho').", analyze_camera, [], RiskLevel.SAFE, "vision")
-        reg.register("ocr_screen", "Extract text from the screen using OCR.", ocr_screen, [], RiskLevel.SAFE, "vision")
-        reg.register("detect_faces", "Detect faces from camera for biometric recognition.", detect_faces, [], RiskLevel.SAFE, "vision")
-        reg.register("take_camera_photo", "Take a photo using the webcam/camera and SAVE it as an image file. Use this when user says 'photo kheech', 'photo le', 'take a photo', 'capture photo'. Returns the saved file path. Do NOT use take_screenshot for camera photos.", take_camera_photo, [], RiskLevel.SAFE, "vision")
+        reg.register("analyze_screen", "AI analysis of the current screen content.", analyze_screen, [], RiskLevel.SAFE, "vision", timeout=60)
+        reg.register("analyze_camera", "AI analysis of camera feed. Use this to SEE/LOOK through the camera and describe what's visible (e.g. 'room dekho', 'camera se dekho').", analyze_camera, [], RiskLevel.SAFE, "vision", timeout=60)
+        reg.register("ocr_screen", "Extract text from the screen using OCR.", ocr_screen, [], RiskLevel.SAFE, "vision", timeout=60)
+        reg.register("detect_faces", "Detect faces from camera for biometric recognition.", detect_faces, [], RiskLevel.SAFE, "vision", timeout=60)
+        reg.register("take_camera_photo", "Take a photo using the webcam/camera and SAVE it as an image file. Use this when user says 'photo kheech', 'photo le', 'take a photo', 'capture photo'. Returns the saved file path. Do NOT use take_screenshot for camera photos.", take_camera_photo, [], RiskLevel.SAFE, "vision", timeout=60)
         logger.info("Registered vision tools")
     except Exception as e:
         logger.warning(f"Failed to register vision tools: {e}")
@@ -437,6 +437,7 @@ def _register_all_tools():
             ["prompt"],
             RiskLevel.MEDIUM,
             "generation",
+            timeout=120,
         )
         
         try:
@@ -508,24 +509,10 @@ def _register_all_tools():
             RiskLevel.SAFE,
             "search",
         )
-        def schedule_execution(instruction: str, time_spec: str) -> dict:
+        async def schedule_execution(instruction: str, time_spec: str) -> dict:
             """Schedule any instruction/task or reminder to be automatically executed at a later time."""
-            import asyncio
             from services.scheduler import get_scheduler
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop and loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(
-                    get_scheduler().schedule(instruction, time_spec),
-                    loop
-                )
-                new_task = future.result(timeout=15)
-            else:
-                new_task = asyncio.run(get_scheduler().schedule(instruction, time_spec))
-
+            new_task = await get_scheduler().schedule(instruction, time_spec)
             return {
                 "success": True,
                 "task_id": new_task["task_id"],
@@ -561,6 +548,7 @@ def _register_all_tools():
             ["instruction", "time_spec"],
             RiskLevel.MEDIUM,
             "automation",
+            timeout=90,
         )
         reg.register(
             "list_scheduled_tasks",
@@ -1153,6 +1141,7 @@ def _register_all_tools():
             ["instruction"],
             RiskLevel.HIGH,
             "automation",
+            timeout=180,
             approval_requirement=True,
         )
         logger.info("Registered Computer Use tool")

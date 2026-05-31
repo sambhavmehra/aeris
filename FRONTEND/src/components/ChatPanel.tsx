@@ -41,10 +41,6 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const [hackerPassword, setHackerPassword] = useState('');
   const [hackerError, setHackerError] = useState('');
 
-  const voiceModeEnabledRef = useRef(false);
-  const isProcessingVoiceRef = useRef(false);
-  const voiceStatusIntervalRef = useRef<any>(null);
-  const startRecognitionRef = useRef<() => void>(() => {});
   const [thinkingStage, setThinkingStage] = useState(0);
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -54,6 +50,15 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const hasOpened = useRef(false);
   const thinkingTimers = useRef<NodeJS.Timeout[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Real-time Voice WebSocket Refs
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioInContextRef = useRef<AudioContext | null>(null);
+  const audioOutContextRef = useRef<AudioContext | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const nextPlayTimeRef = useRef<number>(0);
 
   const addAIMessage = useCallback((content: string, isStreaming = true, agent?: string, intent?: string) => {
     onSpeakingChange(true);
@@ -151,18 +156,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     };
   }, [isOpen]);
 
-  useEffect(() => {
-    return () => {
-      if (voiceStatusIntervalRef.current) {
-        clearInterval(voiceStatusIntervalRef.current);
-      }
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {}
-      }
-    };
-  }, []);
+
 
 
   const handleStreamDone = useCallback((id: string) => {
@@ -255,6 +249,11 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     startThinking();
     onSpeakingChange(true);
 
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'process_text', text: msg }));
+      return;
+    }
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -324,242 +323,208 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     }
   }, [input, isTyping, addAIMessage, onSpeakingChange, startThinking, stopThinking]);
 
-  // -- Web Speech API for real STT --
-  const recognitionRef = useRef<any>(null);
-
-  const stopRecognition = useCallback(() => {
-    if (recognitionRef.current) {
-      const rec = recognitionRef.current;
-      recognitionRef.current = null;
+  const stopPlayback = useCallback(() => {
+    activeSourcesRef.current.forEach(source => {
       try {
-        rec.stop();
-      } catch (e) {
-        console.error('Error stopping SpeechRecognition:', e);
-      }
-    }
-    setIsListening(false);
-    onSpeakingChange(false);
-  }, [onSpeakingChange]);
-
-  const pollVoiceStatus = useCallback(() => {
-    if (voiceStatusIntervalRef.current) {
-      clearInterval(voiceStatusIntervalRef.current);
-    }
-    voiceStatusIntervalRef.current = setInterval(async () => {
-      if (!voiceModeEnabledRef.current) {
-        clearInterval(voiceStatusIntervalRef.current);
-        voiceStatusIntervalRef.current = null;
-        return;
-      }
-      try {
-        const res = await fetch('http://localhost:8000/api/voice/status');
-        if (res.ok) {
-          const data = await res.json();
-          if (!data.is_speaking) {
-            clearInterval(voiceStatusIntervalRef.current);
-            voiceStatusIntervalRef.current = null;
-            isProcessingVoiceRef.current = false;
-            if (voiceModeEnabledRef.current) {
-              startRecognitionRef.current();
-            }
-          }
-        } else {
-          clearInterval(voiceStatusIntervalRef.current);
-          voiceStatusIntervalRef.current = null;
-          isProcessingVoiceRef.current = false;
-          if (voiceModeEnabledRef.current) {
-            startRecognitionRef.current();
-          }
-        }
-      } catch (e) {
-        clearInterval(voiceStatusIntervalRef.current);
-        voiceStatusIntervalRef.current = null;
-        isProcessingVoiceRef.current = false;
-        if (voiceModeEnabledRef.current) {
-          startRecognitionRef.current();
-        }
-      }
-    }, 500);
+        source.stop();
+      } catch (err) {}
+    });
+    activeSourcesRef.current = [];
+    nextPlayTimeRef.current = 0;
   }, []);
 
-  const startRecognition = useCallback(() => {
-    if (recognitionRef.current || isProcessingVoiceRef.current) return;
+  const stopVoiceSession = useCallback(() => {
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    if (audioProcessorRef.current) {
+      try {
+        audioProcessorRef.current.disconnect();
+      } catch {}
+      audioProcessorRef.current = null;
+    }
+    if (audioStreamRef.current) {
+      try {
+        audioStreamRef.current.getTracks().forEach(t => t.stop());
+      } catch {}
+      audioStreamRef.current = null;
+    }
+    if (audioInContextRef.current) {
+      try {
+        audioInContextRef.current.close();
+      } catch {}
+      audioInContextRef.current = null;
+    }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-IN';
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    stopPlayback();
+    if (audioOutContextRef.current) {
+      try {
+        audioOutContextRef.current.close();
+      } catch {}
+      audioOutContextRef.current = null;
+    }
 
-    recognitionRef.current = recognition;
+    setIsVoiceModeEnabled(false);
+    setIsListening(false);
+    onSpeakingChange(false);
+    stopThinking();
+  }, [stopPlayback, onSpeakingChange, stopThinking]);
 
-    recognition.onstart = () => {
+  useEffect(() => {
+    return () => {
+      stopVoiceSession();
+    };
+  }, [stopVoiceSession]);
+
+  const startVoiceSession = useCallback(async () => {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) {
+      addAIMessage('Browser does not support Web Audio API.', false);
+      return;
+    }
+    
+    const outContext = new AudioContextClass({ sampleRate: 24000 });
+    audioOutContextRef.current = outContext;
+    nextPlayTimeRef.current = 0;
+    activeSourcesRef.current = [];
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//localhost:8000/ws/voice`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setIsVoiceModeEnabled(true);
       setIsListening(true);
       onSpeakingChange(true);
     };
 
-    recognition.onresult = async (event: any) => {
-      let transcript = '';
-      for (let i = event.results.length - 1; i >= 0; i--) {
-        const r = event.results[i];
-        const text = r?.[0]?.transcript?.trim?.();
-        if (text && r.isFinal) {
-          transcript = text;
-          break;
+    ws.onmessage = async (event) => {
+      if (event.data instanceof Blob) {
+        const arrayBuffer = await event.data.arrayBuffer();
+        const int16Samples = new Int16Array(arrayBuffer);
+        
+        if (outContext.state === 'suspended') {
+          await outContext.resume();
         }
-      }
-      if (!transcript) return;
+        
+        const audioBuffer = outContext.createBuffer(1, int16Samples.length, 24000);
+        const channelData = audioBuffer.getChannelData(0);
+        for (let i = 0; i < int16Samples.length; i++) {
+          channelData[i] = int16Samples[i] / 32768.0;
+        }
 
-      // Intercept Assembly Command
-      if (transcript.toLowerCase().includes('agent assemble') || transcript.toLowerCase().trim() === 'assemble') {
-        stopRecognition();
-        onClose();
-        useAgentStore.getState().triggerAssembly();
-        return;
-      }
+        const source = outContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(outContext.destination);
+        
+        activeSourcesRef.current.push(source);
+        source.onended = () => {
+          activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+        };
 
-      // Show user message (frontend only)
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'user',
-          content: transcript,
-        },
-      ]);
-
-      const hinglishTranscript = transcript.trim() + '. Bas Hinglish mein jawab do.';
-
-      // Pause mic for processing/speaking
-      isProcessingVoiceRef.current = true;
-      stopRecognition();
-
-      startThinking();
+        const currentTime = outContext.currentTime;
+        const playTime = Math.max(currentTime, nextPlayTimeRef.current);
+        source.start(playTime);
+        nextPlayTimeRef.current = playTime + audioBuffer.duration;
+      } else {
         try {
-          const res = await fetch('http://localhost:8000/api/voice/process', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transcript: hinglishTranscript, speak: true }),
-          });
-
-          if (!res.ok) throw new Error('Backend error');
-          const data = await res.json();
-          stopThinking();
-
-          if (data.hacker_mode_activated === true) {
-            // Password accepted or voice-keyword auto-activated → switch to hacker UI
-            document.body.classList.add('hacker');
-            setIsHacker(true);
-            addAIMessage(
-              data.response_text || data.response || 'Hacker Brain Mode activated.',
-              true,
-              'Brain',
-              'hacker_mode_activation'
-            );
-          } else if (data.hacker_mode_challenge) {
-            // Challenge prompt (password needed) — just display the message
-            // Backend remembers the pending challenge state for the next voice input
-            addAIMessage(
-              data.response_text || data.response || 'Security clearance keyword required.',
-              true,
-              'Brain',
-              'hacker_mode_activation'
-            );
-          } else if (data.intent === 'hacker_mode_activation' && data.hacker_mode_activated === false) {
-            // Access denied — wrong password
-            addAIMessage(
-              data.response_text || data.response || 'Access Denied. Invalid security clearance.',
-              false,
-              'Brain',
-              'hacker_mode_activation'
-            );
-          } else if (data.intent === 'hacker_mode_deactivation' || data.hacker_mode_deactivated) {
-            document.body.classList.remove('hacker');
-            setIsHacker(false);
-            addAIMessage(
-              data.response_text || data.response || 'Productivity Mode activated.',
-              true,
-              'Brain',
-              data.intent || 'hacker_mode_deactivation'
-            );
-          } else {
-            addAIMessage(
-              data.response_text || data.response || 'No response received.',
-              true,
-              undefined,
-              data.intent || undefined,
-            );
+          const data = JSON.parse(event.data);
+          if (data.type === 'speak_start') {
+            onSpeakingChange(true);
+          } else if (data.type === 'speak_end') {
+            if (activeSourcesRef.current.length === 0) {
+              nextPlayTimeRef.current = 0;
+            }
+          } else if (data.type === 'transcription') {
+            setMessages(prev => [
+              ...prev,
+              { id: Date.now().toString(), role: 'user', content: data.text }
+            ]);
+            startThinking();
+          } else if (data.type === 'chat_response') {
+            stopThinking();
+            
+            if (data.hacker_mode_activated === true) {
+              document.body.classList.add('hacker');
+              setIsHacker(true);
+              addAIMessage(data.response || 'Hacker Brain Mode activated.', true, 'Brain', 'hacker_mode_activation');
+            } else if (data.hacker_mode_challenge) {
+              setShowHackerPrompt(true);
+              setHackerPassword('');
+              setHackerError('');
+            } else if (data.intent === 'hacker_mode_activation' && data.hacker_mode_activated === false) {
+              addAIMessage(data.response || 'Access Denied. Invalid security clearance.', false, 'Brain', 'hacker_mode_activation');
+            } else if (data.intent === 'hacker_mode_deactivation' || data.hacker_mode_deactivated) {
+              document.body.classList.remove('hacker');
+              setIsHacker(false);
+              addAIMessage(data.response || 'Productivity Mode activated.', true, 'Brain', 'hacker_mode_deactivation');
+            } else {
+              addAIMessage(data.response || 'No response received.', true, data.agent, data.intent);
+            }
+          } else if (data.type === 'interrupted') {
+            stopPlayback();
           }
         } catch (e) {
-          stopThinking();
-          addAIMessage('Error: Could not process voice command. Backend may be offline.', false);
-        } finally {
-          pollVoiceStatus();
+          console.warn('Failed to parse WebSocket JSON message:', e);
         }
+      }
     };
 
-    recognition.onerror = (event: any) => {
-      if (event?.error !== 'aborted' && event?.error !== 'no-speech') {
-        console.error('Speech recognition error:', event.error);
-        addAIMessage(`Voice error: ${event.error}. Try again.`, false);
-      }
-      setIsListening(false);
-      onSpeakingChange(false);
+    ws.onerror = (e) => {
+      console.error('Voice WebSocket error:', e);
+      addAIMessage('Voice connection error. Backing out.', false);
+      stopVoiceSession();
     };
 
-    recognition.onend = () => {
-      recognitionRef.current = null;
-      setIsListening(false);
-      onSpeakingChange(false);
-
-      if (voiceModeEnabledRef.current && !isProcessingVoiceRef.current) {
-        setTimeout(() => {
-          if (voiceModeEnabledRef.current && !isProcessingVoiceRef.current) {
-            startRecognitionRef.current();
-          }
-        }, 300);
-      }
+    ws.onclose = () => {
+      stopVoiceSession();
     };
 
     try {
-      recognition.start();
-    } catch (e) {
-      console.error('Failed to start SpeechRecognition:', e);
-      recognitionRef.current = null;
-      setIsListening(false);
-      onSpeakingChange(false);
-    }
-  }, [addAIMessage, onSpeakingChange, startThinking, stopThinking, pollVoiceStatus, stopRecognition]);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
 
-  useEffect(() => {
-    startRecognitionRef.current = startRecognition;
-  }, [startRecognition]);
+      const inContext = new AudioContextClass({ sampleRate: 16000 });
+      audioInContextRef.current = inContext;
+
+      const source = inContext.createMediaStreamSource(stream);
+      const processor = inContext.createScriptProcessor(4096, 1, 1);
+      audioProcessorRef.current = processor;
+
+      processor.onaudioprocess = (e) => {
+        const inputData = e.inputBuffer.getChannelData(0);
+        const pcmData = new Int16Array(inputData.length);
+        for (let i = 0; i < inputData.length; i++) {
+          const s = Math.max(-1, Math.min(1, inputData[i]));
+          pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(pcmData.buffer);
+        }
+      };
+
+      source.connect(processor);
+      processor.connect(inContext.destination);
+    } catch (e) {
+      console.error('Failed to access microphone:', e);
+      addAIMessage('Mic permission denied. Please allow microphone access to use voice mode.', false);
+      stopVoiceSession();
+    }
+  }, [addAIMessage, onSpeakingChange, startThinking, stopThinking, stopPlayback, stopVoiceSession]);
 
   const toggleVoice = useCallback(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      addAIMessage('Speech recognition is not supported in this browser. Please use Chrome or Edge.', false);
-      return;
-    }
-
-    if (voiceModeEnabledRef.current) {
-      voiceModeEnabledRef.current = false;
-      setIsVoiceModeEnabled(false);
-      isProcessingVoiceRef.current = false;
-      if (voiceStatusIntervalRef.current) {
-        clearInterval(voiceStatusIntervalRef.current);
-        voiceStatusIntervalRef.current = null;
-      }
-      stopRecognition();
+    if (isVoiceModeEnabled) {
+      stopVoiceSession();
     } else {
-      voiceModeEnabledRef.current = true;
-      setIsVoiceModeEnabled(true);
-      startRecognition();
+      startVoiceSession();
     }
-  }, [addAIMessage, startRecognition, stopRecognition]);
+  }, [isVoiceModeEnabled, startVoiceSession, stopVoiceSession]);
 
   const currentStageText = THINKING_STAGES[thinkingStage]?.text || 'Processing...';
 

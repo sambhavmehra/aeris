@@ -184,6 +184,67 @@ class MemoryStore:
 
     # ─── New Memory Layer Methods ─────────────────────────────────────
 
+    def _run_sync(self, coro):
+        """Runs an async coroutine synchronously, avoiding loop collision."""
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if loop.is_running():
+            import threading
+            res = []
+            err = []
+            def worker():
+                new_loop = asyncio.new_event_loop()
+                try:
+                    res.append(new_loop.run_until_complete(coro))
+                except Exception as e:
+                    err.append(e)
+                finally:
+                    new_loop.close()
+            t = threading.Thread(target=worker)
+            t.start()
+            t.join()
+            if err:
+                raise err[0]
+            return res[0]
+        else:
+            return loop.run_until_complete(coro)
+
+    def _rebuild_vector_index_background(self):
+        """Rebuilds the vector database entries for all legacy facts in a background thread."""
+        try:
+            from memory.vector_engine import get_vector_engine
+            import sqlite3
+            engine = get_vector_engine()
+            
+            # Check if database is empty for long term facts
+            row_count = 0
+            try:
+                with sqlite3.connect(engine.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM embeddings WHERE collection = 'long_term_facts'")
+                    row_count = cursor.fetchone()[0]
+            except Exception:
+                pass
+
+            # If vector store is empty but we have facts, populate it
+            all_facts = self.long_term_facts
+            if row_count == 0 and all_facts:
+                logger.info(f"Rebuilding vector embeddings for {len(all_facts)} legacy facts in background...")
+                
+                async def rebuild_all():
+                    for fact in all_facts:
+                        await engine.add_vector("long_term_facts", fact)
+                        
+                import threading
+                threading.Thread(target=lambda: self._run_sync(rebuild_all()), daemon=True).start()
+        except Exception as e:
+            logger.warning(f"Failed to check/rebuild vector index: {e}")
+
     def add_fact(self, fact: str) -> bool:
         """Add a long-term user fact, avoiding duplicates and sensitive info."""
         if not fact or not isinstance(fact, str):
@@ -195,6 +256,14 @@ class MemoryStore:
         if fact not in self.long_term_facts:
             self.long_term_facts.append(fact)
             self.save()
+
+            # Add to semantic vector database
+            try:
+                from memory.vector_engine import get_vector_engine
+                self._run_sync(get_vector_engine().add_vector("long_term_facts", fact))
+            except Exception as e:
+                logger.warning(f"Could not index fact semantically: {e}")
+
             return True
         return False
 
@@ -202,14 +271,32 @@ class MemoryStore:
         """Remove a fact by string match or substring match."""
         if not fact:
             return False
-        fact = fact.strip().lower()
+        fact_clean = fact.strip()
+        fact_lower = fact_clean.lower()
         original_len = len(self.long_term_facts)
-        self.long_term_facts = [f for f in self.long_term_facts if f.strip().lower() != fact]
+        
+        # Identify which exact facts are being deleted
+        to_delete = [f for f in self.long_term_facts if f.strip().lower() == fact_lower]
+        if not to_delete:
+            to_delete = [f for f in self.long_term_facts if fact_lower in f.strip().lower()]
+
+        self.long_term_facts = [f for f in self.long_term_facts if f.strip().lower() != fact_lower]
         # Also support substring removal
         if len(self.long_term_facts) == original_len:
-            self.long_term_facts = [f for f in self.long_term_facts if fact not in f.strip().lower()]
+            self.long_term_facts = [f for f in self.long_term_facts if fact_lower not in f.strip().lower()]
+        
         if len(self.long_term_facts) < original_len:
             self.save()
+
+            # Remove from semantic vector database
+            try:
+                from memory.vector_engine import get_vector_engine
+                engine = get_vector_engine()
+                for df in to_delete:
+                    engine.delete_vector_by_text("long_term_facts", df)
+            except Exception as e:
+                logger.warning(f"Could not delete fact from vector store: {e}")
+
             return True
         return False
 
@@ -233,9 +320,24 @@ class MemoryStore:
         self.save()
 
     def search_facts(self, query: str) -> list[str]:
-        """Simulate vector search memory hook via keyword/substring search."""
+        """Performs semantic search across facts utilizing vector embeddings with keyword fallback."""
         if not query:
             return []
+
+        # 1. Attempt Semantic Vector search
+        try:
+            from memory.vector_engine import get_vector_engine
+            results = self._run_sync(get_vector_engine().search_vectors("long_term_facts", query, limit=5))
+            if results:
+                # Filter out low similarity hits if appropriate (e.g. < 0.40 score)
+                matched_texts = [r["text"] for r in results if r.get("similarity", 0) > 0.40]
+                if matched_texts:
+                    logger.info(f"Vector search matched {len(matched_texts)} facts semantically.")
+                    return matched_texts
+        except Exception as e:
+            logger.warning(f"Semantic vector search failed or offline ({e}). Falling back to static keyword parser.")
+
+        # 2. Legacy Keyword fallback (fail-proof)
         query_words = query.lower().split()
         matches = []
         for fact in self.long_term_facts:
@@ -368,6 +470,9 @@ class MemoryStore:
                 logger.info("No existing hacker memory file — starting fresh")
         except Exception as e:
             logger.error(f"Failed to load hacker memory: {e}")
+
+        # Trigger background rebuilding/verification of vector database index for legacy facts
+        self._rebuild_vector_index_background()
 
     def __repr__(self) -> str:
         is_hacker = self.is_hacker_mode

@@ -32,6 +32,8 @@ class Settings:
         self.NOTION_API_KEY: str = os.getenv("VITE_NOTION_API_KEY", "")
         self.NOTION_DATABASE_ID: str = os.getenv("VITE_NOTION_DATABASE_ID", "")
         self.BREVO_API_KEY: str = os.getenv("BREVO_API_KEY", "")
+        self.TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+        self.TELEGRAM_CHAT_ID: str = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
         # --- SMTP Services ---
         self.SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp-relay.brevo.com")
@@ -112,6 +114,10 @@ class Settings:
     @property
     def has_smtp(self) -> bool:
         return bool(self.SMTP_SERVER and self.SMTP_LOGIN and self.SMTP_PASSWORD)
+
+    @property
+    def has_telegram(self) -> bool:
+        return bool(self.TELEGRAM_BOT_TOKEN and self.TELEGRAM_CHAT_ID)
 
     def __repr__(self) -> str:
         return (

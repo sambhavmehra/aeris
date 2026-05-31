@@ -50,6 +50,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to start Task Scheduler: {e}")
 
+    # Start Workspace Watcher
+    try:
+        from services.workspace_watcher import get_workspace_watcher
+        get_workspace_watcher().start()
+        logger.info("AERIS Workspace Watcher service online.")
+    except Exception as e:
+        logger.error(f"Failed to start Workspace Watcher: {e}")
+
     from tools.mcp_bridge import get_mcp_registry
     from tools.tool_health import get_health_tracker
 
@@ -76,8 +84,39 @@ async def lifespan(app: FastAPI):
         _neural_ready = False
         _neural_init_error = str(e)
         logger.exception("Neural Engine initialization failed; starting in degraded mode.")
+
+    # Start Telegram bot long poller if Telegram is configured
+    from config import settings
+    if settings.has_telegram:
+        try:
+            from services.telegram_poller import poll_telegram_updates
+            app.state.tg_poller = asyncio.create_task(poll_telegram_updates())
+            logger.info("AERIS Telegram Bot Poller service spawned in background.")
+        except Exception as e:
+            logger.error(f"Failed to spawn Telegram Bot Poller: {e}")
+
     yield
+
     logger.info("Shutting down AERIS API Server...")
+
+    # Stop Workspace Watcher
+    try:
+        from services.workspace_watcher import get_workspace_watcher
+        get_workspace_watcher().stop()
+        logger.info("AERIS Workspace Watcher service stopped.")
+    except Exception as e:
+        logger.error(f"Failed to stop Workspace Watcher: {e}")
+
+    # Stop Telegram bot long poller
+    if hasattr(app.state, "tg_poller") and app.state.tg_poller:
+        logger.info("Stopping Telegram Bot Poller service...")
+        app.state.tg_poller.cancel()
+        try:
+            await app.state.tg_poller
+        except asyncio.CancelledError:
+            pass
+        logger.info("Telegram Bot Poller service stopped.")
+
     # Stop Task Scheduler
     try:
         from services.scheduler import get_scheduler
@@ -85,6 +124,18 @@ async def lifespan(app: FastAPI):
         logger.info("AERIS Task Scheduler service stopped.")
     except Exception as e:
         logger.error(f"Failed to stop Task Scheduler: {e}")
+
+    # Close Gemini AI Client
+    try:
+        from ai_engine import ai_engine
+        if ai_engine._gemini_client and hasattr(ai_engine._gemini_client, "_api_client") and hasattr(ai_engine._gemini_client._api_client, "_async_httpx_client"):
+            async_client = ai_engine._gemini_client._api_client._async_httpx_client
+            if async_client:
+                await async_client.aclose()
+                logger.info("Gemini HTTPX async client closed.")
+    except Exception as e:
+        logger.error(f"Failed to close Gemini API client: {e}")
+
 
 
 class AERISOSEngine:
@@ -437,6 +488,52 @@ async def os_memory():
     return {"chat_history": memory_store.chat_history, "task_results": memory_store.task_results}
 
 
+@app.get("/api/jobs/active")
+async def get_active_jobs():
+    from services.job_manager import get_job_manager
+    return {"jobs": get_job_manager().list_active_jobs()}
+
+
+@app.get("/api/watcher/pending")
+async def get_pending_repairs():
+    from services.workspace_watcher import get_workspace_watcher
+    pending = get_workspace_watcher().get_pending_repairs()
+    formatted = []
+    for rid, info in pending.items():
+        formatted.append({
+            "repair_id": rid,
+            "rel_path": str(info["rel_path"]),
+            "error": info["error"],
+            "timestamp": info["timestamp"]
+        })
+    return {"pending_repairs": formatted}
+
+
+@app.post("/api/watcher/repair/{repair_id}")
+async def repair_file_by_id(repair_id: str):
+    from services.workspace_watcher import get_workspace_watcher
+    result = await get_workspace_watcher().trigger_repair(repair_id)
+    if "error" in result.lower() or "failed" in result.lower():
+        raise HTTPException(status_code=400, detail=result)
+    return {"success": True, "message": result}
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job_by_id(job_id: str):
+    from services.job_manager import get_job_manager
+    job = get_job_manager().get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job_endpoint(job_id: str):
+    from services.job_manager import get_job_manager
+    success = get_job_manager().cancel_job(job_id)
+    return {"success": success, "message": f"Job {job_id} cancelled" if success else "Job not found or not running"}
+
+
 @app.get("/api/execute/capabilities")
 async def execute_capabilities():
     reg = get_universal_registry()
@@ -784,6 +881,177 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
 
+@app.websocket("/ws/voice")
+async def voice_websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    logger.info("Voice stream WebSocket connected.")
+
+    import json
+    from services.voice_stream import is_silent, transcribe_audio, generate_voice_pcm
+    from services.voice_profiles import get_voice_profile
+    
+    # State tracking
+    audio_buffer = bytearray()
+    silent_frames = 0
+    has_spoken = False
+    active_tts_task = None
+    
+    # Heuristics for VAD:
+    # Assuming frontend sends audio in chunks of 4096 samples (8192 bytes = 0.256s at 16kHz)
+    # 6 silent frames is ~1.5s
+    SILENCE_LIMIT = 6
+
+    async def speak_response(text: str, agent_id: str):
+        nonlocal active_tts_task
+        try:
+            profile = get_voice_profile(agent_id) if agent_id else {}
+            voice = profile.get("voice", "hi-IN-MadhurNeural")
+            pitch = profile.get("pitch", "+5Hz")
+            rate = profile.get("rate", "+13%")
+            
+            # Send TTS start event
+            await websocket.send_json({"type": "speak_start"})
+            
+            # Generate PCM chunks and send to client
+            async for pcm_chunk in generate_voice_pcm(text, voice=voice, pitch=pitch, rate=rate):
+                await websocket.send_bytes(pcm_chunk)
+                await asyncio.sleep(0.001)
+                
+            # Send TTS end event
+            await websocket.send_json({"type": "speak_end"})
+        except asyncio.CancelledError:
+            logger.info("TTS streaming task cancelled.")
+            try:
+                await websocket.send_json({"type": "speak_end", "reason": "interrupted"})
+            except Exception:
+                pass
+        except Exception as e:
+            logger.exception(f"Error in speak_response: {e}")
+            try:
+                await websocket.send_json({"type": "speak_end", "reason": "error"})
+            except Exception:
+                pass
+
+    try:
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            
+            if "bytes" in message:
+                pcm_chunk = message["bytes"]
+                
+                # Check VAD silence
+                silent = is_silent(pcm_chunk, threshold=400)
+                is_speaking = active_tts_task is not None and not active_tts_task.done()
+                
+                if silent:
+                    if has_spoken:
+                        silent_frames += 1
+                        if silent_frames >= SILENCE_LIMIT:
+                            logger.info(f"VAD: Silence limit reached. Transcribing {len(audio_buffer)} bytes...")
+                            
+                            samples_to_transcribe = bytes(audio_buffer)
+                            audio_buffer.clear()
+                            silent_frames = 0
+                            has_spoken = False
+                            
+                            async def process_utterance(audio_bytes):
+                                nonlocal active_tts_task
+                                text = await transcribe_audio(audio_bytes)
+                                if not text:
+                                    logger.info("VAD: No speech recognized.")
+                                    return
+                                    
+                                await websocket.send_json({"type": "transcription", "text": text})
+                                
+                                from memory.user_profile import user_profile_store
+                                from hacker_brain import hacker_brain
+                                is_hacker = user_profile_store.get_profile().get("hacker_mode", False)
+                                current_brain = hacker_brain if is_hacker else brain
+                                
+                                result = await current_brain.process(text)
+                                response_text = result.get("response", "")
+                                intent = result.get("intent", "chat")
+                                agent = result.get("agent", "Brain")
+                                
+                                await websocket.send_json({
+                                    "type": "chat_response", 
+                                    "response": response_text,
+                                    "intent": intent,
+                                    "agent": agent
+                                })
+                                
+                                if response_text:
+                                    active_tts_task = asyncio.create_task(speak_response(response_text, agent.lower().replace("agent", "")))
+                                    
+                            asyncio.create_task(process_utterance(samples_to_transcribe))
+                else:
+                    if is_speaking:
+                        logger.info("VAD: User spoke while assistant speaking. Interrupting!")
+                        if active_tts_task:
+                            active_tts_task.cancel()
+                            active_tts_task = None
+                        await websocket.send_json({"type": "interrupted"})
+                        
+                    silent_frames = 0
+                    has_spoken = True
+                    if len(audio_buffer) < 960000:
+                        audio_buffer.extend(pcm_chunk)
+                        
+            elif "text" in message:
+                text_data = message["text"]
+                try:
+                    data = json.loads(text_data)
+                    msg_type = data.get("type")
+                    
+                    if msg_type == "ping":
+                        await websocket.send_json({"type": "pong"})
+                        
+                    elif msg_type == "interrupt":
+                        logger.info("Client requested explicit interruption.")
+                        if active_tts_task and not active_tts_task.done():
+                            active_tts_task.cancel()
+                            active_tts_task = None
+                        await websocket.send_json({"type": "interrupted"})
+                        audio_buffer.clear()
+                        silent_frames = 0
+                        has_spoken = False
+                        
+                    elif msg_type == "process_text":
+                        text = data.get("text", "")
+                        if active_tts_task and not active_tts_task.done():
+                            active_tts_task.cancel()
+                            active_tts_task = None
+                            
+                        from memory.user_profile import user_profile_store
+                        from hacker_brain import hacker_brain
+                        is_hacker = user_profile_store.get_profile().get("hacker_mode", False)
+                        current_brain = hacker_brain if is_hacker else brain
+                        
+                        result = await current_brain.process(text)
+                        response_text = result.get("response", "")
+                        intent = result.get("intent", "chat")
+                        agent = result.get("agent", "Brain")
+                        
+                        await websocket.send_json({
+                            "type": "chat_response", 
+                            "response": response_text,
+                            "intent": intent,
+                            "agent": agent
+                        })
+                        if response_text:
+                            active_tts_task = asyncio.create_task(speak_response(response_text, agent.lower().replace("agent", "")))
+                except json.JSONDecodeError:
+                    pass
+                    
+    except WebSocketDisconnect:
+        logger.info("Voice stream WebSocket disconnected.")
+    finally:
+        if active_tts_task and not active_tts_task.done():
+            active_tts_task.cancel()
+
+
 @app.websocket("/ws/music")
 async def music_websocket_endpoint(websocket: WebSocket):
     global music_extension_ws
@@ -1108,6 +1376,58 @@ async def mcp_connect(req: MCPConnectRequest):
         return result
     except Exception as e:
         logger.exception("MCP connection endpoint error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/mcp/servers")
+async def get_mcp_servers():
+    try:
+        from starlette.concurrency import run_in_threadpool
+        from tools.mcp_installer import list_connected_servers
+        res_str = await run_in_threadpool(list_connected_servers)
+        import json
+        return json.loads(res_str)
+    except Exception as e:
+        logger.exception("MCP list endpoint error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mcp/servers")
+async def mcp_servers_connect(req: MCPConnectRequest):
+    return await mcp_connect(req)
+
+
+@app.delete("/api/mcp/servers/{name}")
+async def mcp_servers_disconnect(name: str):
+    try:
+        from starlette.concurrency import run_in_threadpool
+        from tools.mcp_installer import disconnect_mcp_server
+        res_str = await run_in_threadpool(disconnect_mcp_server, server_name=name)
+        import json
+        return json.loads(res_str)
+    except Exception as e:
+        logger.exception("MCP disconnect endpoint error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/mcp/servers/{name}/reconnect")
+async def mcp_servers_reconnect(name: str):
+    try:
+        from starlette.concurrency import run_in_threadpool
+        from tools.mcp_bridge import get_mcp_registry
+        
+        def do_reconnect():
+            registry = get_mcp_registry()
+            success = registry.reconnect_server(name)
+            if success:
+                conn = registry._servers.get(name)
+                if conn and conn.connected:
+                    return {"success": True, "message": f"Successfully reconnected to MCP server '{name}'."}
+            return {"success": False, "error": f"Failed to reconnect to MCP server '{name}'."}
+
+        return await run_in_threadpool(do_reconnect)
+    except Exception as e:
+        logger.exception("MCP reconnect endpoint error")
         raise HTTPException(status_code=500, detail=str(e))
 
 

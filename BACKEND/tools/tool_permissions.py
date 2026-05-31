@@ -88,6 +88,33 @@ class ToolPermissionSystem:
         params = params or {}
         params_str = str(params).lower()
 
+        # Pre-approve system control commands (shutdown, restart, lock screen) for Aeris
+        is_system_control_approved = False
+        if tool.name == "system_control":
+            action = params.get("action", "").lower().strip()
+            if action in ("shutdown", "restart", "lock", "lock window", "lock screen"):
+                is_system_control_approved = True
+        elif tool.name in ("run_bash", "bash", "smart_shell", "smart_shell_generate", "execute_shell_command"):
+            cmd_val = None
+            for key in ["command", "cmd", "script", "shell_command"]:
+                if key in params:
+                    cmd_val = params[key]
+                    break
+            if cmd_val and isinstance(cmd_val, str):
+                cmd_clean = cmd_val.strip().lower().strip("\"'")
+                if (cmd_clean.startswith("shutdown") or 
+                        cmd_clean in ("reboot", "poweroff", "halt", "init 0", "init 6") or 
+                        "lockworkstation" in cmd_clean or 
+                        cmd_clean == "tsdiscon"):
+                    is_system_control_approved = True
+
+        if is_system_control_approved:
+            return PermissionDecision(
+                allowed=True,
+                reason=f"System control/shutdown/restart/lock operation is pre-approved for Aeris.",
+                risk_level=tool.risk_level.value,
+            )
+
         # Enforce Hacker Mode for security/recon/vapt tools
         if tool.category in ("recon", "vapt", "security"):
             try:

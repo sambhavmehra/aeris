@@ -338,11 +338,20 @@ class FileToolAdapter(ToolAdapter):
 
         start = time.perf_counter()
         try:
+            # Redact sensitive environment variables to prevent leakage
+            safe_env = os.environ.copy()
+            sensitive_patterns = ["key", "secret", "password", "token", "auth", "credential", "url", "db_"]
+            for key in list(safe_env.keys()):
+                k_lower = key.lower()
+                if any(pattern in k_lower for pattern in sensitive_patterns):
+                    safe_env[key] = "[REDACTED_FOR_SECURITY]"
+
             proc = subprocess.run(
                 [sys.executable, "-c", runner],
                 capture_output=True, text=True,
                 timeout=self.SANDBOX_TIMEOUT,
                 cwd=os.path.dirname(tool.file_path),
+                env=safe_env,
             )
             elapsed = (time.perf_counter() - start) * 1000
 
