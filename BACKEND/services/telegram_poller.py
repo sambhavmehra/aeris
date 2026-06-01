@@ -26,7 +26,7 @@ async def poll_telegram_updates():
                 params = {
                     "offset": offset,
                     "timeout": 30,
-                    "allowed_updates": ["callback_query"]
+                    "allowed_updates": ["callback_query", "message"]
                 }
                 response = await client.get(url, params=params)
                 if response.status_code != 200:
@@ -47,6 +47,9 @@ async def poll_telegram_updates():
                     # Handle Callback Queries (Buttons)
                     if "callback_query" in update:
                         await handle_callback_query(client, bot_token, update["callback_query"])
+                    # Handle Incoming Text Messages (Commands)
+                    elif "message" in update:
+                        await handle_text_message(client, bot_token, update["message"])
                         
             except asyncio.CancelledError:
                 logger.info("Telegram Poller task cancelled.")
@@ -182,3 +185,69 @@ async def edit_telegram_message(client: httpx.AsyncClient, bot_token: str, chat_
         await client.post(url, json=payload)
     except Exception as e:
         logger.error(f"Failed to edit Telegram message: {e}")
+
+
+async def handle_text_message(client: httpx.AsyncClient, bot_token: str, message: dict):
+    """Processes incoming text commands/messages from authorized Telegram users and executes them via the Brain."""
+    chat_id = message.get("chat", {}).get("id")
+    text = message.get("text", "").strip()
+    
+    if not text:
+        return
+
+    # Verify authorization (only process commands from whitelisted chat ID)
+    if str(chat_id) != str(settings.TELEGRAM_CHAT_ID):
+        logger.warning(f"BLOCKING unauthorized message from chat ID {chat_id}: {text}")
+        return
+
+    logger.info(f"Received authorized Telegram command: {text}")
+
+    send_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    
+    # Send typing status indicator
+    try:
+        action_url = f"https://api.telegram.org/bot{bot_token}/sendChatAction"
+        await client.post(action_url, json={"chat_id": chat_id, "action": "typing"}, timeout=2.0)
+    except Exception:
+        pass
+
+    try:
+        from brain import brain
+        # Process command via Aeris Brain
+        result = await brain.process(text)
+        
+        # Get response text
+        response_text = result.get("response") or result.get("output") or "Sir, execution completed."
+        
+        # Split message if it exceeds Telegram's 4096 character limit
+        if len(response_text) > 4000:
+            chunks = [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]
+            for chunk in chunks:
+                payload = {
+                    "chat_id": chat_id,
+                    "text": chunk,
+                    "parse_mode": "Markdown"
+                }
+                res = await client.post(send_url, json=payload)
+                if res.status_code != 200:
+                    payload.pop("parse_mode", None)
+                    await client.post(send_url, json=payload)
+        else:
+            payload = {
+                "chat_id": chat_id,
+                "text": response_text,
+                "parse_mode": "Markdown"
+            }
+            res = await client.post(send_url, json=payload)
+            if res.status_code != 200:
+                payload.pop("parse_mode", None)
+                await client.post(send_url, json=payload)
+                
+    except Exception as e:
+        logger.exception("Error processing Telegram text command")
+        err_msg = f"❌ **Sir, an error occurred while executing command:**\n`{str(e)}`"
+        await client.post(send_url, json={
+            "chat_id": chat_id,
+            "text": err_msg,
+            "parse_mode": "Markdown"
+        })

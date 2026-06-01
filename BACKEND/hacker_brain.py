@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 
 from ai_engine import ai_engine
-from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent, DorkingAgent, PentestAgent, PhantomAgent, LeakGraphAgent
+from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent, DorkingAgent, PentestAgent, PhantomAgent, LeakGraphAgent, AntigravityAgent
 from agents.agent_registry import agent_registry, AgentStatus
 from memory.store import memory_store
 from neural.core import neural_core
@@ -425,7 +425,9 @@ class HackerBrain:
             "pentest":  PentestAgent(),
             "phantom":  PhantomAgent(),
             "leakgraph": LeakGraphAgent(),
+            "codepipeline": AntigravityAgent(),
         }
+        self.antigravity_agent = self.agents["codepipeline"]
         self.audit_agent = AuditAgent()
         self.observer_agent = ObserverAgent()
 
@@ -702,72 +704,6 @@ class HackerBrain:
                     "task_id": task.task_id, "intent": task.intent,
                     "agent": "DiagramAgent",
                     "response": f"Could not generate diagram: {e}",
-                    "success": False, "execution_time": 0.0, "error": str(e),
-                }
-
-        # Handle codepipeline intent
-        if task.intent == "codepipeline":
-            try:
-                from agents.planner_agent import PlannerAgent
-                from agents.verifier_agent import VerifierAgent
-                from agents.sub_agents.coding_agent import CodingAgent as SwarmCoder
-                import json as _json
-
-                planner = PlannerAgent()
-                manifest = await planner.plan_workspace(task.description)
-                scaffold = planner.scaffold_workspace(manifest)
-
-                coder = SwarmCoder(enable_validation=True, enable_cache=False)
-                project_path = scaffold["project_path"]
-                arch_summary = _json.dumps(manifest.to_dict(), indent=2)
-                written = []
-                for fs in manifest.files:
-                    obj = (f"Generate COMPLETE code for: {fs.path}\n"
-                           f"Description: {fs.description}\nProject: {task.description}\n"
-                           f"Blueprint:\n{arch_summary}")
-                    try:
-                        res = await coder.generate_code_async(request=obj, language=fs.language or manifest.language)
-                        content = res.get("code") or ""
-                        if not content:
-                            for ff in res.get("files", []):
-                                if isinstance(ff, dict) and ff.get("content"):
-                                    content = ff["content"]; break
-                        if content and len(content.strip()) > 10:
-                            from pathlib import Path as P
-                            ap = P(project_path) / fs.path
-                            ap.parent.mkdir(parents=True, exist_ok=True)
-                            ap.write_text(content, encoding="utf-8")
-                            written.append(fs.path)
-                    except Exception as e:
-                        logger.warning(f"[HackerBrain] Scaffold: failed {fs.path}: {e}")
-
-                verifier = VerifierAgent()
-                report = await verifier.verify_workspace(project_path, manifest.entry_point, manifest.language)
-
-                summary_parts = [
-                    f"📐 **Project: {manifest.project_name}**",
-                    f"Language: {manifest.language} | Stack: {', '.join(manifest.tech_stack)}",
-                    f"Entry: `{manifest.entry_point}` | Run: `{manifest.run_command}`",
-                    f"\n**Files Generated ({len(written)}):**",
-                    *[f"  • {w}" for w in written],
-                    f"\n**Verification: {'✅ PASSED' if report.passed else '❌ FAILED'}**",
-                ]
-                if report.llm_review:
-                    summary_parts.append(f"\n**AI Review:**\n{report.llm_review[:500]}")
-                summary_parts.append(f"\n📂 Saved to: `{project_path}`")
-
-                return {
-                    "task_id": task.task_id, "intent": task.intent,
-                    "agent": "CodePipeline",
-                    "response": "\n".join(summary_parts),
-                    "success": True, "execution_time": 0.0,
-                }
-            except Exception as e:
-                logger.error(f"[HackerBrain] CodePipeline failed: {e}")
-                return {
-                    "task_id": task.task_id, "intent": task.intent,
-                    "agent": "CodePipeline",
-                    "response": f"Code pipeline encountered an error: {str(e)}",
                     "success": False, "execution_time": 0.0, "error": str(e),
                 }
 

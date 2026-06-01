@@ -43,107 +43,163 @@ class ProjectBuilderSystem:
         self.base_dir = Path(settings.WORKSPACE_DIR).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
+    def _update_status(self, status: str, step: int, current_step: str, files_generated: List[str] = None, current_file: str = None, error: str = None, project_name: str = None, project_path: str = None):
+        try:
+            status_file = self.base_dir.parent / "data" / "project_build_status.json"
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            data = {}
+            if status_file.exists():
+                try:
+                    data = json.loads(status_file.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            
+            data["status"] = status
+            data["step"] = step
+            data["current_step"] = current_step
+            if files_generated is not None:
+                data["files_generated"] = files_generated
+            if current_file is not None:
+                data["current_file"] = current_file
+            if error is not None:
+                data["error"] = error
+            elif "error" in data:
+                del data["error"]
+                
+            if project_name is not None:
+                data["project_name"] = project_name
+            if project_path is not None:
+                data["project_path"] = project_path
+            
+            data["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            if "started_at" not in data or step == 0:
+                data["started_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                if "error" in data:
+                    del data["error"]
+                
+            status_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.error(f"[PBS] Failed to write status file: {e}")
+
     def build_project(self, objective: str) -> Dict[str, Any]:
         """
         End-to-end SYNCHRONOUS pipeline for generating a production-level project.
-
-        Steps:
-          1. Idea Analysis (objective parsing)
-          2. Architecture Design (blueprint via LLM)
-          3. Flowchart Generation (optional)
-          4. UI/UX Design hints
-          5. Project Structure scaffolding
-          6. Code Generation (per-file, via Ollama)
-          7. Dependencies & Config
-          8. Verification (syntax check)
-          9. Documentation (README)
-         10. Output Delivery
         """
         logger.info(f"[PBS] Starting build for: {objective}")
+        self._update_status("running", 0, "Starting project build", project_name="Initializing...")
         t0 = time.time()
         context = SharedContextBuffer(task_id=f"pbs_{int(time.time())}", objective=objective)
 
-        # ── Step 1: Idea Analysis ───────────────────────────────────────
-        logger.info("[PBS] Step 1/10: Idea Analysis")
-        # Implicit — the objective IS the idea. No separate agent needed.
+        try:
+            # ── Step 1: Idea Analysis ───────────────────────────────────────
+            logger.info("[PBS] Step 1/10: Idea Analysis")
+            self._update_status("running", 1, "Idea Analysis")
 
-        # ── Step 2: Architecture Design ─────────────────────────────────
-        logger.info("[PBS] Step 2/10: Architecture Design")
-        arch_res = self.arch_agent.process(objective, context=context)
-        if arch_res["status"] != "success":
-            return {"success": False, "error": f"Architecture failure: {arch_res.get('output')}"}
+            # ── Step 2: Architecture Design ─────────────────────────────────
+            logger.info("[PBS] Step 2/10: Architecture Design")
+            self._update_status("running", 2, "Architecture Design")
+            arch_res = self.arch_agent.process(objective, context=context)
+            if arch_res["status"] != "success":
+                err = f"Architecture failure: {arch_res.get('output')}"
+                self._update_status("failed", 2, "Architecture Design failed", error=err)
+                return {"success": False, "error": err}
 
-        blueprint = arch_res.get("blueprint")
-        if not blueprint:
-            return {"success": False, "error": "Missing blueprint in architecture response"}
+            blueprint = arch_res.get("blueprint")
+            if not blueprint:
+                err = "Missing blueprint in architecture response"
+                self._update_status("failed", 2, "Architecture Design failed", error=err)
+                return {"success": False, "error": err}
 
-        project_name = blueprint.project_name
-        # Sanitize
-        project_name = "".join(c for c in project_name if c.isalnum() or c in ("_", "-"))
-        if not project_name:
-            project_name = "aeris_project"
+            project_name = blueprint.project_name
+            # Sanitize
+            project_name = "".join(c for c in project_name if c.isalnum() or c in ("_", "-"))
+            if not project_name:
+                project_name = "aeris_project"
 
-        project_dir = self.base_dir / project_name
+            project_dir = self.base_dir / project_name
 
-        # REUSE existing directory instead of creating duplicates
-        project_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"[PBS] Project workspace: {project_dir}")
+            # REUSE existing directory instead of creating duplicates
+            project_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[PBS] Project workspace: {project_dir}")
+            self._update_status("running", 2, "Architecture Design Complete", project_name=project_name, project_path=str(project_dir))
 
-        # ── Step 3: Flowchart Generation (optional) ─────────────────────
-        logger.info("[PBS] Step 3/10: Flowchart Generation")
-        flowchart = self._generate_flowchart(blueprint, project_name)
+            # ── Step 3: Flowchart Generation (optional) ─────────────────────
+            logger.info("[PBS] Step 3/10: Flowchart Generation")
+            self._update_status("running", 3, "Flowchart Generation")
+            flowchart = self._generate_flowchart(blueprint, project_name)
 
-        # ── Step 4: UI/UX Design ────────────────────────────────────────
-        logger.info("[PBS] Step 4/10: UI/UX Design")
-        css_fw = getattr(blueprint.tech_stack, "css_framework", "standard CSS")
-        ui_overview = (
-            f"A modern, responsive design using {css_fw}. "
-            f"Includes clean layout, responsive grid, and proper navigation."
-        )
+            # ── Step 4: UI/UX Design ────────────────────────────────────────
+            logger.info("[PBS] Step 4/10: UI/UX Design")
+            self._update_status("running", 4, "UI/UX Design")
+            css_fw = getattr(blueprint.tech_stack, "css_framework", "standard CSS")
+            ui_overview = (
+                f"A modern, responsive design using {css_fw}. "
+                f"Includes clean layout, responsive grid, and proper navigation."
+            )
 
-        # ── Step 5: Project Structure Scaffolding ───────────────────────
-        logger.info("[PBS] Step 5/10: Project Structure Scaffolding")
-        for node in blueprint.structure:
-            if node.type == "directory":
-                dir_path = project_dir / node.path
-                dir_path.mkdir(parents=True, exist_ok=True)
+            # ── Step 5: Project Structure Scaffolding ───────────────────────
+            logger.info("[PBS] Step 5/10: Project Structure Scaffolding")
+            self._update_status("running", 5, "Project Structure Scaffolding")
+            for node in blueprint.structure:
+                if node.type == "directory":
+                    dir_path = project_dir / node.path
+                    dir_path.mkdir(parents=True, exist_ok=True)
 
-        # ── Step 6: Code Generation (per-file) ─────────────────────────
-        logger.info("[PBS] Step 6/10: Code Generation")
-        generated_files = self._generate_all_code(
-            blueprint, project_dir, objective, context
-        )
+            # Open folder in VS Code automatically (Step 5.5)
+            try:
+                import subprocess
+                logger.info(f"[PBS] Opening folder in VS Code: {project_dir}")
+                subprocess.Popen(f'code "{project_dir}"', shell=True)
+            except Exception as code_err:
+                logger.warning(f"[PBS] Could not open VS Code: {code_err}")
 
-        # ── Step 7: Dependencies & Config ──────────────────────────────
-        logger.info("[PBS] Step 7/10: Dependencies & Config")
-        run_commands = self._write_dependency_files(
-            blueprint, project_dir, project_name, generated_files
-        )
+            # ── Step 6: Code Generation (per-file) ─────────────────────────
+            logger.info("[PBS] Step 6/10: Code Generation")
+            self._update_status("running", 6, "Starting Code Generation")
+            generated_files = self._generate_all_code(
+                blueprint, project_dir, objective, context
+            )
+            self._update_status("running", 6, "Code Generation Complete", files_generated=generated_files)
 
-        # ── Step 8: Verification ───────────────────────────────────────
-        logger.info("[PBS] Step 8/10: Verification")
-        # CodingAgent already validates syntax with enable_validation=True
-        logger.info("[PBS] Verification passed (inline validation).")
+            # ── Step 7: Dependencies & Config ──────────────────────────────
+            logger.info("[PBS] Step 7/10: Dependencies & Config")
+            self._update_status("running", 7, "Dependencies & Config")
+            run_commands = self._write_dependency_files(
+                blueprint, project_dir, project_name, generated_files
+            )
 
-        # ── Step 9: Documentation ──────────────────────────────────────
-        logger.info("[PBS] Step 9/10: Documentation")
-        self._generate_readme(project_dir, project_name, objective, context, generated_files)
-        generated_files.append(f"{project_name}/README.md")
+            # ── Step 8: Verification ───────────────────────────────────────
+            logger.info("[PBS] Step 8/10: Verification")
+            self._update_status("running", 8, "Verification")
+            # CodingAgent already validates syntax with enable_validation=True
+            logger.info("[PBS] Verification passed (inline validation).")
 
-        # ── Step 10: Output Delivery ───────────────────────────────────
-        elapsed = time.time() - t0
-        logger.info(f"[PBS] Step 10/10: Output Delivery ({elapsed:.1f}s total)")
+            # ── Step 9: Documentation ──────────────────────────────────────
+            logger.info("[PBS] Step 9/10: Documentation")
+            self._update_status("running", 9, "Generating Documentation")
+            self._generate_readme(project_dir, project_name, objective, context, generated_files)
+            generated_files.append(f"{project_name}/README.md")
 
-        return {
-            "success": True,
-            "project_path": str(project_dir),
-            "project_name": project_name,
-            "files_generated": generated_files,
-            "flowchart": flowchart,
-            "ui_overview": ui_overview,
-            "run_commands": run_commands,
-            "build_time_seconds": round(elapsed, 1),
-        }
+            # ── Step 10: Output Delivery ───────────────────────────────────
+            elapsed = time.time() - t0
+            logger.info(f"[PBS] Step 10/10: Output Delivery ({elapsed:.1f}s total)")
+            self._update_status("completed", 10, "Finished", files_generated=generated_files)
+
+            return {
+                "success": True,
+                "project_path": str(project_dir),
+                "project_name": project_name,
+                "files_generated": generated_files,
+                "flowchart": flowchart,
+                "ui_overview": ui_overview,
+                "run_commands": run_commands,
+                "build_time_seconds": round(elapsed, 1),
+            }
+        except Exception as e:
+            logger.exception("[PBS] Error in build_project")
+            self._update_status("failed", 0, "Error occurred", error=str(e))
+            return {"success": False, "error": str(e)}
 
     # ═══════════════════════════════════════════════════════════════════
     #  PRIVATE HELPERS
@@ -195,6 +251,13 @@ class ProjectBuilderSystem:
             description = getattr(node, "description", "")
 
             logger.info(f"[PBS]   Generating file {i+1}/{len(file_nodes)}: {file_path_rel}")
+            self._update_status(
+                "running",
+                6,
+                f"Generating file {i+1} of {len(file_nodes)}",
+                files_generated=generated_files,
+                current_file=file_path_rel
+            )
 
             # Build a focused prompt for THIS specific file
             file_objective = (
@@ -437,29 +500,116 @@ class ProjectBuilderSystem:
 
 def run_project_builder(objective: str) -> str:
     """
-    Synchronous entry point for the tool registry.
-    NO asyncio — runs entirely in the calling thread.
+    Delegates project building to the external Antigravity IDE assistant
+    by writing the command to data/ide_commands.json and initializing
+    data/project_build_status.json for monitoring.
     """
-    builder = ProjectBuilderSystem()
-    result = builder.build_project(objective)
+    import json
+    import time
+    from pathlib import Path
+    from config import settings
 
-    if result["success"]:
+    base_dir = Path(settings.WORKSPACE_DIR).resolve()
+    data_dir = base_dir.parent / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    commands_file = data_dir / "ide_commands.json"
+    status_file = data_dir / "project_build_status.json"
+
+    # 1. Write the command for the Antigravity IDE to consume
+    cmd_data = {
+        "command": "build_project",
+        "objective": objective,
+        "status": "pending",
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    try:
+        commands_file.write_text(json.dumps(cmd_data, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.error(f"[PBS] Failed to write ide_commands.json: {e}")
+
+    # 2. Write initial status so AERIS can monitor it
+    status_data = {
+        "status": "pending_ide",
+        "step": 0,
+        "current_step": "AERIS has sent the command to the Antigravity IDE. Waiting for the IDE agent to build...",
+        "project_name": "Scaffolding via Antigravity IDE...",
+        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "project_path": str(base_dir / "pending_project"),
+        "files_generated": [],
+        "current_file": "None"
+    }
+    try:
+        status_file.write_text(json.dumps(status_data, indent=2), encoding="utf-8")
+    except Exception as e:
+        logger.error(f"[PBS] Failed to write initial project_build_status.json: {e}")
+
+    return (
+        "🚀 **Maine Antigravity IDE ko prompt send kar diya hai!**\n\n"
+        f"Aapka target prompt/objective hai: \"{objective}\".\n"
+        "Antigravity IDE ab is file ko read karke project generate karega aur main yahan se progress ko monitor karunga. "
+        "Aap build progress check karne ke liye **'project status'** ya **'status kya hai'** pooch sakte hain."
+    )
+
+
+def check_build_status() -> str:
+    """Read the current project builder status and return a formatted markdown report."""
+    from config import settings
+    base_dir = Path(settings.WORKSPACE_DIR).resolve()
+    status_file = base_dir.parent / "data" / "project_build_status.json"
+    
+    if not status_file.exists():
+        return "No project builds have been started yet or no status record is found."
+        
+    try:
+        import json
+        data = json.loads(status_file.read_text(encoding="utf-8"))
+        
+        status = data.get("status", "unknown").upper()
+        step = data.get("step", 0)
+        current_step = data.get("current_step", "N/A")
+        project_name = data.get("project_name", "N/A")
+        files_generated = data.get("files_generated", [])
+        current_file = data.get("current_file", "None")
+        error = data.get("error")
+        updated_at = data.get("updated_at", "N/A")
+        
+        emoji = "⚙️"
+        if status == "RUNNING":
+            emoji = "⚡"
+        elif status == "COMPLETED":
+            emoji = "✅"
+        elif status == "FAILED":
+            emoji = "❌"
+            
+        progress_bar = ""
+        for i in range(1, 11):
+            if i <= step:
+                progress_bar += "■"
+            else:
+                progress_bar += "□"
+        pct = step * 10
+        
         lines = [
-            f"Project successfully built at: {result['project_path']}",
-            f"Project Name: {result['project_name']}",
-            f"Files Generated:",
+            f"### {emoji} **Project Build Status: {status}**",
+            f"- **Project Name:** `{project_name}`",
+            f"- **Current Phase:** {current_step} (Step {step}/10)",
+            f"- **Progress:** `[{progress_bar}]` {pct}%",
+            f"- **Last Updated:** {updated_at}",
         ]
-        for f in result["files_generated"]:
-            lines.append(f"  - {f}")
-
-        lines.append(f"\nArchitecture: {result.get('flowchart', 'N/A')}")
-        lines.append(f"UI Design: {result.get('ui_overview', 'N/A')}")
-
-        lines.append(f"\nRun Commands:")
-        for cmd in result["run_commands"]:
-            lines.append(f"  {cmd}")
-
-        lines.append(f"\nBuild Time: {result.get('build_time_seconds', '?')}s")
+        
+        if status == "RUNNING" and current_file != "None":
+            lines.append(f"- **Current File Generation:** `{current_file}`")
+            
+        if error:
+            lines.append(f"- **Error:** `{error}`")
+            
+        if files_generated:
+            lines.append("\n📁 **Generated Files:**")
+            for f in files_generated:
+                lines.append(f"  - `{f}`")
+                
         return "\n".join(lines)
-    else:
-        raise RuntimeError(result["error"])
+    except Exception as e:
+        return f"Error reading project build status: {str(e)}"

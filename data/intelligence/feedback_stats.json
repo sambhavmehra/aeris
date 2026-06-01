@@ -1,10 +1,10 @@
 {
   "chat_with_ai": {
-    "total": 56,
-    "success": 56,
+    "total": 63,
+    "success": 63,
     "fail": 0,
     "consecutive_failures": 0,
-    "avg_time_ms": 7986.104464285716,
+    "avg_time_ms": 7220.757460317461,
     "errors": []
   },
   "read_file": {
@@ -58,19 +58,19 @@
     "errors": []
   },
   "send_email": {
+    "total": 3,
+    "success": 3,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 1054.68,
+    "errors": []
+  },
+  "list_agents": {
     "total": 2,
     "success": 2,
     "fail": 0,
     "consecutive_failures": 0,
-    "avg_time_ms": 931.985,
-    "errors": []
-  },
-  "list_agents": {
-    "total": 1,
-    "success": 1,
-    "fail": 0,
-    "consecutive_failures": 0,
-    "avg_time_ms": 0.49,
+    "avg_time_ms": 0.33999999999999997,
     "errors": []
   },
   "generate_code": {
@@ -82,19 +82,19 @@
     "errors": []
   },
   "open_app": {
-    "total": 2,
-    "success": 2,
+    "total": 5,
+    "success": 5,
     "fail": 0,
     "consecutive_failures": 0,
-    "avg_time_ms": 2380.815,
+    "avg_time_ms": 2021.2899999999997,
     "errors": []
   },
   "play_youtube": {
-    "total": 1,
-    "success": 1,
+    "total": 7,
+    "success": 7,
     "fail": 0,
     "consecutive_failures": 0,
-    "avg_time_ms": 5042.14,
+    "avg_time_ms": 3892.4285714285716,
     "errors": []
   },
   "list_tools": {
@@ -185,11 +185,11 @@
     "errors": []
   },
   "schedule_execution": {
-    "total": 12,
-    "success": 0,
+    "total": 15,
+    "success": 3,
     "fail": 12,
-    "consecutive_failures": 12,
-    "avg_time_ms": 15006.639166666668,
+    "consecutive_failures": 0,
+    "avg_time_ms": 12375.178000000004,
     "errors": []
   },
   "subdomain_enum": {
@@ -230,6 +230,62 @@
     "fail": 0,
     "consecutive_failures": 0,
     "avg_time_ms": 2024.3700000000001,
+    "errors": []
+  },
+  "generate_image": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 4028.91,
+    "errors": []
+  },
+  "analyze_screen": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 19314.78,
+    "errors": []
+  },
+  "close_app": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 279.66,
+    "errors": []
+  },
+  "youtube_search": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 175.55,
+    "errors": []
+  },
+  "analyze_camera": {
+    "total": 3,
+    "success": 3,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 13552.223333333333,
+    "errors": []
+  },
+  "system_control": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 85.02,
+    "errors": []
+  },
+  "take_camera_photo": {
+    "total": 1,
+    "success": 1,
+    "fail": 0,
+    "consecutive_failures": 0,
+    "avg_time_ms": 965.29,
     "errors": []
   }
 }

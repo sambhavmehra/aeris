@@ -489,7 +489,87 @@ class FileToolSystem:
         except Exception as exc:
             return FileToolResult(False, str(exc), "find_system_file")
 
+    def find_system_folder(self, foldername: str, search_dir: str = "~") -> FileToolResult:
+        """Search for a directory by name. Prioritizes Downloads, Documents, Desktop, OneDrive, and workspace."""
+        try:
+            start_dir = resolve_path(search_dir) if search_dir else Path.home()
+        except Exception as e:
+            logger.error(f"Failed to resolve search directory '{search_dir}': {e}")
+            start_dir = Path.home()
+        
+        try:
+            if not start_dir.exists() or not start_dir.is_dir():
+                return FileToolResult(False, f"Search directory invalid: {start_dir}", "find_system_folder")
+
+            logger.info(f"🔍 Searching for folder '{foldername}' starting from: {start_dir}")
+
+            q_lower = foldername.lower().strip()
+            q_clean = q_lower.replace(" ", "")
+            terms = [t for t in q_clean.split() if len(t) >= 2]
+
+            def _score(dirpath: str) -> int:
+                dname = os.path.basename(dirpath).lower()
+                s = 0
+                if dname == q_lower or dname == q_clean:
+                    s += 1000
+                if terms and all(t in dname for t in terms):
+                    s += 50
+                fp_lower = dirpath.lower()
+                for pf in ("downloads", "documents", "desktop", "onedrive"):
+                    if pf in fp_lower:
+                        s += 30
+                        break
+                depth = dirpath.count(os.sep)
+                s -= depth
+                return s
+
+            priority_names = ["Downloads", "Documents", "Desktop", "OneDrive"]
+            priority_dirs = [start_dir / pn for pn in priority_names if (start_dir / pn).is_dir()]
+            
+            if self.workspace and self.workspace.is_dir() and self.workspace not in priority_dirs:
+                priority_dirs.insert(0, self.workspace)
+            
+            other_dirs = [
+                d for d in start_dir.iterdir()
+                if d.is_dir() and d.name not in priority_names
+                and d.name not in self._SKIP_DIRS and not d.name.startswith('.')
+            ]
+            search_order = priority_dirs + other_dirs
+
+            matches: list[str] = []
+
+            for search_root in search_order:
+                for root, dirs, files in os.walk(str(search_root)):
+                    dirs[:] = [d for d in dirs if d not in self._SKIP_DIRS and not d.startswith('.')]
+                    for d in dirs:
+                        d_lower = d.lower()
+                        d_clean = d_lower.replace(" ", "")
+
+                        is_match = False
+                        if q_clean in d_clean or d_clean in q_clean:
+                            is_match = True
+                        elif terms and all(t in d_lower for t in terms):
+                            is_match = True
+
+                        if is_match:
+                            matches.append(os.path.join(root, d))
+                        if len(matches) >= 50:
+                            break
+                    if len(matches) >= 50:
+                        break
+
+            matches.sort(key=_score, reverse=True)
+            top = matches[:10]
+
+            if top:
+                return FileToolResult(True, "\n".join(top), "find_system_folder")
+            else:
+                return FileToolResult(True, "No matching folders found.", "find_system_folder")
+        except Exception as exc:
+            return FileToolResult(False, str(exc), "find_system_folder")
+
     @staticmethod
+
     def _human_size(size_bytes: int) -> str:
         for unit in ["B", "KB", "MB", "GB", "TB"]:
             if size_bytes < 1024:

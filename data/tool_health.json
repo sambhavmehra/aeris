@@ -16,11 +16,11 @@
     "last_error": null
   },
   "chat_with_ai": {
-    "total_runs": 72,
-    "successful_runs": 72,
+    "total_runs": 80,
+    "successful_runs": 80,
     "failed_runs": 0,
     "success_rate": 1.0,
-    "avg_execution_time_ms": 7104.777083333334,
+    "avg_execution_time_ms": 6518.5705,
     "last_error": null
   },
   "list_tools": {
@@ -32,19 +32,19 @@
     "last_error": null
   },
   "send_email": {
-    "total_runs": 3,
-    "successful_runs": 3,
+    "total_runs": 5,
+    "successful_runs": 5,
     "failed_runs": 0,
     "success_rate": 1.0,
-    "avg_execution_time_ms": 968.9733333333334,
+    "avg_execution_time_ms": 1355.132,
     "last_error": null
   },
   "analyze_screen": {
-    "total_runs": 5,
-    "successful_runs": 1,
+    "total_runs": 6,
+    "successful_runs": 2,
     "failed_runs": 4,
-    "success_rate": 0.2,
-    "avg_execution_time_ms": 34988.258,
+    "success_rate": 0.3333333333333333,
+    "avg_execution_time_ms": 32376.01166666667,
     "last_error": "builtin_execution_error"
   },
   "take_screenshot": {
@@ -96,19 +96,19 @@
     "last_error": "builtin_execution_error"
   },
   "open_app": {
-    "total_runs": 3,
-    "successful_runs": 3,
+    "total_runs": 5,
+    "successful_runs": 5,
     "failed_runs": 0,
     "success_rate": 1.0,
-    "avg_execution_time_ms": 1776.4166666666667,
+    "avg_execution_time_ms": 2057.074,
     "last_error": null
   },
   "play_youtube": {
-    "total_runs": 1,
-    "successful_runs": 1,
+    "total_runs": 6,
+    "successful_runs": 6,
     "failed_runs": 0,
     "success_rate": 1.0,
-    "avg_execution_time_ms": 5042.14,
+    "avg_execution_time_ms": 3701.8416666666667,
     "last_error": null
   },
   "web_research": {
@@ -120,11 +120,11 @@
     "last_error": "builtin_execution_error"
   },
   "edit_file": {
-    "total_runs": 4,
+    "total_runs": 5,
     "successful_runs": 0,
-    "failed_runs": 4,
+    "failed_runs": 5,
     "success_rate": 0.0,
-    "avg_execution_time_ms": 0.5449999999999999,
+    "avg_execution_time_ms": 0.5539999999999999,
     "last_error": "builtin_execution_error"
   },
   "realtime_search": {
@@ -144,11 +144,11 @@
     "last_error": null
   },
   "schedule_execution": {
-    "total_runs": 16,
-    "successful_runs": 0,
+    "total_runs": 19,
+    "successful_runs": 3,
     "failed_runs": 16,
-    "success_rate": 0.0,
-    "avg_execution_time_ms": 15006.971249999997,
+    "success_rate": 0.15789473684210525,
+    "avg_execution_time_ms": 12929.44947368421,
     "last_error": "builtin_execution_error"
   },
   "find_system_file": {
@@ -157,6 +157,46 @@
     "failed_runs": 0,
     "success_rate": 1.0,
     "avg_execution_time_ms": 247.06,
+    "last_error": null
+  },
+  "generate_image": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 4028.91,
+    "last_error": null
+  },
+  "youtube_search": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 175.55,
+    "last_error": null
+  },
+  "analyze_camera": {
+    "total_runs": 3,
+    "successful_runs": 3,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 13552.223333333333,
+    "last_error": null
+  },
+  "system_control": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 85.02,
+    "last_error": null
+  },
+  "take_camera_photo": {
+    "total_runs": 1,
+    "successful_runs": 1,
+    "failed_runs": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 965.29,
     "last_error": null
   }
 }

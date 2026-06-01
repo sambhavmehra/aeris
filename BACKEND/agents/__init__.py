@@ -19,6 +19,7 @@ from agents.dorking_agent import DorkingAgent
 from agents.pentest_agent import PentestAgent
 from agents.phantom_agent import PhantomAgent
 from agents.leak_graph_agent import LeakGraphAgent
+from agents.antigravity_agent import AntigravityAgent
 
 __all__ = [
     "BaseAgent",
@@ -41,6 +42,8 @@ __all__ = [
     "PentestAgent",
     "PhantomAgent",
     "LeakGraphAgent",
+    "AntigravityAgent",
 ]
+
 
 

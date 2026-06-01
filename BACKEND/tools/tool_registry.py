@@ -298,14 +298,14 @@ def _register_all_tools():
             open_folder, open_app, close_app, close_all_apps, play_youtube,
             play_music_background, play_on_youtube_visible,
             google_search, youtube_search, system_control, take_screenshot, write_content,
-            open_file,
+            open_file, monitor_system, share_file_whatsapp, record_audio, send_file_telegram,
         )
 
         reg.register("open_folder", "Open a folder or directory in the file explorer.", open_folder, ["path"], RiskLevel.LOW, "automation")
         reg.register("open_app", "Open an application or website.", open_app, ["app_name"], RiskLevel.LOW, "automation")
         reg.register("close_app", "Close a running application.", close_app, ["app_name"], RiskLevel.LOW, "automation")
         reg.register("close_all_apps", "Close all background applications keeping system critical layers alive. Pass exceptions as comma-separated string if any.", close_all_apps, ["exceptions"], RiskLevel.MEDIUM, "automation")
-        reg.register("play_youtube", "Play music/song/audio in background without opening browser visibly. Use this by default for 'play X' commands. This routes through the Chrome extension's background playback system.", play_music_background, ["query"], RiskLevel.LOW, "automation")
+        reg.register("play_youtube", "Play music/song/audio visibly in your default browser on YouTube.", play_youtube, ["query"], RiskLevel.LOW, "automation")
         reg.register("play_on_youtube_visible", "Open YouTube visibly in the browser and play a song/video. ONLY use this when the user EXPLICITLY says 'on YouTube' / 'YouTube pe' / 'YouTube par' / 'YouTube open karke'. Otherwise use play_youtube.", play_on_youtube_visible, ["query"], RiskLevel.LOW, "automation")
         reg.register("google_search", "Open a Google search in the browser.", google_search, ["query"], RiskLevel.SAFE, "automation")
         reg.register("youtube_search", "Search YouTube in the browser.", youtube_search, ["query"], RiskLevel.SAFE, "automation")
@@ -323,6 +323,10 @@ def _register_all_tools():
             RiskLevel.LOW,
             "automation",
         )
+        reg.register("monitor_system", "Monitor system health metrics: CPU, RAM, Disk, battery, and top active processes.", monitor_system, [], RiskLevel.SAFE, "system")
+        reg.register("share_file_whatsapp", "Share any file via WhatsApp Web to a contact by name.", share_file_whatsapp, ["contact_name", "file_path"], RiskLevel.MEDIUM, "automation")
+        reg.register("record_audio", "Record audio from your microphone for a given duration (in seconds) and save it to disk.", record_audio, ["duration"], RiskLevel.MEDIUM, "system")
+        reg.register("send_file_telegram", "Send any captured file (photo, document, or audio recording) to your Telegram chat.", send_file_telegram, ["file_path"], RiskLevel.MEDIUM, "system", optional_params=["caption"])
         logger.info("Registered automation tools")
     except Exception as e:
         logger.warning(f"Failed to register automation tools: {e}")
@@ -600,6 +604,12 @@ def _register_all_tools():
                 raise RuntimeError(r.output)
             return r.output
 
+        def find_system_folder(foldername: str, search_dir: str = "~") -> str:
+            r = _sft.find_system_folder(foldername, search_dir)
+            if not r.success:
+                raise RuntimeError(r.output)
+            return r.output
+
         reg.register(
             "read_system_file",
             "Read any file on the system by its absolute path. Use ~ for the user's home directory. NEVER output placeholders like 'Replace $HOME...'.",
@@ -629,6 +639,14 @@ def _register_all_tools():
             "Search the entire host system for a file by name. Provide the EXACT filename to search for. STRIP OUT any conversational words like 'my', 'meri', 'file', 'dhund', etc. For example, if user says 'meri sambhavv.pdf ki file dhund na', filename should ONLY be 'sambhavv.pdf'.",
             find_system_file,
             ["filename"],
+            RiskLevel.SAFE,
+            "file",
+        )
+        reg.register(
+            "find_system_folder",
+            "Search the entire host system for a directory/folder by name. Provide the EXACT folder/directory name to search for. STRIP OUT conversational words. For example, if user says 'sambhav_project ka folder dhund', foldername should ONLY be 'sambhav_project'.",
+            find_system_folder,
+            ["foldername"],
             RiskLevel.SAFE,
             "file",
         )
@@ -825,7 +843,7 @@ def _register_all_tools():
 
     # ── 13.5 Project Builder System ─────────────────────────────────────
     try:
-        from agents.project_builder import run_project_builder
+        from agents.project_builder import run_project_builder, check_build_status
 
         reg.register(
             "build_project",
@@ -835,7 +853,16 @@ def _register_all_tools():
             RiskLevel.HIGH,
             "generation",
         )
-        logger.info("Registered Project Builder tool")
+        
+        reg.register(
+            "check_project_status",
+            "Use this tool to check the current progress and status of the background project builder swarm (PBS). Returns detailed statistics, progress percentage, and generated files list.",
+            check_build_status,
+            [],
+            RiskLevel.SAFE,
+            "generation",
+        )
+        logger.info("Registered Project Builder and Status tools")
     except Exception as e:
         logger.warning(f"Failed to register Project Builder tool: {e}")
 

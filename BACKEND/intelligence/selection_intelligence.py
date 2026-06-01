@@ -67,6 +67,8 @@ _INTENT_CATEGORY_MAP: Dict[str, List[str]] = {
     "restart": ["system"], "lock": ["system"], "screenshot": ["system"],
     # Email
     "email": ["email"], "mail": ["email"], "brevo": ["email", "mcp"],
+    "monitor": ["system", "automation"], "whatsapp": ["automation", "file"],
+    "telegram": ["system", "file"], "audio": ["system"], "voice": ["system"],
 }
 
 # ─── Common Pipeline Patterns ────────────────────────────────────────
@@ -184,6 +186,26 @@ _INTENT_TO_TOOL_MAP: Dict[str, Dict[str, Any]] = {
         "categories": ["conversation"],
         "keywords": ["chat", "explain", "hello", "help", "greet"],
         "must_include_names": ["chat_with_ai"]
+    },
+    "monitor": {
+        "categories": ["system", "automation"],
+        "keywords": ["monitor", "health", "cpu", "memory", "battery", "status"],
+        "must_include_names": ["monitor_system"]
+    },
+    "whatsapp": {
+        "categories": ["automation", "file"],
+        "keywords": ["whatsapp", "share", "send", "chat", "contact"],
+        "must_include_names": ["share_file_whatsapp"]
+    },
+    "telegram": {
+        "categories": ["system", "file"],
+        "keywords": ["telegram", "share", "send", "chat", "contact", "telegram file"],
+        "must_include_names": ["send_file_telegram"]
+    },
+    "audio": {
+        "categories": ["system"],
+        "keywords": ["audio", "voice", "microphone", "mic", "record"],
+        "must_include_names": ["record_audio"]
     }
 }
 

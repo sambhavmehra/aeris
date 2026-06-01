@@ -176,6 +176,12 @@ _TOOL_BEHAVIORAL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
         "follow_ups": ["convert_file", "read_system_file"],
         "param_descriptions": {"filename": "Name of the file to search for"},
     },
+    "find_system_folder": {
+        "typical_use_cases": ["Locate folders or directories by name when path is unknown"],
+        "anti_patterns": ["Do NOT use for individual files", "ONLY for local directories"],
+        "follow_ups": ["list_system_dir"],
+        "param_descriptions": {"foldername": "Name of the directory/folder to search for"},
+    },
     "smart_shell_generate": {
         "typical_use_cases": ["System actions in natural language", "Find large files", "Kill processes", "Check ports"],
         "anti_patterns": ["Do NOT use for simple file operations (use file tools)"],
@@ -187,8 +193,8 @@ _TOOL_BEHAVIORAL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
         "param_descriptions": {"app_name": "Name of the application or URL to open"},
     },
     "play_youtube": {
-        "typical_use_cases": ["Background music playback", "Play songs without visible browser"],
-        "anti_patterns": ["Do NOT use if user explicitly says 'on YouTube' (use play_on_youtube_visible)"],
+        "typical_use_cases": ["Music playback on YouTube", "Play songs visibly in default browser"],
+        "anti_patterns": ["Do NOT use for background non-visible playback"],
         "param_descriptions": {"query": "Song name or search query"},
     },
     "play_on_youtube_visible": {
@@ -259,6 +265,42 @@ _TOOL_BEHAVIORAL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
         "typical_use_cases": [],
         "anti_patterns": ["Do NOT use this tool for \"email\", \"send\", \"mail\", or \"test\" tasks. Use send_email instead to avoid API authentication failures."],
         "output_type": "string",
+    },
+    "monitor_system": {
+        "typical_use_cases": ["Check CPU and RAM usage", "Check disk space on C or D drive", "Monitor running processes", "Check battery status"],
+        "anti_patterns": ["Do NOT use for individual process manipulation (use close_app/run_bash)"],
+        "output_type": "string",
+    },
+    "check_project_status": {
+        "typical_use_cases": ["Check progress of the background project builder swarm (PBS)", "Get status of active code generation", "See generated files list of the building project"],
+        "anti_patterns": ["Do NOT use for creating a new project (use build_project)"],
+        "output_type": "string",
+    },
+    "share_file_whatsapp": {
+        "typical_use_cases": ["Send a document to a WhatsApp contact by their name", "Share a file to anyone on WhatsApp with a proper contact name"],
+        "anti_patterns": ["Do NOT use for sending text messages without a file (use open_app/computer_use_task)"],
+        "output_type": "string",
+        "param_descriptions": {
+            "contact_name": "Name of the WhatsApp contact (e.g., 'Rahul', 'Mom', 'Papa')",
+            "file_path": "Absolute path to the file to be shared/sent"
+        },
+    },
+    "record_audio": {
+        "typical_use_cases": ["Record audio or ambient voice from the microphone", "Record voice memo"],
+        "anti_patterns": ["Do NOT use for speech recognition transcription (use speechtotext or similar if available)"],
+        "output_type": "string",
+        "param_descriptions": {
+            "duration": "Duration to record audio in seconds (e.g. 5, 10, 30)"
+        },
+    },
+    "send_file_telegram": {
+        "typical_use_cases": ["Send a file, document, photo, or audio recording to user's Telegram chat"],
+        "anti_patterns": ["Do NOT use for regular text notifications without a file (use send_telegram_notification or notify_job_status instead)"],
+        "output_type": "string",
+        "param_descriptions": {
+            "file_path": "Absolute path to the file to send",
+            "caption": "Optional text caption/message to send with the file"
+        },
     },
 }
 

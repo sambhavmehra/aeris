@@ -312,10 +312,10 @@ def play_on_youtube_visible(query: str) -> dict:
         return {"success": False, "action": "play", "error": str(e)}
 
 
-# Keep backward-compatible alias — default play routes to background
+# Keep backward-compatible alias — play routes to visible YouTube browser playback
 def play_youtube(query: str) -> dict:
-    """Default play handler — routes to background playback via extension."""
-    return play_music_background(query)
+    """Default play handler — plays on YouTube (visible)."""
+    return play_on_youtube_visible(query)
 
 
 # ── Web Search ───────────────────────────────────────────────────────
@@ -804,6 +804,311 @@ def schedule_task(prompt: str) -> dict:
     except Exception as e:
         return {"success": False, "action": "schedule", "error": str(e)}
 
+def monitor_system() -> dict:
+    """Monitor system health: CPU, memory, disk, battery, and top processes."""
+    try:
+        import psutil
+        import shutil
+        import platform
+        import os
+        
+        # CPU Info
+        cpu_percent = psutil.cpu_percent(interval=1)
+        cpu_count_logical = psutil.cpu_count(logical=True)
+        cpu_count_physical = psutil.cpu_count(logical=False)
+        
+        # Memory Info
+        mem = psutil.virtual_memory()
+        mem_total = mem.total / (1024 ** 3)
+        mem_used = mem.used / (1024 ** 3)
+        mem_free = mem.available / (1024 ** 3)
+        mem_percent = mem.percent
+        
+        # Disk Info
+        disks = []
+        if platform.system() == "Windows":
+            drives = []
+            for partition in psutil.disk_partitions():
+                if partition.opts and 'cdrom' not in partition.opts and partition.fstype:
+                    drives.append(partition.mountpoint)
+            if not drives:
+                drives = ["C:\\"]
+        else:
+            drives = ["/"]
+            
+        for drive in drives:
+            try:
+                total, used, free = shutil.disk_usage(drive)
+                disks.append({
+                    "drive": drive,
+                    "total_gb": round(total / (1024 ** 3), 2),
+                    "used_gb": round(used / (1024 ** 3), 2),
+                    "free_gb": round(free / (1024 ** 3), 2),
+                    "used_pct": round((used / total) * 100, 2)
+                })
+            except Exception:
+                pass
+                
+        # Battery Info
+        battery_info = {}
+        try:
+            battery = psutil.sensors_battery()
+            if battery:
+                battery_info = {
+                    "percent": battery.percent,
+                    "power_plugged": battery.power_plugged,
+                    "secsleft": battery.secsleft
+                }
+        except Exception:
+            pass
+            
+        # Top 5 Processes by CPU usage
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+            try:
+                processes.append({
+                    "pid": proc.info['pid'],
+                    "name": proc.info['name'],
+                    "cpu_percent": proc.info['cpu_percent'] or 0.0,
+                    "memory_percent": round(proc.info['memory_percent'] or 0.0, 2)
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+                
+        # Sort by CPU usage and get top 5
+        processes = sorted(processes, key=lambda x: x["cpu_percent"], reverse=True)[:5]
+        
+        details = {
+            "cpu": {
+                "percent": cpu_percent,
+                "cores_logical": cpu_count_logical,
+                "cores_physical": cpu_count_physical
+            },
+            "memory": {
+                "percent": mem_percent,
+                "total_gb": round(mem_total, 2),
+                "used_gb": round(mem_used, 2),
+                "free_gb": round(mem_free, 2)
+            },
+            "disks": disks,
+            "battery": battery_info,
+            "top_processes": processes
+        }
+        
+        # Build report
+        response_lines = [
+            "🖥️ **AERIS System Monitoring Report:**",
+            f"- **CPU Usage:** {cpu_percent}% ({cpu_count_logical} Cores)",
+            f"- **RAM Usage:** {mem_percent}% ({round(mem_used, 1)}GB / {round(mem_total, 1)}GB Used)",
+        ]
+        
+        if battery_info:
+            plugged_status = "Plugged in" if battery_info["power_plugged"] else "Discharging"
+            response_lines.append(f"- **Battery:** {battery_info['percent']}% ({plugged_status})")
+            
+        response_lines.append("\n📁 **Disk Storage:**")
+        for d in disks:
+            response_lines.append(f"  • **{d['drive']}** {d['used_pct']}% used ({d['free_gb']}GB free / {d['total_gb']}GB total)")
+            
+        response_lines.append("\n🔥 **Top CPU Processes:**")
+        for p in processes:
+            response_lines.append(f"  • `{p['name']}` (PID: {p['pid']}) - CPU: {p['cpu_percent']}% | RAM: {p['memory_percent']}%")
+            
+        return {
+            "success": True,
+            "action": "monitor_system",
+            "details": details,
+            "response": "\n".join(response_lines)
+        }
+    except Exception as e:
+        return {"success": False, "action": "monitor_system", "error": str(e)}
+
+
+def share_file_whatsapp(contact_name: str, file_path: str) -> dict:
+    """Share any file via WhatsApp Web to a contact by name using clipboard and key emulation."""
+    import os
+    import subprocess
+    import pyautogui
+    import time
+    import webbrowser
+    
+    resolved_path = os.path.expandvars(os.path.expanduser(file_path.strip()))
+    if not os.path.exists(resolved_path):
+        return {
+            "success": False,
+            "action": "share_file_whatsapp",
+            "error": f"File not found: {file_path}"
+        }
+        
+    abs_path = os.path.abspath(resolved_path)
+    
+    # Step 1: Copy file to clipboard as FileDropList using PowerShell
+    cmd = f'powershell -NoProfile -Command "Set-Clipboard -Path \'{abs_path}\'"'
+    try:
+        subprocess.run(cmd, shell=True, check=True)
+    except Exception as e:
+        return {
+            "success": False,
+            "action": "share_file_whatsapp",
+            "error": f"Failed to copy file to clipboard: {str(e)}"
+        }
+        
+    try:
+        webbrowser.open("https://web.whatsapp.com")
+        print("[*] Opening WhatsApp Web... Waiting for page to load (8s)...")
+        time.sleep(8.0)
+        
+        # Focus search bar
+        pyautogui.hotkey("ctrl", "alt", "/")
+        time.sleep(0.5)
+        
+        # Clear search and write contact name
+        pyautogui.hotkey("ctrl", "a")
+        pyautogui.press("backspace")
+        time.sleep(0.2)
+        pyautogui.write(contact_name, interval=0.05)
+        time.sleep(2.0)
+        
+        # Open Chat
+        pyautogui.press("enter")
+        time.sleep(1.0)
+        
+        # Paste File
+        pyautogui.hotkey("ctrl", "v")
+        time.sleep(2.0)
+        
+        # Send File
+        pyautogui.press("enter")
+        time.sleep(1.0)
+        
+        return {
+            "success": True,
+            "action": "share_file_whatsapp",
+            "contact": contact_name,
+            "path": abs_path,
+            "response": f"✅ File `{os.path.basename(abs_path)}` shared successfully with **{contact_name}** on WhatsApp."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "action": "share_file_whatsapp",
+            "error": f"WhatsApp sharing failed: {str(e)}"
+        }
+
+
+def record_audio(duration: int = 5) -> dict:
+    """Record microphone audio and save it to disk."""
+    try:
+        import pyaudio
+        import wave
+        from datetime import datetime
+        import os
+        
+        FORMAT = pyaudio.paInt16
+        CHANNELS = 1
+        RATE = 16000
+        CHUNK = 1024
+        
+        p = pyaudio.PyAudio()
+        
+        stream = p.open(format=FORMAT, channels=CHANNELS,
+                        rate=RATE, input=True,
+                        frames_per_buffer=CHUNK)
+                        
+        print(f"[*] Recording audio for {duration} seconds...")
+        frames = []
+        for i in range(0, int(RATE / CHUNK * duration)):
+            data = stream.read(CHUNK)
+            frames.append(data)
+            
+        print("[*] Recording finished.")
+        
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+        
+        recordings_dir = os.path.join(os.getcwd(), "Recordings")
+        os.makedirs(recordings_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"recording_{timestamp}.wav"
+        filepath = os.path.join(recordings_dir, filename)
+        
+        wf = wave.open(filepath, 'wb')
+        wf.setnchannels(CHANNELS)
+        wf.setsampwidth(p.get_sample_size(FORMAT))
+        wf.setframerate(RATE)
+        wf.writeframes(b''.join(frames))
+        wf.close()
+        
+        return {
+            "success": True,
+            "action": "record_audio",
+            "path": filepath,
+            "filename": filename,
+            "response": f"🎤 Audio recorded successfully for {duration} seconds: `{filename}`"
+        }
+    except Exception as e:
+        return {"success": False, "action": "record_audio", "error": f"Audio recording failed: {str(e)}"}
+
+
+def send_file_telegram(file_path: str, caption: str | None = None) -> dict:
+    """Send any captured file (photo, document, audio recording) to the user's Telegram."""
+    from config import settings
+    import httpx
+    import os
+    
+    if not settings.has_telegram():
+        return {
+            "success": False,
+            "action": "send_file_telegram",
+            "error": "Telegram bot token or Chat ID is not configured in .env file."
+        }
+        
+    resolved_path = os.path.expandvars(os.path.expanduser(file_path.strip()))
+    if not os.path.exists(resolved_path):
+        return {
+            "success": False,
+            "action": "send_file_telegram",
+            "error": f"File not found on system: {file_path}"
+        }
+        
+    filename = os.path.basename(resolved_path).lower()
+    is_photo = filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))
+    method = "sendPhoto" if is_photo else "sendDocument"
+    url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/{method}"
+    
+    try:
+        with open(resolved_path, "rb") as f:
+            files = {
+                "photo" if is_photo else "document": (os.path.basename(resolved_path), f)
+            }
+            data = {
+                "chat_id": settings.TELEGRAM_CHAT_ID,
+            }
+            if caption:
+                data["caption"] = caption
+                
+            resp = httpx.post(url, data=data, files=files, timeout=30.0)
+            if resp.status_code == 200:
+                return {
+                    "success": True,
+                    "action": "send_file_telegram",
+                    "path": resolved_path,
+                    "response": f"📤 Sent file `{os.path.basename(resolved_path)}` successfully to Telegram."
+                }
+            else:
+                return {
+                    "success": False,
+                    "action": "send_file_telegram",
+                    "error": f"Telegram API returned status {resp.status_code}: {resp.text}"
+                }
+    except Exception as e:
+        return {
+            "success": False,
+            "action": "send_file_telegram",
+            "error": f"Failed to send file to Telegram: {str(e)}"
+        }
+
 # ═════════════════════════════════════════════════════════════════════
 #  MASTER EXECUTOR -- routes decisions to the right handler
 # ═════════════════════════════════════════════════════════════════════
@@ -891,6 +1196,47 @@ def _execute_decision_inner(decision: str) -> dict:
 
     elif d_lower.startswith("content "):
         return write_content(decision[8:].strip())
+
+    elif d_lower.startswith("monitor system") or d_lower == "monitor":
+        return monitor_system()
+
+    elif d_lower.startswith("whatsapp share "):
+        # Expected: "whatsapp share <contact_name> | <file_path>"
+        body = decision[15:].strip()
+        if "|" in body:
+            parts = body.split("|", 1)
+            contact = parts[0].strip()
+            path = parts[1].strip()
+            return share_file_whatsapp(contact, path)
+        else:
+            return {"success": False, "action": "share_file_whatsapp", "error": "Use format: whatsapp share <contact_name> | <file_path>"}
+
+    elif d_lower.startswith("record audio"):
+        duration = 5
+        body = decision[12:].strip()
+        if body.isdigit():
+            duration = int(body)
+        return record_audio(duration)
+
+    elif d_lower.startswith("telegram file "):
+        # Expected: "telegram file <file_path> | <caption_optional>"
+        body = decision[14:].strip()
+        caption = None
+        if "|" in body:
+            parts = body.split("|", 1)
+            path = parts[0].strip()
+            caption = parts[1].strip()
+        else:
+            path = body
+        return send_file_telegram(path, caption)
+
+    elif d_lower.startswith("check project status") or d_lower == "project status":
+        try:
+            from agents.project_builder import check_build_status
+            report = check_build_status()
+            return {"success": True, "action": "check_project_status", "response": report}
+        except Exception as e:
+            return {"success": False, "action": "check_project_status", "error": str(e)}
 
     elif d_lower.startswith("general "):
         from chat_engine import chat
@@ -1320,6 +1666,24 @@ def _execute_decision_inner(decision: str) -> dict:
             return AutomationResult(success=False, action="find_file", error=r.output).to_dict()
         except Exception as e:
             return AutomationResult(success=False, action="find_file", error=str(e)).to_dict()
+
+    elif d_lower.startswith("find folder "):
+        foldername = decision[12:].strip()
+        try:
+            from file_tools import FileToolSystem
+            ft = FileToolSystem()
+            r = ft.find_system_folder(foldername)
+            if r.success:
+                folders = r.output.strip().split("\n")
+                if folders and folders[0] != "No matching folders found.":
+                    formatted = f"📁 **Found {len(folders)} match(es) for folder '{foldername}':**\n\n"
+                    for i, f in enumerate(folders[:10], 1):
+                        formatted += f"  {i}. `{f}`\n"
+                    return AutomationResult(success=True, action="find_folder", response=formatted).to_dict()
+                return AutomationResult(success=True, action="find_folder", response=f"No folders matching '{foldername}' were found.").to_dict()
+            return AutomationResult(success=False, action="find_folder", error=r.output).to_dict()
+        except Exception as e:
+            return AutomationResult(success=False, action="find_folder", error=str(e)).to_dict()
 
     elif d_lower.startswith("analyze screen"):
         try:
