@@ -1,4 +1,4 @@
-﻿# ===========================
+# ===========================
 # Dependencies
 # ===========================
 node_modules/
@@ -107,3 +107,19 @@ coverage/
 # ===========================
 *.tgz
 *.tar.gz
+
+# ===========================
+# AERIS Generated / Cache Files
+# ===========================
+workspace/
+data/ide_commands.json
+data/project_build_status.json
+data/tool_health.json
+data/webweaver_graph.json
+data/intelligence/feedback_patterns.json
+data/intelligence/feedback_stats.json
+data/intelligence/known_issues.json
+data/generated_images/
+data/generated_videos/
+data/converted/
+data/audit/
