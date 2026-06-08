@@ -4,11 +4,67 @@ import subprocess
 import requests
 import urllib.parse
 from urllib.error import URLError
+from typing import Optional
+
+def _update_webweaver_graph(node_id: str, label: str, node_type: str, parent_id: Optional[str] = None, link_type: str = "connection"):
+    import json
+    try:
+        from config import settings
+        graph_path = settings.DATA_DIR / "webweaver_graph.json"
+        
+        graph_path.parent.mkdir(parents=True, exist_ok=True)
+        if graph_path.exists():
+            try:
+                graph_data = json.loads(graph_path.read_text(encoding="utf-8"))
+            except Exception:
+                graph_data = {"nodes": [], "links": []}
+        else:
+            graph_data = {"nodes": [], "links": []}
+
+        # Add node if not exists
+        node_exists = False
+        for n in graph_data.setdefault("nodes", []):
+            if n["id"] == node_id:
+                n["label"] = label
+                n["type"] = node_type
+                n["status"] = "online"
+                node_exists = True
+                break
+        
+        if not node_exists:
+            graph_data["nodes"].append({
+                "id": node_id,
+                "label": label,
+                "type": node_type,
+                "status": "online"
+            })
+            
+        # Add link if parent_id is specified
+        if parent_id:
+            link_exists = False
+            for l in graph_data.setdefault("links", []):
+                if l["source"] == parent_id and l["target"] == node_id:
+                    l["type"] = link_type
+                    link_exists = True
+                    break
+            if not link_exists:
+                graph_data["links"].append({
+                    "source": parent_id,
+                    "target": node_id,
+                    "type": link_type
+                })
+                
+        graph_path.write_text(json.dumps(graph_data, indent=2), encoding="utf-8")
+    except Exception as e:
+        # Don't fail execution if graph update fails
+        pass
 
 def dns_lookup(domain: str, record_type: str = "ALL") -> str:
     """Perform a basic DNS lookup."""
     try:
         ip = socket.gethostbyname(domain)
+        _update_webweaver_graph(domain, domain, "domain")
+        _update_webweaver_graph(ip, ip, "ip", parent_id=domain, link_type="resolves_to")
         return f"DNS Lookup for {domain}:\n- A Record (IPv4): {ip}"
     except Exception as e:
         return f"DNS Lookup failed for {domain}: {e}"
@@ -26,6 +82,7 @@ def whois_lookup(domain: str) -> str:
 
 def port_scan(target: str) -> str:
     """Perform a fast port scan of common ports."""
+    _update_webweaver_graph(target, target, "host")
     common_ports = [21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 8080, 8443]
     open_ports = []
     
@@ -35,6 +92,13 @@ def port_scan(target: str) -> str:
         result = sock.connect_ex((target, port))
         if result == 0:
             open_ports.append(port)
+            
+            port_id = f"{target}:{port}"
+            port_label = f"Port {port}"
+            service_names = {21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS", 80: "HTTP", 110: "POP3", 143: "IMAP", 443: "HTTPS", 445: "SMB", 3306: "MySQL", 3389: "RDP", 8080: "HTTP-Alt", 8443: "HTTPS-Alt"}
+            service_name = service_names.get(port, "unknown")
+            _update_webweaver_graph(port_id, f"{port_label} ({service_name})", "service", parent_id=target, link_type="exposes_port")
+            
         sock.close()
         
     if open_ports:
@@ -87,6 +151,7 @@ def ssl_check(domain: str) -> str:
 
 def subdomain_enum(domain: str) -> str:
     """Basic subdomain enumeration using a common list."""
+    _update_webweaver_graph(domain, domain, "domain")
     common_subs = ["www", "mail", "ftp", "localhost", "webmail", "smtp", "pop", "ns1", "ns2", "webdisk", "cpanel", "dev", "test", "staging", "api"]
     found = []
     for sub in common_subs:
@@ -94,8 +159,11 @@ def subdomain_enum(domain: str) -> str:
         try:
             ip = socket.gethostbyname(target)
             found.append(f"{target} ({ip})")
+            _update_webweaver_graph(target, target, "subdomain", parent_id=domain, link_type="subdomain_of")
+            _update_webweaver_graph(ip, ip, "ip", parent_id=target, link_type="resolves_to")
         except socket.error:
             pass
     if found:
         return f"Found {len(found)} common subdomains:\n" + "\n".join(found)
     return "No common subdomains found."
+

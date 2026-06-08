@@ -18,7 +18,6 @@ function createParticle(): Particle {
   return {
     theta: Math.random() * Math.PI * 2,
     phi: Math.acos(2 * Math.random() - 1),
-    // Distribute mostly towards the surface for a clearer sphere shape
     rOffset: Math.pow(Math.random(), 1 / 3),
     size: Math.random() * 1.5 + 1,
     colorType: Math.random() > 0.2, // 80% neon cyan, 20% neon green
@@ -27,9 +26,11 @@ function createParticle(): Particle {
   };
 }
 
-export function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>, isSpeaking: boolean) {
+export function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>, isSpeaking: boolean, isHacker: boolean) {
   const speakingRef = useRef(isSpeaking);
   speakingRef.current = isSpeaking;
+  const hackerRef = useRef(isHacker);
+  hackerRef.current = isHacker;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -45,13 +46,40 @@ export function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>, isSp
     resize();
     window.addEventListener('resize', resize);
 
-    // Create a dense particle sphere (1000 particles is optimal for visuals and performance)
+    // Create a dense particle sphere
     for (let i = 0; i < 1000; i++) {
       particles.push(createParticle());
     }
 
     const focalLength = 400;
     let currentRadius = 260; // Start idle radius
+
+    // Pre-render core gradients to offscreen canvases to avoid createRadialGradient calls on every frame
+    const offscreenNormal = document.createElement('canvas');
+    offscreenNormal.width = 512;
+    offscreenNormal.height = 512;
+    const ctxNormal = offscreenNormal.getContext('2d')!;
+    const gradNormal = ctxNormal.createRadialGradient(256, 256, 0, 256, 256, 256);
+    gradNormal.addColorStop(0, 'rgba(0, 255, 255, 0.18)');
+    gradNormal.addColorStop(0.8, 'rgba(0, 255, 255, 0.06)');
+    gradNormal.addColorStop(1, 'transparent');
+    ctxNormal.fillStyle = gradNormal;
+    ctxNormal.beginPath();
+    ctxNormal.arc(256, 256, 256, 0, Math.PI * 2);
+    ctxNormal.fill();
+
+    const offscreenHacker = document.createElement('canvas');
+    offscreenHacker.width = 512;
+    offscreenHacker.height = 512;
+    const ctxHacker = offscreenHacker.getContext('2d')!;
+    const gradHacker = ctxHacker.createRadialGradient(256, 256, 0, 256, 256, 256);
+    gradHacker.addColorStop(0, 'rgba(255, 51, 51, 0.18)');
+    gradHacker.addColorStop(0.8, 'rgba(255, 51, 51, 0.06)');
+    gradHacker.addColorStop(1, 'transparent');
+    ctxHacker.fillStyle = gradHacker;
+    ctxHacker.beginPath();
+    ctxHacker.arc(256, 256, 256, 0, Math.PI * 2);
+    ctxHacker.fill();
 
     function draw() {
       ctx.clearRect(0, 0, canvas!.width, canvas!.height);
@@ -66,12 +94,12 @@ export function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>, isSp
         : 0;
 
       // Smooth radius transition
-      const baseTargetRadius = speaking ? 260 : 200; // slightly smaller base so it doesn't get too massive
+      const baseTargetRadius = speaking ? 260 : 200;
       const targetRadius = baseTargetRadius + voiceAmplitude;
       currentRadius += (targetRadius - currentRadius) * (speaking ? 0.2 : 0.05);
 
-      // Query hacker mode state once per frame rather than in the loop
-      const isHacker = typeof document !== 'undefined' && document.body.classList.contains('hacker');
+      // Query hacker mode state from reactive ref rather than querying DOM classList every frame
+      const isHackerMode = hackerRef.current;
 
       // Update positions in-place to avoid garbage collection pressure
       particles.forEach(p => {
@@ -113,7 +141,7 @@ export function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>, isSp
         // Alpha is higher for particles closer to the camera and lower for particles further away
         let alpha = Math.min(1, Math.max(0.05, scale * 0.5));
 
-        ctx.fillStyle = isHacker
+        ctx.fillStyle = isHackerMode
           ? (p.colorType
             ? `rgba(255, 51, 51, ${alpha})`
             : `rgba(255, 102, 0, ${alpha * 0.9})`)
@@ -126,21 +154,19 @@ export function useParticles(canvasRef: React.RefObject<HTMLCanvasElement>, isSp
 
       // Reset composite operation to draw center core gradient
       ctx.globalCompositeOperation = 'source-over';
-
-      // Draw a subtle center core glow to make it look cohesive
-      ctx.beginPath();
-      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, currentRadius);
-      if (isHacker) {
-        grad.addColorStop(0, speaking ? 'rgba(255, 51, 51, 0.18)' : 'rgba(255, 51, 51, 0.10)');
-        grad.addColorStop(0.8, speaking ? 'rgba(255, 51, 51, 0.06)' : 'rgba(255, 51, 51, 0.03)');
-      } else {
-        grad.addColorStop(0, speaking ? 'rgba(0, 255, 255, 0.18)' : 'rgba(0, 255, 255, 0.10)');
-        grad.addColorStop(0.8, speaking ? 'rgba(0, 255, 255, 0.06)' : 'rgba(0, 255, 255, 0.03)');
-      }
-      grad.addColorStop(1, 'transparent');
-      ctx.fillStyle = grad;
-      ctx.arc(cx, cy, currentRadius, 0, Math.PI * 2);
-      ctx.fill();
+      
+      // Fast draw pre-rendered offscreen gradient scaled to currentRadius
+      ctx.save();
+      ctx.globalAlpha = speaking ? 1.0 : 0.55;
+      const targetCanvas = isHackerMode ? offscreenHacker : offscreenNormal;
+      ctx.drawImage(
+        targetCanvas,
+        cx - currentRadius,
+        cy - currentRadius,
+        currentRadius * 2,
+        currentRadius * 2
+      );
+      ctx.restore();
 
       animId = requestAnimationFrame(draw);
     }

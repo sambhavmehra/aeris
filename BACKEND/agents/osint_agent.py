@@ -222,80 +222,89 @@ class OSINTAgent(BaseAgent):
         if not targets:
             return {"success": False, "error": "No targets found to investigate"}
 
-        results = []
-        # Mode affects which Google dork templates are generated for social/news queries.
-        mode = "hacker" if plan.get("hacker_mode") or plan.get("mode") == "hacker" else "normal"
-        dork_agent = DorkingAgent()
-        original_targets_str = ", ".join(f"{t['value']} ({t['type']})" for t in targets)
+        from engine.state_manager import global_state_manager
+        import asyncio
+        global_state_manager.current_hud = "webweaver"
 
-        # ── Phase 1: Initial Investigation ─────────────────────────────────
-        phase1_data = []
-        for target in targets:
-            target_value = target["value"]
-            target_type = target["type"]
-            self.logger.info(f"[OSINTAgent] Phase 1: Investigating '{target_value}' of type '{target_type}'")
-
-            # Perform customized searches depending on target type
-            intel = await self._run_target_search(target_value, target_type, mode=mode, dork_agent=dork_agent, target=target)
-            phase1_data.append({
-                "target": target_value,
-                "type": target_type,
-                "data": intel
-            })
-
-        # ── Stage 2: Pivot Extraction (Finding connected entities) ────────
-        pivots = []
         try:
-            # Combine phase 1 data snippets to feed to LLM
-            phase1_summary = ""
-            for item in phase1_data:
-                snippet = str(item["data"])[:2500]  # Cap length for context
-                phase1_summary += f"Target: {item['target']} ({item['type']})\nResults:\n{snippet}\n---\n"
+            results = []
+            # Mode affects which Google dork templates are generated for social/news queries.
+            mode = "hacker" if plan.get("hacker_mode") or plan.get("mode") == "hacker" else "normal"
+            dork_agent = DorkingAgent()
+            original_targets_str = ", ".join(f"{t['value']} ({t['type']})" for t in targets)
 
-            pivot_prompt = PIVOT_EXTRACTION_PROMPT.format(
-                original_targets=original_targets_str,
-                phase1_results=phase1_summary
-            )
-            raw_pivots = await ai_engine.classify(pivot_prompt)
-            
-            # Robust JSON extraction
-            match = re.search(r'\{.*\}', raw_pivots, flags=re.DOTALL)
-            if match:
-                raw_pivots = match.group(0)
-                
+            # ── Phase 1: Initial Investigation ─────────────────────────────────
+            phase1_data = []
+            for target in targets:
+                target_value = target["value"]
+                target_type = target["type"]
+                self.logger.info(f"[OSINTAgent] Phase 1: Investigating '{target_value}' of type '{target_type}'")
+
+                # Perform customized searches depending on target type
+                intel = await self._run_target_search(target_value, target_type, mode=mode, dork_agent=dork_agent, target=target)
+                phase1_data.append({
+                    "target": target_value,
+                    "type": target_type,
+                    "data": intel
+                })
+
+            # ── Stage 2: Pivot Extraction (Finding connected entities) ────────
+            pivots = []
             try:
-                pivot_plan = json.loads(raw_pivots)
-                pivots = pivot_plan.get("pivots", [])[:3]  # Strict limit: Max 3 dynamic pivots to prevent cascade
-            except Exception as e:
-                self.logger.warning(f"[OSINTAgent] Pivot JSON parsing failed: {e}")
-                pivot_plan = {}
-                pivots = []
+                # Combine phase 1 data snippets to feed to LLM
+                phase1_summary = ""
+                for item in phase1_data:
+                    snippet = str(item["data"])[:2500]  # Cap length for context
+                    phase1_summary += f"Target: {item['target']} ({item['type']})\nResults:\n{snippet}\n---\n"
+
+                pivot_prompt = PIVOT_EXTRACTION_PROMPT.format(
+                    original_targets=original_targets_str,
+                    phase1_results=phase1_summary
+                )
+                raw_pivots = await ai_engine.classify(pivot_prompt)
                 
-            self.logger.info(f"[OSINTAgent] Dynamically pivoted to: {pivots}")
-        except Exception as e:
-            self.logger.warning(f"[OSINTAgent] Pivot extraction failed: {e}")
+                # Robust JSON extraction
+                match = re.search(r'\{.*\}', raw_pivots, flags=re.DOTALL)
+                if match:
+                    raw_pivots = match.group(0)
+                    
+                try:
+                    pivot_plan = json.loads(raw_pivots)
+                    pivots = pivot_plan.get("pivots", [])[:3]  # Strict limit: Max 3 dynamic pivots to prevent cascade
+                except Exception as e:
+                    self.logger.warning(f"[OSINTAgent] Pivot JSON parsing failed: {e}")
+                    pivot_plan = {}
+                    pivots = []
+                    
+                self.logger.info(f"[OSINTAgent] Dynamically pivoted to: {pivots}")
+            except Exception as e:
+                self.logger.warning(f"[OSINTAgent] Pivot extraction failed: {e}")
 
-        # ── Phase 2: Secondary Pivot Investigation ─────────────────────────
-        phase2_data = []
-        for pivot in pivots:
-            pivot_val = pivot["value"]
-            pivot_type = pivot["type"]
-            self.logger.info(f"[OSINTAgent] Phase 2 (Pivot): Investigating '{pivot_val}' of type '{pivot_type}'")
-            
-            intel = await self._run_target_search(pivot_val, pivot_type, mode=mode, dork_agent=dork_agent, target=pivot)
-            phase2_data.append({
-                "target": pivot_val,
-                "type": pivot_type,
-                "relationship": pivot.get("relationship", "Connected entity"),
-                "data": intel
-            })
+            # ── Phase 2: Secondary Pivot Investigation ─────────────────────────
+            phase2_data = []
+            for pivot in pivots:
+                pivot_val = pivot["value"]
+                pivot_type = pivot["type"]
+                self.logger.info(f"[OSINTAgent] Phase 2 (Pivot): Investigating '{pivot_val}' of type '{pivot_type}'")
+                
+                intel = await self._run_target_search(pivot_val, pivot_type, mode=mode, dork_agent=dork_agent, target=pivot)
+                phase2_data.append({
+                    "target": pivot_val,
+                    "type": pivot_type,
+                    "relationship": pivot.get("relationship", "Connected entity"),
+                    "data": intel
+                })
 
-        return {
-            "targets": targets,
-            "pivots": pivots,
-            "phase1_data": phase1_data,
-            "phase2_data": phase2_data
-        }
+            return {
+                "targets": targets,
+                "pivots": pivots,
+                "phase1_data": phase1_data,
+                "phase2_data": phase2_data
+            }
+        finally:
+            await asyncio.sleep(15)
+            if global_state_manager.current_hud == "webweaver":
+                global_state_manager.current_hud = None
 
     async def report(self, results: Any) -> str:
         """Synthesize Phase 1 and Phase 2 data into a complete intelligence dossier."""

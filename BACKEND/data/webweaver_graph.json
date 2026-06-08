@@ -12,6 +12,24 @@
       "label": "FastAPI Gateway",
       "type": "service",
       "status": "online"
+    },
+    {
+      "id": "sambhavmehra.me",
+      "label": "sambhavmehra.me",
+      "type": "domain",
+      "status": "online"
+    },
+    {
+      "id": "www.sambhavmehra.me",
+      "label": "www.sambhavmehra.me",
+      "type": "subdomain",
+      "status": "online"
+    },
+    {
+      "id": "64.29.17.65",
+      "label": "64.29.17.65",
+      "type": "ip",
+      "status": "online"
     }
   ],
   "links": [
@@ -20,6 +38,16 @@
       "target": "api_gateway",
       "type": "connection",
       "port": 8000
+    },
+    {
+      "source": "sambhavmehra.me",
+      "target": "www.sambhavmehra.me",
+      "type": "subdomain_of"
+    },
+    {
+      "source": "www.sambhavmehra.me",
+      "target": "64.29.17.65",
+      "type": "resolves_to"
     }
   ]
 }

@@ -146,12 +146,12 @@ export default function WebWeaverHUD() {
       const currentNodes = [...nodesStateRef.current];
       if (currentNodes.length === 0) return;
 
-      const repulsionStrength = 1800;
-      const repulsionRadius = 250;
-      const linkStrength = 0.045;
-      const desiredLinkDist = 130;
-      const gravity = 0.012;
-      const friction = 0.82;
+      const repulsionStrength = 80000;
+      const repulsionRadius = 380;
+      const linkStrength = 0.055;
+      const desiredLinkDist = 190;
+      const gravity = 0.006;
+      const friction = 0.85;
 
       // 1. Repulsion between all nodes
       for (let i = 0; i < currentNodes.length; i++) {

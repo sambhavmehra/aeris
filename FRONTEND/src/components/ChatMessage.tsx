@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, memo } from 'react';
+import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -686,6 +687,76 @@ function AgentBadge({ agent, intent }: { agent?: string; intent?: string }) {
   );
 }
 
+function HudNavigationButton({ targetPath, label, icon }: { targetPath: string; label: string; icon: string }) {
+  const router = useRouter();
+  
+  // Decide base colors based on path
+  let color = '#22d3ee'; // Cyan
+  let bg = 'rgba(6,182,212,0.12)';
+  let border = 'rgba(6,182,212,0.3)';
+  let shadow = 'rgba(6,182,212,0.15)';
+  
+  let hoverBg = 'rgba(6,182,212,0.22)';
+  let hoverBorder = 'rgba(6,182,212,0.6)';
+  let hoverShadow = 'rgba(6,182,212,0.35)';
+
+  if (targetPath === '/codepipeline') {
+    color = '#34d399'; // Emerald
+    bg = 'rgba(52,211,153,0.12)';
+    border = 'rgba(52,211,153,0.3)';
+    shadow = 'rgba(52,211,153,0.15)';
+    hoverBg = 'rgba(52,211,153,0.22)';
+    hoverBorder = 'rgba(52,211,153,0.6)';
+    hoverShadow = 'rgba(52,211,153,0.35)';
+  } else if (targetPath === '/repaircenter') {
+    color = '#fbbf24'; // Amber
+    bg = 'rgba(251,191,36,0.12)';
+    border = 'rgba(251,191,36,0.3)';
+    shadow = 'rgba(251,191,36,0.15)';
+    hoverBg = 'rgba(251,191,36,0.22)';
+    hoverBorder = 'rgba(251,191,36,0.6)';
+    hoverShadow = 'rgba(251,191,36,0.35)';
+  }
+
+  return (
+    <button
+      onClick={() => router.push(targetPath)}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '8px',
+        marginTop: '12px',
+        background: bg,
+        border: `1px solid ${border}`,
+        borderRadius: '8px',
+        padding: '8px 14px',
+        color: color,
+        fontSize: '12px',
+        fontWeight: 600,
+        cursor: 'pointer',
+        transition: 'all 0.3s ease',
+        boxShadow: `0 0 15px ${shadow}`,
+        textShadow: `0 0 8px ${color}66`,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = hoverBg;
+        e.currentTarget.style.borderColor = hoverBorder;
+        e.currentTarget.style.boxShadow = `0 0 25px ${hoverShadow}`;
+        e.currentTarget.style.transform = 'translateY(-1px)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = bg;
+        e.currentTarget.style.borderColor = border;
+        e.currentTarget.style.boxShadow = `0 0 15px ${shadow}`;
+        e.currentTarget.style.transform = 'translateY(0)';
+      }}
+    >
+      <span>{icon}</span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
 /* ── ChatMessage ──────────────────────────────────────────────────── */
 
 interface ChatMessageProps {
@@ -708,6 +779,33 @@ const ChatMessage = memo(function ChatMessage({ message, onStreamDone }: ChatMes
       // not a UI action JSON
     }
   }
+
+  const hasFinishedStreaming = !message.streaming;
+
+  const showWebWeaverButton = isAI && hasFinishedStreaming && (
+    message.intent === 'security' ||
+    message.intent === 'osint' ||
+    message.intent === 'leakgraph' ||
+    message.intent === 'dorking' ||
+    message.agent?.toLowerCase().includes('hacker') ||
+    message.agent?.toLowerCase().includes('security') ||
+    message.agent?.toLowerCase().includes('osint') ||
+    message.agent?.toLowerCase().includes('leakgraph') ||
+    message.content.toLowerCase().includes('subdomain') ||
+    message.content.toLowerCase().includes('port scan') ||
+    message.content.toLowerCase().includes('dns lookup')
+  );
+
+  const showCodePipelineButton = isAI && hasFinishedStreaming && (
+    message.intent === 'codepipeline' ||
+    message.agent?.toLowerCase().includes('codepipeline') ||
+    message.agent?.toLowerCase().includes('antigravity')
+  );
+
+  const showRepairButton = isAI && hasFinishedStreaming && (
+    message.intent === 'repair' ||
+    message.agent?.toLowerCase().includes('repair')
+  );
 
   return (
     <div
@@ -770,6 +868,22 @@ const ChatMessage = memo(function ChatMessage({ message, onStreamDone }: ChatMes
           <StreamingBubble content={message.content} onDone={onStreamDone} />
         ) : (
           renderContent(message.content)
+        )}
+
+        {showWebWeaverButton && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <HudNavigationButton targetPath="/webweaver" label="View in HUD" icon="🕸️" />
+          </div>
+        )}
+        {showCodePipelineButton && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <HudNavigationButton targetPath="/codepipeline" label="View CodePipeline" icon="📐" />
+          </div>
+        )}
+        {showRepairButton && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <HudNavigationButton targetPath="/repaircenter" label="View Repair Center" icon="🔧" />
+          </div>
         )}
       </div>
     </div>

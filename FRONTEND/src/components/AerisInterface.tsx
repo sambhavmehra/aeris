@@ -15,6 +15,7 @@ export default function AerisInterface() {
   const [chatOpen, setChatOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [dynamicGreeting, setDynamicGreeting] = useState<string>('Sir, ready when you are.');
+  const [isHacker, setIsHacker] = useState(false);
   const particleRef = useRef<HTMLCanvasElement>(null);
 
   // Zustand multi-agent state
@@ -22,7 +23,7 @@ export default function AerisInterface() {
   const setPhase = useAgentStore((state) => state.setPhase);
   const restoreAssembled = useAgentStore((state) => state.restoreAssembled);
 
-  useParticles(particleRef, isSpeaking);
+  useParticles(particleRef, isSpeaking, isHacker);
   useCursor();
 
   // Restore command center session if active
@@ -41,6 +42,7 @@ export default function AerisInterface() {
           setIsOnline(true);
           const data = await res.json();
           if (data && typeof data.hacker_mode === 'boolean') {
+            setIsHacker(data.hacker_mode);
             if (data.hacker_mode) {
               document.body.classList.add('hacker');
             } else {

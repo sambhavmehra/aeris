@@ -15,26 +15,33 @@ export function useCursor() {
     function onMove(e: MouseEvent) {
       mx = e.clientX;
       my = e.clientY;
-      if (dot) {
-        dot.style.transform = `translate3d(calc(${mx}px - 50%), calc(${my}px - 50%), 0)`;
-      }
     }
 
     function animate() {
-      gx += (mx - gx) * 0.1;
-      gy += (my - gy) * 0.1;
-      if (glow) {
-        glow.style.transform = `translate3d(calc(${gx}px - 50%), calc(${gy}px - 50%), 0)`;
+      // Sync dot position to animation frame, bypassing DOM style updates on raw mousemove events
+      if (dot) {
+        dot.style.transform = `translate3d(${mx - 3}px, ${my - 3}px, 0)`;
       }
+      
+      // Interpolate glow position smoothly
+      gx += (mx - gx) * 0.12;
+      gy += (my - gy) * 0.12;
+      
+      if (glow) {
+        glow.style.transform = `translate3d(${gx - 110}px, ${gy - 110}px, 0)`;
+      }
+      
       animId = requestAnimationFrame(animate);
     }
 
     window.addEventListener('mousemove', onMove);
     animate();
+    
     return () => {
       window.removeEventListener('mousemove', onMove);
       cancelAnimationFrame(animId);
     };
   }, []);
 }
+
 

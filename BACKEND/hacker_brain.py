@@ -1006,6 +1006,26 @@ class HackerBrain:
                 try:
                     from tools.tool_executor import get_executor_service
                     executor = get_executor_service()
+                    
+                    # Intercept recon/OSINT tools to update the active HUD
+                    is_recon_tool = step.tool_name in (
+                        "dns_lookup", "whois_lookup", "port_scan", "header_analysis", 
+                        "ssl_check", "subdomain_enum"
+                    )
+                    if is_recon_tool:
+                        try:
+                            from engine.state_manager import global_state_manager
+                            global_state_manager.current_hud = "webweaver"
+                            
+                            async def reset_hud_after_delay():
+                                await asyncio.sleep(15)  # 15 seconds grace period
+                                if global_state_manager.current_hud == "webweaver":
+                                    global_state_manager.current_hud = None
+                            
+                            asyncio.create_task(reset_hud_after_delay())
+                        except Exception as he:
+                            logger.debug(f"Failed to set current_hud to webweaver: {he}")
+                            
                     result = executor.execute(
                         tool_name=step.tool_name,
                         task_id=task_id,
