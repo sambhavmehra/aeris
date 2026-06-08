@@ -21,34 +21,62 @@ interface NetworkLink {
   port?: number;
 }
 
-export default function WebWeaverHUD() {
-  const [nodes, setNodes] = useState<NetworkNode[]>([]);
-  const [links, setLinks] = useState<NetworkLink[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedNode, setSelectedNode] = useState<NetworkNode | null>(null);
-  
-  // Custom target node form state
-  const [newNodeId, setNewNodeId] = useState('');
-  const [newNodeLabel, setNewNodeLabel] = useState('');
-  const [newNodeType, setNewNodeType] = useState('host');
-  const [newNodeIp, setNewNodeIp] = useState('');
-  const [newNodeParentId, setNewNodeParentId] = useState('');
-  const [newNodePort, setNewNodePort] = useState('');
-  const [formMsg, setFormMsg] = useState('');
+interface NodeChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
 
-  // Search filter
-  const [searchQuery, setSearchQuery] = useState('');
 
-  // Drag state
-  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
 
-  // SVG ref for sizing
+// Graph styling configuration based on node type
+const getTypeColor = (type: string) => {
+  switch (type.toLowerCase()) {
+    case 'host': return '#7c4dff'; // Purple
+    case 'service': return '#00e5ff'; // Cyan
+    case 'subdomain': return '#2979ff'; // Blue
+    case 'port': return '#ff9100'; // Orange
+    case 'vulnerability': return '#ff1744'; // Red
+    case 'credential': return '#ffd600'; // Yellow
+    default: return '#00e676'; // Green
+  }
+};
+
+const getTypeIcon = (type: string) => {
+  switch (type.toLowerCase()) {
+    case 'host': return '🖥️';
+    case 'service': return '⚙️';
+    case 'subdomain': return '🌐';
+    case 'port': return '🔌';
+    case 'vulnerability': return '🚨';
+    case 'credential': return '🔑';
+    default: return '📦';
+  }
+};
+
+interface NetworkGraphViewProps {
+  nodes: NetworkNode[];
+  links: NetworkLink[];
+  selectedNode: NetworkNode | null;
+  setSelectedNode: (node: NetworkNode | null) => void;
+  showSystemNodes: boolean;
+}
+
+const NetworkGraphView = React.memo(function NetworkGraphView({
+  nodes,
+  links,
+  selectedNode,
+  setSelectedNode,
+  showSystemNodes
+}: NetworkGraphViewProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const simulationRef = useRef<number | null>(null);
   const nodesStateRef = useRef<NetworkNode[]>([]);
   const dimensionsRef = useRef({ width: 800, height: 600 });
+  const dragStartRef = useRef<{ x: number, y: number } | null>(null);
+  const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
 
-  // Update dimensions on mount and resize without layout thrashing
+  // Update dimensions on mount and resize
   useEffect(() => {
     const updateDimensions = () => {
       if (svgRef.current) {
@@ -67,102 +95,67 @@ export default function WebWeaverHUD() {
     };
   }, []);
 
-  // Graph styling configuration based on node type
-  const getTypeColor = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'host': return '#7c4dff'; // Purple
-      case 'service': return '#00e5ff'; // Cyan
-      case 'subdomain': return '#2979ff'; // Blue
-      case 'port': return '#ff9100'; // Orange
-      case 'vulnerability': return '#ff1744'; // Red
-      case 'credential': return '#ffd600'; // Yellow
-      default: return '#00e676'; // Green
-    }
-  };
-
-  const getTypeIcon = (type: string) => {
-    switch (type.toLowerCase()) {
-      case 'host': return '🖥️';
-      case 'service': return '⚙️';
-      case 'subdomain': return '🌐';
-      case 'port': return '🔌';
-      case 'vulnerability': return '🚨';
-      case 'credential': return '🔑';
-      default: return '📦';
-    }
-  };
-
-  // Load initial graph data
-  const fetchGraph = async () => {
-    try {
-      const res = await fetch('http://localhost:8000/api/webweaver/graph');
-      const data = await res.json();
-      
-      // Keep existing node positions if reloading
-      const existingMap = new Map(nodesStateRef.current.map(n => [n.id, n]));
-      
-      const width = dimensionsRef.current.width;
-      const height = dimensionsRef.current.height;
-
-      const initializedNodes = data.nodes.map((node: any) => {
-        const existing = existingMap.get(node.id);
-        return {
-          ...node,
-          x: existing?.x ?? (width / 2 + (Math.random() - 0.5) * 200),
-          y: existing?.y ?? (height / 2 + (Math.random() - 0.5) * 200),
-          vx: existing?.vx ?? 0,
-          vy: existing?.vy ?? 0,
-        };
-      });
-
-      setNodes(initializedNodes);
-      setLinks(data.links);
-      nodesStateRef.current = initializedNodes;
-      setLoading(false);
-    } catch (e) {
-      console.error("Failed to load WebWeaver graph data", e);
-      setLoading(false);
-    }
-  };
-
+  // Sync prop nodes to ref, keeping old coordinates
   useEffect(() => {
-    fetchGraph();
-    // Poll updates every 6s
-    const interval = setInterval(fetchGraph, 6000);
-    return () => clearInterval(interval);
-  }, []);
+    const width = dimensionsRef.current.width;
+    const height = dimensionsRef.current.height;
+    const existingMap = new Map(nodesStateRef.current.map(n => [n.id, n]));
 
-  // Force-directed layout algorithm run in requestAnimationFrame
+    const initializedNodes = nodes.map(node => {
+      const existing = existingMap.get(node.id);
+      return {
+        ...node,
+        x: existing?.x ?? (width / 2 + (Math.random() - 0.5) * 200),
+        y: existing?.y ?? (height / 2 + (Math.random() - 0.5) * 200),
+        vx: existing?.vx ?? 0,
+        vy: existing?.vy ?? 0,
+      };
+    });
+
+    nodesStateRef.current = initializedNodes;
+  }, [nodes]);
+
+  // Run force-directed layout simulation locally, updating DOM elements directly
   useEffect(() => {
-    if (nodes.length === 0) return;
-
     const runPhysics = () => {
       const width = dimensionsRef.current.width;
       const height = dimensionsRef.current.height;
       const centerX = width / 2;
       const centerY = height / 2;
 
-      // Make a copy of state to update positions safely
-      const currentNodes = [...nodesStateRef.current];
-      if (currentNodes.length === 0) return;
+      const currentNodes = nodesStateRef.current;
+      if (currentNodes.length === 0) {
+        simulationRef.current = requestAnimationFrame(runPhysics);
+        return;
+      }
 
-      const repulsionStrength = 80000;
-      const repulsionRadius = 380;
-      const linkStrength = 0.055;
-      const desiredLinkDist = 190;
-      const gravity = 0.006;
-      const friction = 0.85;
+      const repulsionStrength = 120000;
+      const repulsionRadius = 450;
+      const linkStrength = 0.04;
+      const desiredLinkDist = 220;
+      const gravity = 0.003;
+      const friction = 0.82;
 
-      // 1. Repulsion between all nodes
-      for (let i = 0; i < currentNodes.length; i++) {
-        const u = currentNodes[i];
+      const visibleNodes = currentNodes.filter(n => 
+        showSystemNodes || (n.id !== 'aeris_brain' && n.id !== 'api_gateway')
+      );
+
+      // 1. Repulsion
+      for (let i = 0; i < visibleNodes.length; i++) {
+        const u = visibleNodes[i];
         if (u.id === draggedNodeId) continue;
 
-        for (let j = 0; j < currentNodes.length; j++) {
+        for (let j = 0; j < visibleNodes.length; j++) {
           if (i === j) continue;
-          const v = currentNodes[j];
-          const dx = (u.x || 0) - (v.x || 0);
-          const dy = (u.y || 0) - (v.y || 0);
+          const v = visibleNodes[j];
+          let dx = (u.x || 0) - (v.x || 0);
+          let dy = (u.y || 0) - (v.y || 0);
+          
+          if (dx === 0 && dy === 0) {
+            dx = (Math.random() - 0.5) * 2;
+            dy = (Math.random() - 0.5) * 2;
+          }
+          
           const dist = Math.sqrt(dx * dx + dy * dy) || 1;
 
           if (dist < repulsionRadius) {
@@ -170,13 +163,25 @@ export default function WebWeaverHUD() {
             u.vx = (u.vx || 0) + (dx / dist) * force;
             u.vy = (u.vy || 0) + (dy / dist) * force;
           }
+
+          if (dist < 120) {
+            const extraPush = (120 - dist) * 2.0;
+            u.vx = (u.vx || 0) + (dx / dist) * extraPush;
+            u.vy = (u.vy || 0) + (dy / dist) * extraPush;
+          }
         }
       }
 
       // 2. Link attraction
-      links.forEach(link => {
-        const sourceNode = currentNodes.find(n => n.id === link.source);
-        const targetNode = currentNodes.find(n => n.id === link.target);
+      const visibleLinks = links.filter(l => {
+        const sourceVisible = showSystemNodes || (l.source !== 'aeris_brain' && l.source !== 'api_gateway');
+        const targetVisible = showSystemNodes || (l.target !== 'aeris_brain' && l.target !== 'api_gateway');
+        return sourceVisible && targetVisible;
+      });
+
+      visibleLinks.forEach(link => {
+        const sourceNode = visibleNodes.find(n => n.id === link.source);
+        const targetNode = visibleNodes.find(n => n.id === link.target);
 
         if (sourceNode && targetNode) {
           const dx = (targetNode.x || 0) - (sourceNode.x || 0);
@@ -199,7 +204,7 @@ export default function WebWeaverHUD() {
       });
 
       // 3. Gravity center pull + boundaries + apply velocity
-      currentNodes.forEach(u => {
+      visibleNodes.forEach(u => {
         if (u.id === draggedNodeId) return;
 
         const dx = centerX - (u.x || 0);
@@ -211,14 +216,45 @@ export default function WebWeaverHUD() {
         u.x = (u.x || 0) + u.vx;
         u.y = (u.y || 0) + u.vy;
 
-        // Keep inside boundary bounds
-        u.x = Math.max(50, Math.min(width - 50, u.x));
-        u.y = Math.max(50, Math.min(height - 50, u.y));
+        u.x = Math.max(60, Math.min(width - 60, u.x));
+        u.y = Math.max(60, Math.min(height - 60, u.y));
       });
 
-      // Trigger re-render by setting state
-      setNodes([...currentNodes]);
-      nodesStateRef.current = currentNodes;
+      // 4. Directly update DOM nodes and links
+      visibleNodes.forEach(u => {
+        const nodeEl = document.getElementById(`node-group-${u.id}`);
+        if (nodeEl) {
+          nodeEl.setAttribute('transform', `translate(${u.x || 0}, ${u.y || 0})`);
+        }
+      });
+
+      visibleLinks.forEach(link => {
+        const sourceNode = visibleNodes.find(n => n.id === link.source);
+        const targetNode = visibleNodes.find(n => n.id === link.target);
+
+        if (sourceNode && targetNode) {
+          const x1 = sourceNode.x || 0;
+          const y1 = sourceNode.y || 0;
+          const x2 = targetNode.x || 0;
+          const y2 = targetNode.y || 0;
+
+          const linkGroup = document.getElementById(`link-group-${link.source}-${link.target}`);
+          if (linkGroup) {
+            const lines = linkGroup.getElementsByTagName('line');
+            for (let i = 0; i < lines.length; i++) {
+              lines[i].setAttribute('x1', String(x1));
+              lines[i].setAttribute('y1', String(y1));
+              lines[i].setAttribute('x2', String(x2));
+              lines[i].setAttribute('y2', String(y2));
+            }
+            const text = linkGroup.querySelector('.link-text');
+            if (text) {
+              text.setAttribute('x', String((x1 + x2) / 2));
+              text.setAttribute('y', String((y1 + y2) / 2 - 4));
+            }
+          }
+        }
+      });
 
       simulationRef.current = requestAnimationFrame(runPhysics);
     };
@@ -227,28 +263,400 @@ export default function WebWeaverHUD() {
     return () => {
       if (simulationRef.current) cancelAnimationFrame(simulationRef.current);
     };
-  }, [links, draggedNodeId]);
+  }, [links, draggedNodeId, showSystemNodes]);
 
-  // Handle Drag Events
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (!draggedNodeId || !svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    const updated = nodesStateRef.current.map(node => {
-      if (node.id === draggedNodeId) {
-        return { ...node, x: mouseX, y: mouseY, vx: 0, vy: 0 };
-      }
-      return node;
-    });
+    const node = nodesStateRef.current.find(n => n.id === draggedNodeId);
+    if (node) {
+      node.x = mouseX;
+      node.y = mouseY;
+      node.vx = 0;
+      node.vy = 0;
 
-    nodesStateRef.current = updated;
-    setNodes(updated);
+      const nodeEl = document.getElementById(`node-group-${draggedNodeId}`);
+      if (nodeEl) {
+        nodeEl.setAttribute('transform', `translate(${mouseX}, ${mouseY})`);
+      }
+    }
   };
 
   const handleMouseUp = () => {
     setDraggedNodeId(null);
+  };
+
+  const visibleNodes = nodes.filter(node => 
+    showSystemNodes || (node.id !== 'aeris_brain' && node.id !== 'api_gateway')
+  );
+
+  const visibleLinks = links.filter(link => {
+    const sourceVisible = showSystemNodes || (link.source !== 'aeris_brain' && link.source !== 'api_gateway');
+    const targetVisible = showSystemNodes || (link.target !== 'aeris_brain' && link.target !== 'api_gateway');
+    return sourceVisible && targetVisible;
+  });
+
+  return (
+    <svg 
+      ref={svgRef}
+      style={{ width: '100%', height: '100%', cursor: 'grab' }}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
+      <defs>
+        {/* Neon glowing filters */}
+        <filter id="glow-purple" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur1" />
+          <feMerge>
+            <feMergeNode in="blur1" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        
+        {/* Connection line glow */}
+        <linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#7c4dff" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#00e5ff" stopOpacity="0.4" />
+        </linearGradient>
+      </defs>
+
+      {/* Render Links */}
+      {visibleLinks.map((link, idx) => {
+        const sourceNode = nodes.find(n => n.id === link.source);
+        const targetNode = nodes.find(n => n.id === link.target);
+
+        if (!sourceNode || !targetNode) return null;
+
+        const x1 = sourceNode.x || (dimensionsRef.current.width / 2);
+        const y1 = sourceNode.y || (dimensionsRef.current.height / 2);
+        const x2 = targetNode.x || (dimensionsRef.current.width / 2);
+        const y2 = targetNode.y || (dimensionsRef.current.height / 2);
+
+        return (
+          <g key={`l-${idx}`} id={`link-group-${link.source}-${link.target}`}>
+            {/* Shadow wider connector line */}
+            <line 
+              x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke="#7c4dff" strokeWidth={3} strokeOpacity={0.12}
+            />
+            {/* Glowing link */}
+            <line 
+              x1={x1} y1={y1} x2={x2} y2={y2}
+              stroke="url(#edge-gradient)" strokeWidth={1.5}
+            />
+            {/* Port speed text (if applicable) */}
+            {link.port && (
+              <text 
+                x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4}
+                fill="#ff9100" fontSize="8px" textAnchor="middle"
+                className="link-text"
+                style={{ fontFamily: 'inherit', fontWeight: 'bold' }}
+              >
+                :{link.port}
+              </text>
+            )}
+          </g>
+        );
+      })}
+
+      {/* Render Nodes */}
+      {visibleNodes.map(node => {
+        const color = getTypeColor(node.type);
+        const isSelected = selectedNode?.id === node.id;
+        const initialX = node.x || (dimensionsRef.current.width / 2);
+        const initialY = node.y || (dimensionsRef.current.height / 2);
+        
+        return (
+          <g 
+            key={node.id}
+            id={`node-group-${node.id}`}
+            transform={`translate(${initialX}, ${initialY})`}
+            style={{ cursor: 'pointer' }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              setDraggedNodeId(node.id);
+              dragStartRef.current = { x: e.clientX, y: e.clientY };
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (dragStartRef.current) {
+                const dx = e.clientX - dragStartRef.current.x;
+                const dy = e.clientY - dragStartRef.current.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance > 5) return;
+              }
+              setSelectedNode(node);
+            }}
+          >
+            {/* Node Selection Glow */}
+            {isSelected && (
+              <circle r={24} fill="none" stroke="#00e5ff" strokeWidth={1} strokeDasharray="3 3">
+                <animateTransform 
+                  attributeName="transform" type="rotate"
+                  from="0" to="360" dur="8s" repeatCount="indefinite"
+                />
+              </circle>
+            )}
+
+            {/* Outer ambient glow circle */}
+            <circle 
+              r={15} fill={color} fillOpacity={0.15}
+              stroke={color} strokeWidth={1} strokeOpacity={0.4}
+              filter="url(#glow-purple)"
+            />
+
+            {/* Core node circle */}
+            <circle 
+              r={10} fill="#0d0a1b" stroke={color} strokeWidth={2}
+            />
+
+            {/* Type icon symbol */}
+            <text 
+              y={3.5} textAnchor="middle" fontSize="9px"
+              style={{ pointerEvents: 'none', userSelect: 'none' }}
+            >
+              {getTypeIcon(node.type)}
+            </text>
+
+            {/* Dynamic-sized Node label and IP card */}
+            {(() => {
+              const labelLength = node.label.length;
+              const ipLength = node.ip ? node.ip.length : 0;
+              const maxTextLength = Math.max(labelLength, ipLength);
+              // Calculate dynamic width based on text length (approx 6.5px per character + padding)
+              const cardWidth = Math.max(120, maxTextLength * 6.5 + 16);
+              const hasIp = !!node.ip;
+              const cardHeight = hasIp ? 30 : 18;
+              const rectY = hasIp ? -10 : -9;
+
+              return (
+                <g transform="translate(0, 24)">
+                  <rect 
+                    x={-cardWidth / 2} y={rectY} width={cardWidth} height={cardHeight} rx={4}
+                    fill="rgba(6, 4, 15, 0.94)" 
+                    stroke={color} 
+                    strokeWidth={1} 
+                    strokeOpacity={0.6}
+                  />
+                  {hasIp ? (
+                    <>
+                      <text 
+                        fill="#fff" fontSize="8.5px" textAnchor="middle" y={2}
+                        style={{ fontWeight: 'bold', userSelect: 'none' }}
+                      >
+                        {node.label}
+                      </text>
+                      <text 
+                        fill="rgba(255, 255, 255, 0.5)" fontSize="7.5px" textAnchor="middle" y={13}
+                        style={{ userSelect: 'none', fontFamily: 'monospace' }}
+                      >
+                        {node.ip}
+                      </text>
+                    </>
+                  ) : (
+                    <text 
+                      fill="#fff" fontSize="8.5px" textAnchor="middle" y={3}
+                      style={{ fontWeight: 'bold', userSelect: 'none' }}
+                    >
+                      {node.label}
+                    </text>
+                  )}
+                </g>
+              );
+            })()}
+          </g>
+        );
+      })}
+    </svg>
+  );
+});
+
+export default function WebWeaverHUD() {
+  const [nodes, setNodes] = useState<NetworkNode[]>([]);
+  const [links, setLinks] = useState<NetworkLink[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedNode, setSelectedNode] = useState<NetworkNode | null>(null);
+  const [showSystemNodes, setShowSystemNodes] = useState(true);
+  const [nodeChats, setNodeChats] = useState<Record<string, NodeChatMessage[]>>({});
+  const [nodeChatInput, setNodeChatInput] = useState('');
+  const [isNodeChatSending, setIsNodeChatSending] = useState(false);
+  const [hasInitializedSystemNodesVisibility, setHasInitializedSystemNodesVisibility] = useState(false);
+  
+  // Custom target node form state
+  const [newNodeId, setNewNodeId] = useState('');
+  const [newNodeLabel, setNewNodeLabel] = useState('');
+  const [newNodeType, setNewNodeType] = useState('host');
+  const [newNodeIp, setNewNodeIp] = useState('');
+  const [newNodeParentId, setNewNodeParentId] = useState('');
+  const [newNodePort, setNewNodePort] = useState('');
+  const [formMsg, setFormMsg] = useState('');
+
+  // Recon Scan launcher form state
+  const [reconDomain, setReconDomain] = useState('');
+  const [reconLimit, setReconLimit] = useState(50);
+  const [isReconScanning, setIsReconScanning] = useState(false);
+  const [reconStatus, setReconStatus] = useState('');
+
+  // Search filter
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const nodeChatEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll chat history inside node inspector
+  useEffect(() => {
+    if (nodeChatEndRef.current) {
+      nodeChatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [nodeChats, selectedNode]);
+
+  // Load initial graph data
+  const fetchGraph = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/webweaver/graph');
+      const data = await res.json();
+      
+      // Dynamically initialize system nodes visibility on first load
+      if (!hasInitializedSystemNodesVisibility && data.nodes.length > 0) {
+        const hasExternalNodes = data.nodes.some(
+          (n: any) => n.id !== 'aeris_brain' && n.id !== 'api_gateway'
+        );
+        if (hasExternalNodes) {
+          setShowSystemNodes(false);
+        } else {
+          setShowSystemNodes(true);
+        }
+        setHasInitializedSystemNodesVisibility(true);
+      }
+
+      setNodes(data.nodes);
+      setLinks(data.links);
+      setLoading(false);
+    } catch (e) {
+      console.error("Failed to load WebWeaver graph data", e);
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchGraph();
+    // Poll updates every 6s
+    const interval = setInterval(fetchGraph, 6000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleClearGraph = async () => {
+    if (!confirm("Are you sure you want to clear the scan map? This resets the HUD to default system nodes.")) return;
+    try {
+      const res = await fetch('http://localhost:8000/api/webweaver/clear', {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNodes([]);
+        setLinks([]);
+        fetchGraph();
+      } else {
+        alert("Failed to clear graph: " + (data.error || "Unknown error"));
+      }
+    } catch (err: any) {
+      alert("Error clearing graph: " + err.message);
+    }
+  };
+
+  const handleLaunchRecon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reconDomain.trim()) {
+      setReconStatus('Error: Target domain required');
+      return;
+    }
+    setIsReconScanning(true);
+    setReconStatus('Initializing scan pipeline...');
+    try {
+      const res = await fetch('http://localhost:8000/api/tools/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tool_name: 'subdomain_enum',
+          args: {
+            domain: reconDomain.trim(),
+            limit: reconLimit
+          }
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setReconStatus('Scan completed successfully!');
+        setReconDomain('');
+        fetchGraph();
+      } else {
+        setReconStatus(`Scan failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err: any) {
+      setReconStatus(`Scan error: ${err.message}`);
+    } finally {
+      setIsReconScanning(false);
+    }
+  };
+
+  const handleSendNodeChat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedNode || !nodeChatInput.trim() || isNodeChatSending) return;
+
+    const msgText = nodeChatInput.trim();
+    setNodeChatInput('');
+    setIsNodeChatSending(true);
+
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const userMsg: NodeChatMessage = { role: 'user', content: msgText, timestamp };
+
+    setNodeChats(prev => ({
+      ...prev,
+      [selectedNode.id]: [...(prev[selectedNode.id] || []), userMsg]
+    }));
+
+    try {
+      const contextualMessage = `${msgText} (Context: node "${selectedNode.id}" with IP "${selectedNode.ip || 'N/A'}")`;
+      const res = await fetch('http://localhost:8000/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: contextualMessage }),
+      });
+
+      if (!res.ok) throw new Error('Failed to communicate with neural core.');
+
+      const data = await res.json();
+      const assistantTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const assistantMsg: NodeChatMessage = {
+        role: 'assistant',
+        content: data.response || 'No response received from neural core.',
+        timestamp: assistantTimestamp
+      };
+
+      setNodeChats(prev => ({
+        ...prev,
+        [selectedNode.id]: [...(prev[selectedNode.id] || []), assistantMsg]
+      }));
+
+      // Automatically reload the graph database after commands finish in case new nodes/links were mapped
+      fetchGraph();
+    } catch (err: any) {
+      const errorTimestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const errorMsg: NodeChatMessage = {
+        role: 'assistant',
+        content: `Error: ${err.message || 'Could not connect to AERIS neural core.'}`,
+        timestamp: errorTimestamp
+      };
+      setNodeChats(prev => ({
+        ...prev,
+        [selectedNode.id]: [...(prev[selectedNode.id] || []), errorMsg]
+      }));
+    } finally {
+      setIsNodeChatSending(false);
+    }
   };
 
   // Submit form to add node
@@ -300,12 +708,14 @@ export default function WebWeaverHUD() {
     alert(`Copied ${type} to clipboard: "${text}"`);
   };
 
-  // Filtered nodes based on search
-  const filteredNodes = nodes.filter(n => 
-    n.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    n.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (n.ip && n.ip.includes(searchQuery))
-  );
+  // Filtered nodes based on search and system nodes visibility
+  const filteredNodes = nodes.filter(n => {
+    const matchesSearch = n.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          n.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (n.ip && n.ip.includes(searchQuery));
+    const isSystem = n.id === 'aeris_brain' || n.id === 'api_gateway';
+    return matchesSearch && (showSystemNodes || !isSystem);
+  });
 
   return (
     <div style={{
@@ -396,6 +806,85 @@ export default function WebWeaverHUD() {
                 fontFamily: 'inherit', outline: 'none'
               }}
             />
+          </div>
+
+          {/* Toggle System Nodes & Clear Controls */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderBottom: '1px solid rgba(124, 77, 255, 0.15)', paddingBottom: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '10px', color: 'rgba(255, 255, 255, 0.8)', cursor: 'pointer', userSelect: 'none' }}>
+              <input 
+                type="checkbox" 
+                checked={showSystemNodes} 
+                onChange={(e) => setShowSystemNodes(e.target.checked)}
+                style={{ cursor: 'pointer', accentColor: '#7c4dff' }}
+              />
+              Show System Nodes
+            </label>
+            <button
+              onClick={handleClearGraph}
+              style={{
+                width: '100%', background: 'rgba(255, 23, 68, 0.08)', border: '1px solid rgba(255, 23, 68, 0.3)',
+                borderRadius: '4px', color: '#ff1744', fontSize: '9.5px', fontWeight: 800,
+                padding: '6px', cursor: 'pointer', transition: 'all 0.2s', letterSpacing: '0.5px'
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 23, 68, 0.2)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 23, 68, 0.08)'}
+            >
+              🗑️ CLEAR SCAN MAP
+            </button>
+          </div>
+
+          {/* Launch Recon Scan Form */}
+          <div style={{ borderBottom: '1px solid rgba(124, 77, 255, 0.15)', paddingBottom: '12px' }}>
+            <label style={{ fontSize: '9px', letterSpacing: '1.5px', color: '#00e5ff', display: 'block', marginBottom: '8px', fontWeight: 700 }}>LAUNCH RECON SCAN</label>
+            <form onSubmit={handleLaunchRecon} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <input 
+                type="text" 
+                placeholder="Target Domain (e.g. google.com)"
+                value={reconDomain}
+                onChange={e => setReconDomain(e.target.value)}
+                style={{
+                  background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(124, 77, 255, 0.15)',
+                  borderRadius: '4px', color: '#fff', fontSize: '10px', padding: '6px 8px', fontFamily: 'inherit'
+                }}
+              />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: 'rgba(255,255,255,0.6)' }}>
+                  <span>Max Subdomains:</span>
+                  <span style={{ color: '#00e5ff', fontWeight: 'bold' }}>{reconLimit}</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="5" 
+                  max="300" 
+                  step="5"
+                  value={reconLimit}
+                  onChange={e => setReconLimit(parseInt(e.target.value))}
+                  style={{ width: '100%', accentColor: '#00e5ff', cursor: 'pointer' }}
+                />
+              </div>
+              <button 
+                type="submit"
+                disabled={isReconScanning}
+                style={{
+                  background: isReconScanning ? 'rgba(0, 229, 255, 0.05)' : 'rgba(0, 229, 255, 0.12)', 
+                  border: '1px solid rgba(0, 229, 255, 0.35)',
+                  borderRadius: '4px', color: '#00e5ff', fontSize: '9.5px', fontWeight: 800,
+                  padding: '7px', cursor: isReconScanning ? 'not-allowed' : 'pointer', transition: 'all 0.2s', letterSpacing: '0.5px'
+                }}
+                onMouseEnter={e => { if (!isReconScanning) e.currentTarget.style.background = 'rgba(0, 229, 255, 0.25)' }}
+                onMouseLeave={e => { if (!isReconScanning) e.currentTarget.style.background = 'rgba(0, 229, 255, 0.12)' }}
+              >
+                {isReconScanning ? '📡 SCANNING...' : '📡 LAUNCH SCAN'}
+              </button>
+              {reconStatus && (
+                <div style={{
+                  fontSize: '9px', color: reconStatus.includes('Error') || reconStatus.includes('failed') ? '#ff1744' : '#00e5ff',
+                  textAlign: 'center', marginTop: '2px', wordBreak: 'break-all'
+                }}>
+                  {reconStatus}
+                </div>
+              )}
+            </form>
           </div>
 
           {/* Targets List */}
@@ -538,152 +1027,25 @@ export default function WebWeaverHUD() {
               <div style={{ fontSize: '10px', letterSpacing: '2px', color: '#7c4dff' }}>LOADING WEBWEAVER HUD...</div>
             </div>
           ) : (
-            <svg 
-              ref={svgRef}
-              style={{ width: '100%', height: '100%', cursor: 'grab' }}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-            >
-              <defs>
-                {/* Neon glowing filters */}
-                <filter id="glow-purple" x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur1" />
-                  <feMerge>
-                    <feMergeNode in="blur1" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-                
-                {/* Connection line glow */}
-                <linearGradient id="edge-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#7c4dff" stopOpacity="0.4" />
-                  <stop offset="100%" stopColor="#00e5ff" stopOpacity="0.4" />
-                </linearGradient>
-              </defs>
-
-              {/* Render Links */}
-              {links.map((link, idx) => {
-                const sourceNode = nodes.find(n => n.id === link.source);
-                const targetNode = nodes.find(n => n.id === link.target);
-
-                if (!sourceNode || !targetNode) return null;
-
-                const x1 = sourceNode.x || 0;
-                const y1 = sourceNode.y || 0;
-                const x2 = targetNode.x || 0;
-                const y2 = targetNode.y || 0;
-
-                return (
-                  <g key={`l-${idx}`}>
-                    {/* Shadow wider connector line */}
-                    <line 
-                      x1={x1} y1={y1} x2={x2} y2={y2}
-                      stroke="#7c4dff" strokeWidth={3} strokeOpacity={0.12}
-                    />
-                    {/* Glowing link */}
-                    <line 
-                      x1={x1} y1={y1} x2={x2} y2={y2}
-                      stroke="url(#edge-gradient)" strokeWidth={1.5}
-                    />
-                    {/* Port speed text (if applicable) */}
-                    {link.port && (
-                      <text 
-                        x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 4}
-                        fill="#ff9100" fontSize="8px" textAnchor="middle"
-                        style={{ fontFamily: 'inherit', fontWeight: 'bold' }}
-                      >
-                        :{link.port}
-                      </text>
-                    )}
-                  </g>
-                );
-              })}
-
-              {/* Render Nodes */}
-              {nodes.map(node => {
-                const color = getTypeColor(node.type);
-                const isSelected = selectedNode?.id === node.id;
-                
-                return (
-                  <g 
-                    key={node.id}
-                    transform={`translate(${node.x || 0}, ${node.y || 0})`}
-                    style={{ cursor: 'pointer' }}
-                    onMouseDown={(e) => {
-                      e.stopPropagation();
-                      setDraggedNodeId(node.id);
-                    }}
-                    onDoubleClick={() => setSelectedNode(node)}
-                  >
-                    {/* Node Selection Glow */}
-                    {isSelected && (
-                      <circle r={24} fill="none" stroke="#00e5ff" strokeWidth={1} strokeDasharray="3 3">
-                        <animateTransform 
-                          attributeName="transform" type="rotate"
-                          from="0" to="360" dur="8s" repeatCount="indefinite"
-                        />
-                      </circle>
-                    )}
-
-                    {/* Outer ambient glow circle */}
-                    <circle 
-                      r={15} fill={color} fillOpacity={0.15}
-                      stroke={color} strokeWidth={1} strokeOpacity={0.4}
-                      filter="url(#glow-purple)"
-                    />
-
-                    {/* Core node circle */}
-                    <circle 
-                      r={10} fill="#0d0a1b" stroke={color} strokeWidth={2}
-                    />
-
-                    {/* Type icon symbol */}
-                    <text 
-                      y={3.5} textAnchor="middle" fontSize="9px"
-                      style={{ pointerEvents: 'none', userSelect: 'none' }}
-                    >
-                      {getTypeIcon(node.type)}
-                    </text>
-
-                    {/* Node label text card */}
-                    <g transform="translate(0, 24)">
-                      <rect 
-                        x={-60} y={-9} width={120} height={18} rx={3}
-                        fill="rgba(6, 4, 15, 0.85)" stroke="rgba(124, 77, 255, 0.3)" strokeWidth={0.5}
-                      />
-                      <text 
-                        fill="#fff" fontSize="8.5px" textAnchor="middle" y={3}
-                        style={{ fontWeight: 'bold', userSelect: 'none' }}
-                      >
-                        {node.label}
-                      </text>
-                    </g>
-
-                    {/* Small IP display under card */}
-                    {node.ip && (
-                      <text 
-                        y={43} fill="rgba(255,255,255,0.4)" fontSize="7px" textAnchor="middle"
-                        style={{ userSelect: 'none' }}
-                      >
-                        {node.ip}
-                      </text>
-                    )}
-                  </g>
-                );
-              })}
-            </svg>
+            <NetworkGraphView 
+              nodes={nodes}
+              links={links}
+              selectedNode={selectedNode}
+              setSelectedNode={setSelectedNode}
+              showSystemNodes={showSystemNodes}
+            />
           )}
 
           {/* Quick-action HUD Modal */}
           {selectedNode && (
             <div style={{
-              position: 'absolute', top: '20px', right: '20px', width: '320px',
+              position: 'absolute', top: '20px', right: '20px', width: '360px',
               background: 'rgba(10, 8, 22, 0.85)', border: '1px solid rgba(124, 77, 255, 0.35)',
               borderRadius: '12px', padding: '16px', backdropFilter: 'blur(16px)',
               boxShadow: '0 0 24px rgba(124, 77, 255, 0.15)', zIndex: 20,
               display: 'flex', flexDirection: 'column', gap: '12px',
-              animation: 'fade-in 0.25s ease-out'
+              animation: 'fade-in 0.25s ease-out', maxHeight: 'calc(100vh - 40px)',
+              overflowY: 'auto'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '9px', letterSpacing: '1.5px', color: '#7c4dff', fontWeight: 700 }}>NODE INSPECTOR</span>
@@ -771,6 +1133,95 @@ export default function WebWeaverHUD() {
                   🔧 Run Diagnostic Repair
                 </button>
               </div>
+
+              {/* Direct Node Terminal Chat */}
+              <div style={{
+                display: 'flex', flexDirection: 'column', gap: '8px',
+                borderTop: '1px solid rgba(124, 77, 255, 0.2)', paddingTop: '12px'
+              }}>
+                <span style={{ fontSize: '8.5px', letterSpacing: '1px', color: '#00e5ff', fontWeight: 700 }}>DIRECT NODE TERMINAL</span>
+                
+                {/* Chat History */}
+                <div style={{
+                  overflowY: 'auto', background: 'rgba(0, 0, 0, 0.3)',
+                  border: '1px solid rgba(124, 77, 255, 0.15)', borderRadius: '6px',
+                  padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px',
+                  fontSize: '9.5px', fontFamily: 'monospace', height: '180px'
+                }}>
+                  {(!nodeChats[selectedNode.id] || nodeChats[selectedNode.id].length === 0) ? (
+                    <div style={{ color: 'rgba(255,255,255,0.35)', textAlign: 'center', margin: 'auto 0', fontSize: '9px' }}>
+                      AERIS terminal online.<br />Send commands to this node.
+                    </div>
+                  ) : (
+                    nodeChats[selectedNode.id].map((msg, idx) => (
+                      <div key={idx} style={{
+                        display: 'flex', flexDirection: 'column', gap: '2px',
+                        alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                        maxWidth: '90%'
+                      }}>
+                        <div style={{
+                          display: 'flex', justifyContent: 'space-between', 
+                          gap: '8px', fontSize: '7.5px', color: msg.role === 'user' ? '#00e676' : '#7c4dff'
+                        }}>
+                          <span>{msg.role === 'user' ? 'OPERATOR' : 'AERIS'}</span>
+                          <span style={{ color: 'rgba(255,255,255,0.3)' }}>{msg.timestamp}</span>
+                        </div>
+                        <div style={{
+                          background: msg.role === 'user' ? 'rgba(0, 230, 118, 0.08)' : 'rgba(124, 77, 255, 0.08)',
+                          border: msg.role === 'user' ? '1px solid rgba(0, 230, 118, 0.2)' : '1px solid rgba(124, 77, 255, 0.2)',
+                          borderRadius: '4px', padding: '6px 8px', color: '#fff',
+                          wordBreak: 'break-word', whiteSpace: 'pre-wrap'
+                        }}>
+                          {msg.content}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  {isNodeChatSending && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#00e5ff', fontSize: '9px', fontStyle: 'italic' }}>
+                      <span className="terminal-cursor" style={{
+                        width: '6px', height: '10px', background: '#00e5ff',
+                        display: 'inline-block', animation: 'blink 1.2s infinite'
+                      }}></span>
+                      AERIS is thinking...
+                    </div>
+                  )}
+                  <div ref={nodeChatEndRef} />
+                </div>
+
+                {/* Input Form */}
+                <form onSubmit={handleSendNodeChat} style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    type="text"
+                    value={nodeChatInput}
+                    onChange={(e) => setNodeChatInput(e.target.value)}
+                    placeholder="Type command (e.g. scan ports)..."
+                    disabled={isNodeChatSending}
+                    style={{
+                      flexGrow: 1, background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(124, 77, 255, 0.25)', borderRadius: '4px',
+                      color: '#fff', fontSize: '10px', padding: '6px 8px',
+                      outline: 'none', transition: '0.2s'
+                    }}
+                    onFocus={e => e.currentTarget.style.borderColor = '#00e5ff'}
+                    onBlur={e => e.currentTarget.style.borderColor = 'rgba(124, 77, 255, 0.25)'}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isNodeChatSending || !nodeChatInput.trim()}
+                    style={{
+                      background: 'rgba(124, 77, 255, 0.15)', border: '1px solid rgba(124, 77, 255, 0.35)',
+                      borderRadius: '4px', color: '#7c4dff', fontSize: '10px', fontWeight: 'bold',
+                      padding: '0 12px', cursor: 'pointer', display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', transition: '0.2s'
+                    }}
+                    onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(124, 77, 255, 0.25)' }}
+                    onMouseLeave={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = 'rgba(124, 77, 255, 0.15)' }}
+                  >
+                    SEND
+                  </button>
+                </form>
+              </div>
             </div>
           )}
         </section>
@@ -784,6 +1235,10 @@ export default function WebWeaverHUD() {
         @keyframes fade-in {
           from { opacity: 0; transform: translateY(10px); }
           to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes blink {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0; }
         }
       `}</style>
     </div>

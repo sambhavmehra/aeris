@@ -14,7 +14,7 @@ logger = logging.getLogger("AerisDiagramGenerator")
 #  EXPERT DIAGRAM ARCHITECT SYSTEM PROMPT (REACT FLOW)
 # ═══════════════════════════════════════════════════════════════════
 
-DIAGRAM_SYSTEM_PROMPT = r"""You are an expert visual system architect. Convert user input into a fully structured, visually rich, animated React Flow diagram JSON.
+DIAGRAM_SYSTEM_INSTRUCTION = r"""You are an expert visual system architect. Convert user input into a fully structured, visually rich, animated React Flow diagram JSON.
 
 The output will be rendered on a live interactive canvas. Focus on clarity, layout, and visual hierarchy.
 
@@ -140,7 +140,7 @@ class DiagramGenerator:
                     return asyncio.run(coro)
 
             messages = [
-                {"role": "system", "content": DIAGRAM_SYSTEM_PROMPT},
+                {"role": "system", "content": DIAGRAM_SYSTEM_INSTRUCTION},
                 {"role": "user", "content": f"Generate a visually structured, animation-ready React Flow diagram JSON for:\n\n{user_input}"},
             ]
 

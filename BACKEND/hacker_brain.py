@@ -1224,6 +1224,37 @@ Respond with ONLY valid JSON:
         """
         lower_msg = message.lower()
 
+        # Intercept Map/HUD Clearing Commands
+        if any(cmd in lower_msg for cmd in ("clear map", "clear scan map", "reset map", "clear hud", "clear graph")):
+            import json
+            graph_path = settings.DATA_DIR / "webweaver_graph.json"
+            default_graph = {
+                "nodes": [
+                    {"id": "aeris_brain", "label": "AERIS Brain", "type": "host", "ip": "127.0.0.1", "status": "online"},
+                    {"id": "api_gateway", "label": "FastAPI Gateway", "type": "service", "status": "online"}
+                ],
+                "links": [
+                    {"source": "aeris_brain", "target": "api_gateway", "type": "connection", "port": 8000}
+                ]
+            }
+            try:
+                graph_path.parent.mkdir(parents=True, exist_ok=True)
+                graph_path.write_text(json.dumps(default_graph, indent=2))
+                response_text = "Sir, maine HUD scan map ko clear aur reset kar diya hai to default system nodes."
+            except Exception as e:
+                response_text = f"Sir, HUD map clear karne mein error aaya: {str(e)}"
+            
+            memory_store.add_message("user", message)
+            memory_store.add_message("assistant", response_text)
+            return {
+                "response": response_text,
+                "intent": "chat",
+                "agent": "HackerBrain",
+                "success": True,
+                "task_id": "clear_hud_map"
+            }
+
+
         # Check if the user query requests auto-repair of workspace syntax errors
         from services.workspace_watcher import handle_conversational_repair
         repair_res = await handle_conversational_repair(message)

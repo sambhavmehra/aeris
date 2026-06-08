@@ -1239,7 +1239,15 @@ def _register_all_tools():
         reg.register("port_scan", "Scan common ports on a target IP or domain.", port_scan, ["target"], RiskLevel.LOW, "recon")
         reg.register("header_analysis", "Analyze HTTP headers for a URL.", header_analysis, ["url"], RiskLevel.SAFE, "recon")
         reg.register("ssl_check", "Check SSL certificate for a domain.", ssl_check, ["domain"], RiskLevel.SAFE, "recon")
-        reg.register("subdomain_enum", "Enumerate common subdomains.", subdomain_enum, ["domain"], RiskLevel.LOW, "recon")
+        reg.register(
+            "subdomain_enum",
+            "Enumerate subdomains for a domain using crt.sh, HackerTarget, and common list. Supports optional 'limit' param (default 50).",
+            subdomain_enum,
+            ["domain"],
+            RiskLevel.LOW,
+            "recon",
+            optional_params=["limit"]
+        )
         logger.info("Registered missing recon tools for SecurityAgent")
     except Exception as e:
         logger.warning(f"Failed to register recon tools: {e}")

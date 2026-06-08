@@ -4,7 +4,9 @@ import subprocess
 import requests
 import urllib.parse
 from urllib.error import URLError
-from typing import Optional
+from typing import Optional, List, Set, Dict, Any
+import asyncio
+import aiohttp
 
 def _update_webweaver_graph(node_id: str, label: str, node_type: str, parent_id: Optional[str] = None, link_type: str = "connection"):
     import json
@@ -149,21 +151,127 @@ def ssl_check(domain: str) -> str:
     except Exception as e:
         return f"SSL Check failed for {domain}: {e}"
 
-def subdomain_enum(domain: str) -> str:
-    """Basic subdomain enumeration using a common list."""
-    _update_webweaver_graph(domain, domain, "domain")
-    common_subs = ["www", "mail", "ftp", "localhost", "webmail", "smtp", "pop", "ns1", "ns2", "webdisk", "cpanel", "dev", "test", "staging", "api"]
-    found = []
-    for sub in common_subs:
-        target = f"{sub}.{domain}"
+def _clear_webweaver_graph(domain: str):
+    import json
+    try:
+        from config import settings
+        graph_path = settings.DATA_DIR / "webweaver_graph.json"
+        graph_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Reset the graph to contain ONLY the target domain as the root node
+        graph_data = {
+            "nodes": [
+                {"id": domain, "label": domain, "type": "domain", "status": "online"}
+            ],
+            "links": []
+        }
+        graph_path.write_text(json.dumps(graph_data, indent=2), encoding="utf-8")
+    except Exception as e:
+        pass
+
+async def subdomain_enum(domain: str, limit: int = 50) -> str:
+    """Enumerate subdomains for a domain using crt.sh, HackerTarget, and a common wordlist asynchronously."""
+    # Clean the domain input
+    domain = domain.replace('https://', '').replace('http://', '').split('/')[0].strip()
+    if not domain:
+        return "Invalid domain."
+        
+    # Clear the old graph and put only the target domain as root
+    _clear_webweaver_graph(domain)
+    
+    subdomains: Set[str] = set()
+    
+    # 1. Fetch from crt.sh & HackerTarget concurrently
+    async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
+        # crt.sh
+        async def fetch_crtsh():
+            try:
+                url = f"https://crt.sh/?q=%25.{domain}&output=json"
+                async with session.get(url, timeout=15) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for entry in data:
+                            name = entry.get('name_value', '')
+                            for sub in name.split('\n'):
+                                sub = sub.strip().replace('*.', '')
+                                if sub and '.' in sub and sub.endswith(domain):
+                                    subdomains.add(sub)
+            except Exception:
+                pass
+
+        # HackerTarget
+        async def fetch_hackertarget():
+            try:
+                url = f"https://api.hackertarget.com/hostsearch/?q={domain}"
+                async with session.get(url, timeout=15) as resp:
+                    if resp.status == 200:
+                        text = await resp.text()
+                        for line in text.split('\n'):
+                            if ',' in line:
+                                sub = line.split(',')[0].strip()
+                                if sub and '.' in sub and sub.endswith(domain):
+                                    subdomains.add(sub)
+            except Exception:
+                pass
+                
+        # Run fetches concurrently
+        await asyncio.gather(fetch_crtsh(), fetch_hackertarget(), return_exceptions=True)
+        
+    # 2. Add common subdomains
+    common = [
+        'www', 'mail', 'ftp', 'admin', 'blog', 'shop', 'api',
+        'dev', 'staging', 'test', 'app', 'portal', 'dashboard',
+        'secure', 'vpn', 'remote', 'cloud', 'mobile', 'support'
+    ]
+    for c in common:
+        subdomains.add(f"{c}.{domain}")
+        
+    subdomains.add(domain)
+    subdomains.add(f"www.{domain}")
+    
+    # Filter out anything that doesn't belong or is invalid
+    valid_subs = []
+    for sub in subdomains:
+        sub = sub.strip().lower()
+        if sub and not sub.startswith('.'):
+            valid_subs.append(sub)
+            
+    # Remove duplicates
+    valid_subs = list(sorted(set(valid_subs)))
+    
+    # Limit number of subdomains to validate/lookup to prevent timeouts
+    loop = asyncio.get_event_loop()
+    resolved_subs = []
+    
+    async def resolve_sub(sub: str):
         try:
-            ip = socket.gethostbyname(target)
-            found.append(f"{target} ({ip})")
-            _update_webweaver_graph(target, target, "subdomain", parent_id=domain, link_type="subdomain_of")
-            _update_webweaver_graph(ip, ip, "ip", parent_id=target, link_type="resolves_to")
-        except socket.error:
-            pass
-    if found:
-        return f"Found {len(found)} common subdomains:\n" + "\n".join(found)
-    return "No common subdomains found."
+            # Resolve IP in a thread pool to avoid blocking the event loop
+            ip = await loop.run_in_executor(None, socket.gethostbyname, sub)
+            return sub, ip
+        except socket.gaierror:
+            return sub, None
+            
+    # Resolve up to limit + 10 to ensure we get up to the limit of active ones
+    tasks = [resolve_sub(s) for s in valid_subs]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    found_count = 0
+    found_details = []
+    
+    for res in results:
+        if isinstance(res, tuple) and res[1] is not None:
+            sub, ip = res
+            found_details.append(f"{sub} ({ip})")
+            
+            # Update webweaver graph
+            _update_webweaver_graph(sub, sub, "subdomain", parent_id=domain, link_type="subdomain_of")
+            _update_webweaver_graph(ip, ip, "ip", parent_id=sub, link_type="resolves_to")
+            
+            found_count += 1
+            if found_count >= limit:
+                break
+                
+    if found_details:
+        return f"Found {len(found_details)} active subdomains (limit: {limit}):\n" + "\n".join(found_details)
+    return f"No active subdomains found for {domain}."
 

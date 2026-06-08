@@ -1899,6 +1899,29 @@ async def add_webweaver_node(req: WebWeaverNodeRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/webweaver/clear")
+async def clear_webweaver_graph():
+    import json
+    graph_path = settings.DATA_DIR / "webweaver_graph.json"
+    default_graph = {
+        "nodes": [
+            {"id": "aeris_brain", "label": "AERIS Brain", "type": "host", "ip": "127.0.0.1", "status": "online"},
+            {"id": "api_gateway", "label": "FastAPI Gateway", "type": "service", "status": "online"}
+        ],
+        "links": [
+            {"source": "aeris_brain", "target": "api_gateway", "type": "connection", "port": 8000}
+        ]
+    }
+    try:
+        graph_path.parent.mkdir(parents=True, exist_ok=True)
+        graph_path.write_text(json.dumps(default_graph, indent=2))
+        return {"success": True, "graph": default_graph}
+    except Exception as e:
+        logger.exception("Failed to clear webweaver graph")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
 @app.websocket("/ws/{path:path}")
 async def ws_catchall(websocket: WebSocket, path: str):
     await websocket.close(code=1008, reason=f"Unknown WebSocket endpoint: /ws/{path}")

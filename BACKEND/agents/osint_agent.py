@@ -58,7 +58,7 @@ Respond with ONLY valid JSON:
   ],
   "is_self_inquiry": false,
   "reasoning": "Overall approach or conversational response if self inquiry"
-}
+}}
 """
 
 PIVOT_EXTRACTION_PROMPT = """You are the pivoting engine of AERIS's OSINT Agent.
