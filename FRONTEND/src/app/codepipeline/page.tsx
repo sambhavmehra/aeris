@@ -1,5 +1,6 @@
 'use client';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 type Stage = 'idle' | 'planner' | 'coder' | 'verifier' | 'complete' | 'error';
 
@@ -22,7 +23,7 @@ const STAGES = [
   { key: 'verifier', label: 'Verifying', icon: '🔍', desc: 'Testing & reviewing...' },
 ];
 
-export default function CodePipelinePage() {
+function CodePipelineContent() {
   const [objective, setObjective] = useState('');
   const [language, setLanguage] = useState('python');
   const [stage, setStage] = useState<Stage>('idle');
@@ -38,11 +39,74 @@ export default function CodePipelinePage() {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
+  const searchParams = useSearchParams();
+  const idParam = searchParams.get('id');
+  const hasInitialized = useRef(false);
+
   const startTimer = () => {
     setElapsed(0);
     timerRef.current = setInterval(() => setElapsed(p => p + 0.1), 100);
   };
   const stopTimer = () => { if (timerRef.current) clearInterval(timerRef.current); };
+
+  const connectWebSocket = useCallback((pid: string) => {
+    wsRef.current?.close();
+    setStage('planner');
+    setStageMsg('Connecting to pipeline channel...');
+    setError('');
+    startTimer();
+
+    const ws = new WebSocket(`ws://localhost:8000/ws/codepipeline/${pid}`);
+    wsRef.current = ws;
+
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.stage) setStage(msg.stage as Stage);
+        if (msg.message) setStageMsg(msg.message);
+
+        if (msg.stage === 'planner' && msg.manifest) {
+          setManifest(msg.manifest);
+        }
+        if (msg.stage === 'coder' && msg.file) {
+          setCodingProgress({ current: msg.progress_current || 0, total: msg.progress_total || 0, file: msg.file });
+        }
+        if (msg.stage === 'coder' && msg.written_file) {
+          setWrittenFiles(prev => {
+            if (prev.some(f => f.path === msg.written_file.path)) return prev;
+            return [...prev, msg.written_file];
+          });
+        }
+        if (msg.stage === 'verifier' && msg.report) {
+          setReport(msg.report);
+        }
+        if (msg.stage === 'complete') {
+          setStage('complete');
+          if (msg.project_path) setProjectPath(msg.project_path);
+          stopTimer();
+        }
+        if (msg.stage === 'error') {
+          setStage('error'); setError(msg.message || 'Pipeline failed');
+          stopTimer();
+        }
+      } catch {}
+    };
+
+    ws.onerror = () => {
+      setStage('error');
+      setError('WebSocket connection failed');
+      stopTimer();
+    };
+
+    ws.onclose = () => {};
+  }, []);
+
+  useEffect(() => {
+    if (idParam && stage === 'idle' && !hasInitialized.current) {
+      hasInitialized.current = true;
+      connectWebSocket(idParam);
+    }
+  }, [idParam, stage, connectWebSocket]);
 
   useEffect(() => () => { stopTimer(); wsRef.current?.close(); }, []);
 
@@ -51,7 +115,6 @@ export default function CodePipelinePage() {
     setStage('planner'); setStageMsg('Initializing pipeline...'); setError('');
     setManifest(null); setWrittenFiles([]); setReport(null); setProjectPath('');
     setSelectedFile(null); setCodingProgress({ current: 0, total: 0, file: '' });
-    startTimer();
 
     try {
       const res = await fetch(`${API}/api/codepipeline/run`, {
@@ -63,45 +126,11 @@ export default function CodePipelinePage() {
       const pid = data.pipeline_id;
       if (!pid) throw new Error('No pipeline_id returned');
 
-      // Connect WebSocket for live updates
-      const ws = new WebSocket(`ws://localhost:8000/ws/codepipeline/${pid}`);
-      wsRef.current = ws;
-
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data);
-          if (msg.stage) setStage(msg.stage as Stage);
-          if (msg.message) setStageMsg(msg.message);
-
-          if (msg.stage === 'planner' && msg.manifest) {
-            setManifest(msg.manifest);
-          }
-          if (msg.stage === 'coder' && msg.file) {
-            setCodingProgress({ current: msg.progress_current || 0, total: msg.progress_total || 0, file: msg.file });
-          }
-          if (msg.stage === 'coder' && msg.written_file) {
-            setWrittenFiles(prev => [...prev, msg.written_file]);
-          }
-          if (msg.stage === 'verifier' && msg.report) {
-            setReport(msg.report);
-          }
-          if (msg.stage === 'complete') {
-            setStage('complete');
-            if (msg.project_path) setProjectPath(msg.project_path);
-            stopTimer();
-          }
-          if (msg.stage === 'error') {
-            setStage('error'); setError(msg.message || 'Pipeline failed');
-            stopTimer();
-          }
-        } catch {}
-      };
-      ws.onerror = () => { setStage('error'); setError('WebSocket connection failed'); stopTimer(); };
-      ws.onclose = () => {};
+      connectWebSocket(pid);
     } catch (e: any) {
       setStage('error'); setError(e.message); stopTimer();
     }
-  }, [objective, language, stage]);
+  }, [objective, language, stage, connectWebSocket]);
 
   const reset = () => {
     wsRef.current?.close(); stopTimer();
@@ -340,5 +369,17 @@ export default function CodePipelinePage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function CodePipelinePage() {
+  return (
+    <Suspense fallback={
+      <div style={{ position: 'fixed', inset: 0, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', color: 'rgba(0,255,255,0.6)' }}>
+        Loading Code Pipeline...
+      </div>
+    }>
+      <CodePipelineContent />
+    </Suspense>
   );
 }

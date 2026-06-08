@@ -92,6 +92,46 @@ class ResearchAgent(BaseAgent):
                 context.post(self.name, error_msg, message_type="error")
             return {"status": "error", "error": error_msg}
 
+    async def research(self, query: str, depth: str = "basic") -> str:
+        """Run the research agent flow asynchronously (compatibility fallback)."""
+        res = self.process(query)
+        if isinstance(res, dict) and res.get("status") == "success":
+            data = res.get("result")
+            if isinstance(data, dict):
+                markdown_lines = []
+                summary = data.get("summary")
+                if summary:
+                    markdown_lines.append(f"## Summary\n{summary}\n")
+                
+                key_findings = data.get("key_findings")
+                if key_findings:
+                    markdown_lines.append("## Key Findings")
+                    for finding in key_findings:
+                        markdown_lines.append(f"- {finding}")
+                    markdown_lines.append("")
+                
+                recommendations = data.get("recommendations")
+                if recommendations:
+                    markdown_lines.append("## Recommendations")
+                    for rec in recommendations:
+                        markdown_lines.append(f"- {rec}")
+                    markdown_lines.append("")
+
+                sources = data.get("sources")
+                if sources:
+                    markdown_lines.append("## Sources")
+                    for src in sources:
+                        title = src.get("title") or "Source"
+                        url = src.get("url") or "#"
+                        rel = src.get("relevance") or "medium"
+                        markdown_lines.append(f"- [{title}]({url}) (Relevance: {rel})")
+                
+                return "\n".join(markdown_lines)
+            return str(data)
+        elif isinstance(res, dict) and res.get("status") == "error":
+            return f"Research error: {res.get('error')}"
+        return str(res)
+
     def quick_search(self, query: str,
                      context: SharedContextBuffer = None) -> Dict[str, Any]:
         """Perform a quick web search and return raw results."""

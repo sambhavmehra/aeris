@@ -10,10 +10,18 @@ import os
 import platform
 import subprocess
 import sys
+
+# Add backend directory to sys.path to resolve module imports
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
 import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
+import logging
+
+logger = logging.getLogger("aeris.automation")
 
 
 @dataclass(frozen=True)
@@ -112,15 +120,71 @@ def execute_pending_shell_command(key: str) -> dict:
 
 # ── App Management ───────────────────────────────────────────────────
 
+def _get_latest_project_path() -> Optional[str]:
+    """Helper to resolve the latest generated project folder path."""
+    try:
+        from config import settings
+        from pathlib import Path
+        import json
+        
+        base_dir = Path(settings.WORKSPACE_DIR).resolve()
+        status_file = base_dir.parent / "data" / "project_build_status.json"
+        
+        if status_file.exists():
+            try:
+                data = json.loads(status_file.read_text(encoding="utf-8"))
+                project_path = data.get("project_path")
+                if project_path:
+                    path_obj = Path(project_path)
+                    # If it's the default 'pending_project' placeholder or doesn't exist, scan the workspace directory
+                    if "pending_project" in str(project_path) or not path_obj.exists():
+                        if base_dir.exists():
+                            subdirs = [d for d in base_dir.iterdir() if d.is_dir()]
+                            if subdirs:
+                                # Sort by modification time to find the latest modified directory
+                                latest_dir = max(subdirs, key=lambda d: d.stat().st_mtime)
+                                return str(latest_dir)
+                    else:
+                        return str(project_path)
+            except Exception as read_err:
+                import logging
+                logging.getLogger("aeris.automation").warning(f"Failed to read project_build_status.json: {read_err}")
+        
+        # Fallback to scanning the workspace directory directly
+        if base_dir.exists():
+            subdirs = [d for d in base_dir.iterdir() if d.is_dir()]
+            if subdirs:
+                latest_dir = max(subdirs, key=lambda d: d.stat().st_mtime)
+                return str(latest_dir)
+    except Exception as e:
+        import logging
+        logging.getLogger("aeris.automation").warning(f"Error in _get_latest_project_path: {e}")
+    return None
+
+
 def open_folder(path: str) -> dict:
     """Open a folder in the file explorer."""
     import os, platform, subprocess
     try:
+        path_lower = path.lower().strip()
+        # Intercept project folder opening request
+        if path_lower in ("project", "latest_project", "current_project", "latest project", "current project", "pending_project") or "pending_project" in path:
+            latest_path = _get_latest_project_path()
+            if latest_path and os.path.exists(latest_path):
+                path = latest_path
+            else:
+                from config import settings
+                path = str(settings.WORKSPACE_DIR)
+
         # Resolve the path to handle environment variables and user home directory
         path = os.path.expandvars(os.path.expanduser(path))
         if not os.path.exists(path):
-            # If the path does not exist, try to search for the directory name in the specified drive or system
-            return {"success": False, "action": "open_folder", "error": f"Path not found: {path}"}
+            # Try to search for the directory name in the specified drive or system
+            if "project" in path_lower:
+                from config import settings
+                path = str(settings.WORKSPACE_DIR)
+            else:
+                return {"success": False, "action": "open_folder", "error": f"Path not found: {path}"}
             
         if platform.system() == "Windows":
             os.startfile(path)
@@ -137,12 +201,70 @@ def open_app(app_name: str) -> dict:
     """Open an application using multiple fallback strategies."""
     app_key = app_name.lower().strip()
     
+    # Intercept tracked file queries
+    from utils.file_tracker import resolve_tracked_file
+    resolved_path = resolve_tracked_file(app_name)
+    if resolved_path:
+        logger.info(f"[open_app] Intercepted file query '{app_name}' resolving to '{resolved_path}'. Redirecting to open_file.")
+        return open_file(resolved_path)
+
+    # ── Failsafe Interception for Files ──
+    from config import settings
+    from pathlib import Path
+    workspace_root = Path(settings.WORKSPACE_DIR)
+    
+    # Try resolving relative path directly
+    try:
+        direct_path = (workspace_root / app_name).resolve()
+        # Ensure it doesn't escape workspace
+        direct_path.relative_to(workspace_root.resolve())
+        if direct_path.exists() and direct_path.is_file():
+            logger.info(f"[open_app] App name '{app_name}' is an existing file in workspace. Redirecting to open_file.")
+            return open_file(str(direct_path))
+    except Exception:
+        pass
+
+    # Check if a file with common extensions exists in workspace
+    for ext in (".xlsx", ".xls", ".docx", ".doc", ".pdf", ".txt", ".csv"):
+        try:
+            test_path = (workspace_root / f"{app_name}{ext}").resolve()
+            test_path.relative_to(workspace_root.resolve())
+            if test_path.exists() and test_path.is_file():
+                logger.info(f"[open_app] Found file '{test_path.name}' in workspace. Redirecting to open_file.")
+                return open_file(str(test_path))
+        except Exception:
+            pass
+
+    # If it definitely looks like a file extension, run a quick system search
+    has_ext = any(app_key.endswith(ext) for ext in (".xlsx", ".xls", ".docx", ".doc", ".pdf", ".txt", ".csv", ".png", ".jpg"))
+    if has_ext:
+        try:
+            from services.file_tools import FileToolSystem
+            ft = FileToolSystem()
+            search_res = ft.find_system_file(app_name)
+            if search_res.success and search_res.output and "No matching files found" not in search_res.output:
+                first_match = search_res.output.splitlines()[0]
+                logger.info(f"[open_app] Found file via system search: '{first_match}'. Redirecting to open_file.")
+                return open_file(first_match)
+        except Exception as e:
+            logger.warning(f"[open_app] Failed to run find_system_file for '{app_name}': {e}")
+        
+    # Intercept project open request
+    if app_key in ("project", "latest project", "current project", "antigravity project", "the project", "project folder", "project directory", "latest project folder", "current project folder"):
+        latest_path = _get_latest_project_path()
+        if latest_path and os.path.exists(latest_path):
+            return open_folder(latest_path)
+        else:
+            from config import settings
+            return open_folder(str(settings.WORKSPACE_DIR))
+            
     # ── Strategy 1: AppOpener ──────────────────────────────────────
     try:
         from AppOpener import open as appopen
         appopen(app_name, match_closest=True, output=True, throw_error=True)
         return {"success": True, "action": "open", "target": app_name}
     except Exception:
+
         pass  # Try next strategy
 
     # ── Strategy 2: Win32 known executable ────────────────────────
@@ -654,8 +776,21 @@ def open_file(path: str, app: str = "") -> dict:
         path = os.path.expandvars(os.path.expanduser(path.strip()))
 
         if not os.path.exists(path):
-            return {"success": False, "action": "open_file",
-                    "error": f"File not found: {path}"}
+            # Try to resolve path using file tracker resolver
+            from utils.file_tracker import resolve_tracked_file
+            resolved = resolve_tracked_file(path)
+            if resolved and os.path.exists(resolved):
+                logger.info(f"[open_file] Resolved query '{path}' to tracked file '{resolved}'.")
+                path = resolved
+            else:
+                # Try relative to workspace directory
+                from config import settings
+                workspace_path = os.path.join(str(settings.WORKSPACE_DIR), path)
+                if os.path.exists(workspace_path):
+                    path = workspace_path
+                else:
+                    return {"success": False, "action": "open_file",
+                            "error": f"File not found: {path}"}
 
         app_key = app.lower().strip() if app else ""
 
@@ -1109,6 +1244,92 @@ def send_file_telegram(file_path: str, caption: str | None = None) -> dict:
             "error": f"Failed to send file to Telegram: {str(e)}"
         }
 
+
+def read_whatsapp_messages(contact_name: str = "") -> dict:
+    """Read the latest messages from a WhatsApp contact or the active chat.
+    
+    Args:
+        contact_name: Optional name of the contact to read messages from.
+                      If empty, reads the currently active chat.
+    """
+    import subprocess
+    import pyautogui
+    import time
+    import webbrowser
+    from chat_engine import chat
+    
+    try:
+        # Open WhatsApp Web
+        webbrowser.open("https://web.whatsapp.com")
+        print("[*] Opening WhatsApp Web... Waiting for page to load (8s)...")
+        time.sleep(8.0)
+        
+        if contact_name:
+            # Focus search bar
+            pyautogui.hotkey("ctrl", "alt", "/")
+            time.sleep(0.5)
+            
+            # Clear search and write contact name
+            pyautogui.hotkey("ctrl", "a")
+            pyautogui.press("backspace")
+            time.sleep(0.2)
+            pyautogui.write(contact_name, interval=0.05)
+            time.sleep(2.0)
+            
+            # Open Chat
+            pyautogui.press("enter")
+            time.sleep(1.5)
+            
+        # Click neutral spot in chat window to focus it (middle-right area)
+        pyautogui.click(800, 500)
+        time.sleep(0.5)
+        
+        # Select all text on page and copy
+        pyautogui.hotkey("ctrl", "a")
+        time.sleep(0.3)
+        pyautogui.hotkey("ctrl", "c")
+        time.sleep(0.5)
+        
+        # Click again to clear selection
+        pyautogui.click(800, 500)
+        
+        # Retrieve clipboard content via PowerShell
+        cmd = 'powershell -NoProfile -Command "Get-Clipboard"'
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding="utf-8")
+        clipboard_text = result.stdout.strip()
+        
+        if not clipboard_text:
+            return {
+                "success": False,
+                "action": "read_whatsapp_messages",
+                "error": "Failed to copy messages or clipboard is empty."
+            }
+            
+        # Analyze with LLM
+        analysis_prompt = (
+            f"Analyze the following raw WhatsApp page text. "
+            f"Identify the chat history for '{contact_name or 'the currently active chat'}' and extract "
+            f"the latest messages (sender, timestamp, content). "
+            f"Provide a concise, user-friendly summary of the messages. "
+            f"Respond in a natural assistant tone (Hinglish/English is fine).\n\n"
+            f"Raw text:\n{clipboard_text[:12000]}"
+        )
+        summary = chat(analysis_prompt)
+        
+        return {
+            "success": True,
+            "action": "read_whatsapp_messages",
+            "contact": contact_name or "active_chat",
+            "response": summary
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "action": "read_whatsapp_messages",
+            "error": f"Failed to read WhatsApp messages: {str(e)}"
+        }
+
+
 # ═════════════════════════════════════════════════════════════════════
 #  MASTER EXECUTOR -- routes decisions to the right handler
 # ═════════════════════════════════════════════════════════════════════
@@ -1210,6 +1431,14 @@ def _execute_decision_inner(decision: str) -> dict:
             return share_file_whatsapp(contact, path)
         else:
             return {"success": False, "action": "share_file_whatsapp", "error": "Use format: whatsapp share <contact_name> | <file_path>"}
+
+    elif d_lower.startswith("whatsapp read ") or d_lower == "whatsapp read" or d_lower.startswith("read whatsapp"):
+        contact = ""
+        if d_lower.startswith("whatsapp read "):
+            contact = decision[14:].strip()
+        elif d_lower.startswith("read whatsapp "):
+            contact = decision[14:].strip()
+        return read_whatsapp_messages(contact)
 
     elif d_lower.startswith("record audio"):
         duration = 5

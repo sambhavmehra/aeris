@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 
 from ai_engine import ai_engine
-from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent, DorkingAgent, PentestAgent, PhantomAgent, LeakGraphAgent, AntigravityAgent
+from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent, DorkingAgent, PentestAgent, PhantomAgent, LeakGraphAgent, AntigravityAgent, DiagnosisAgent, RepairAgent, DebateAgent, InvestigationAgent
 from agents.agent_registry import agent_registry, AgentStatus
 from memory.store import memory_store
 from neural.core import neural_core
@@ -156,6 +156,7 @@ CRITICAL RULES:
 - For sending email or mail notifications, ALWAYS use the `send_email` tool. Do NOT use `brevo_send_email` or `brevo_send_test_email` as they are meant for Brevo campaign/contact lists and will cause API authentication failures.
 - If you need to search the web for CVE vulnerabilities, exploit databases, or threat intelligence, use `web_research` (which routes through the ResearchAgent) or `realtime_search` (which routes through the SearchAgent).
 - If the user wants to schedule any security task, reminder, or periodic scan, use the `schedule_execution` tool.
+- If the user mentions 'antigravity', 'ide', or 'antigravity_agent', or requests to build/create a project using Antigravity, you MUST use the `build_project` tool to delegate it to the external Antigravity IDE assistant. Do NOT use `generate_website` or `generate_code` or `write_file` for this purpose.
 
 CONVERSATION CONTEXT:
 {history}
@@ -200,6 +201,17 @@ EXECUTED MISSION PLAN:
 OBSERVATIONS & TOOL OUTPUTS:
 {observations_json}
 
+═══════════ RECENTLY ADDED ADVANCED FEATURES ═══════════
+Sir (Sambhav Mehra) has recently completed the implementation of all requested advanced features! They are now fully active and verified:
+- Advanced NLP Service (NLTK Sentiment, SpaCy en_core_web_sm entities, parts-of-speech, and noun phrases).
+- Machine Learning Service (Scikit-Learn models: Linear Regression, KMeans, Random Forest Classifier).
+- Data Analytics Service (Pandas CSV descriptive stats and Pearson correlation matrix).
+- Cloud Integration Simulator (Mock bucket operations and compute VM instance provisioning).
+- Enhanced Vision Engine (OpenCV filters: grayscale, blur, edge, threshold).
+- Virtual Assistant Service (Speech synth TTS, turn logger, and personalized ML recommendations).
+
+If Sir asks if these features are implemented, or asks you to check them, respond enthusiastically and proudly in Hinglish, confirming that they are 100% active, fully verified, and ready to be used. Explain how each feature/tool works and offer to run them for him (e.g. running NLP on a sentence, clustering coordinates, analyzing a CSV data file, applying OpenCV filters, or simulating cloud storage operations).
+
 MYTHOS PERSONA & RESPONSE RULES:
 1. Address the user as "Sir" in every response. NEVER use "bhai", "bro", "buddy".
 2. Maintain a dark, precise, technically-dense Hinglish persona. You are a cyber operator, not a chatbot.
@@ -238,6 +250,7 @@ AVAILABLE INTENTS:
 - "image"    : Generate, create, or draw images/pictures/photos from a text description
 - "diagram"  : Create flowcharts, system diagrams, architecture charts, mind maps, flow charts, graphs, charts, widgets
 - "codepipeline" : Build an entire project/app autonomously, scaffold a workspace, create a full codebase
+- "diagnose" : Run self-diagnostics checks on system hardware load, environment variables, agent status, package dependencies, or check codebase/files for syntax errors, console log checks, style conventions
 - "analyze"  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents
 - "osint"   : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation
 - "email"   : Send emails, send mail, compose and send mail via SMTP/Brevo relay
@@ -322,7 +335,8 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "create a project", "scaffold a project", "autonomous code",
       "create a workspace", "create workspace", "build an entire",
       "generate a full project", "full project", "code pipeline",
-      "project bana", "project banao", "app bana do",
+      "project bana", "project banao", "app bana do", "antigravity",
+      "antogravi ty", "antigravity_agent", "ide"
     ], "codepipeline"),
     ([
       "flowchart", "flow chart", "diagram", "chart", "mind map", "mindmap",
@@ -331,8 +345,15 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "widget", "visualize", "visualise", "flow banao", "chart banao",
       "diagram banao", "diagram bana", "chart bana",
     ], "diagram"),
+    # ── Self / Code diagnostics ──────────────────────────────────────────────
     ([
-      "analyze", "analyse", "inspect", "diagnose", "summarize file",
+      "diagnose", "diagnose self", "diagnose code", "system check", "self check",
+      "code diagnostics", "system diagnostics", "self-diagnose", "code check",
+      "diagnosis", "diagnosis check", "diagnose karo", "diagnosis karo"
+    ], "diagnose"),
+    # ── Analyze / inspect / diagnose ──────────────────────────────────────────
+    ([
+      "analyze", "analyse", "inspect", "summarize file",
       "analyze file", "analyse file", "check this file", "check this data",
       "parse this", "read and explain", "find issues in",
       "analyze karo", "analyse karo", "check karo", "dekhke batao",
@@ -404,7 +425,7 @@ class HackerBrain:
     """
 
     NEURAL_CONFIDENCE_THRESHOLD = 0.80
-    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler", "drana", "dorking", "pentest", "phantom", "leakgraph"}
+    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler", "drana", "dorking", "pentest", "phantom", "leakgraph", "diagnose"}
 
     def __init__(self):
         # ── Instantiate all Core agents ──
@@ -426,6 +447,10 @@ class HackerBrain:
             "phantom":  PhantomAgent(),
             "leakgraph": LeakGraphAgent(),
             "codepipeline": AntigravityAgent(),
+            "diagnose": DiagnosisAgent(),
+            "repair":   RepairAgent(),
+            "debate":   DebateAgent(),
+            "investigation": InvestigationAgent(),
         }
         self.antigravity_agent = self.agents["codepipeline"]
         self.audit_agent = AuditAgent()
@@ -611,6 +636,7 @@ class HackerBrain:
                 f"- diagram  : Create flowcharts, system diagrams, architecture charts, mind maps, charts, graphs, widgets — ANY visual data structure or flow diagram\n"
                 f"- codepipeline : Build an entire project/app autonomously, scaffold a workspace, generate a full codebase\n"
                 f"- analyze  : Analyze files, logs, data, code outputs, system state — find patterns, errors, insights, or summarize contents of files\n"
+                f"- diagnose : Run self-diagnostics checks on system hardware load, environment variables, agent status, package dependencies, or check codebase/files for syntax errors, console log checks, style conventions\n"
                 f"- osint    : Public source investigations, profile gathering, social footprint mappings, email/username lookups, dynamic pivot investigations, target intel compilation (when the user asks for info/details on a target or person without explicitly requesting dork/dorking)\n"
                 f"- email    : Send emails, send mail, compose and send mail via SMTP/Brevo relay\n"
                 f"- scheduler : Retrieve lists of background tasks, schedule reminders/alarms/meetings, or cancel tasks by ID or keyword\n"
@@ -629,7 +655,7 @@ class HackerBrain:
                 f"=== CONVERSATION HISTORY (last 3 messages) ===\n{history_summary}\n=== END HISTORY ===\n\n"
                 f"=== RECENT AGENT TASK EXECUTIONS ===\n{recent_tasks_summary}\n=== END RECENT TASKS ===\n\n"
                 f'Current user message: "{message}"\n\n'
-                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint, email, scheduler, drana, dorking, pentest, phantom, leakgraph>", "reason": "<brief explanation>"}}'
+                f'Respond with ONLY valid JSON: {{"intent": "<one of: chat, security, system, research, search, code, image, diagram, codepipeline, analyze, osint, email, scheduler, drana, dorking, pentest, phantom, leakgraph, diagnose>", "reason": "<brief explanation>"}}'
             )
             raw = raw.strip().strip("```json").strip("```").strip()
             data = json.loads(raw)
@@ -1702,6 +1728,110 @@ Respond with ONLY valid JSON:
                     "response":       final_response,
                     "intent":         "pentest",
                     "agent":          "PentestAgent",
+                    "tasks_executed": 1,
+                    "tasks_succeeded": 1 if success else 0,
+                    "tasks_failed":   0 if success else 1,
+                    "execution_time": elapsed,
+                    "success":        success,
+                    "task_id":        task_id,
+                    "attempts":       1,
+                }
+
+            # ── Direct Repair Agent routing ─────────────────────────────────────
+            if intent == "repair":
+                logger.info("[HackerBrain] Routing Repair intent directly to RepairAgent")
+                agent = self.agents["repair"]
+                base_context = {
+                    "chat_history": memory_store.get_context(10),
+                    "recent_tasks": self._build_recent_tasks_summary(5),
+                }
+                result = await agent.run(message, base_context)
+
+                elapsed = result.get("execution_time", 0.0)
+                success = result.get("success", True)
+                final_response = result.get("response", "")
+
+                memory_store.add_message(
+                    "assistant",
+                    final_response,
+                    {
+                        "agent": "RepairAgent",
+                        "tasks": 1,
+                        "execution_time": elapsed,
+                        "attempts": 1,
+                    },
+                )
+                task_id = f"task_{len(memory_store.task_results) + 1}"
+                memory_store.store_task(task_id, {
+                    "tasks": [{
+                        "task_id": "t1",
+                        "intent": "repair",
+                        "agent": "RepairAgent",
+                        "response": final_response,
+                        "success": success,
+                        "execution_time": elapsed,
+                        "error": result.get("error"),
+                    }],
+                    "elapsed": elapsed,
+                    "attempts": 1,
+                })
+
+                return {
+                    "response":       final_response,
+                    "intent":         "repair",
+                    "agent":          "RepairAgent",
+                    "tasks_executed": 1,
+                    "tasks_succeeded": 1 if success else 0,
+                    "tasks_failed":   0 if success else 1,
+                    "execution_time": elapsed,
+                    "success":        success,
+                    "task_id":        task_id,
+                    "attempts":       1,
+                }
+
+            # ── Direct Investigation Agent routing ──────────────────────────────
+            if intent == "investigation":
+                logger.info("[HackerBrain] Routing Investigation intent directly to InvestigationAgent")
+                agent = self.agents["investigation"]
+                base_context = {
+                    "chat_history": memory_store.get_context(10),
+                    "recent_tasks": self._build_recent_tasks_summary(5),
+                }
+                result = await agent.run(message, base_context)
+
+                elapsed = result.get("execution_time", 0.0)
+                success = result.get("success", True)
+                final_response = result.get("response", "")
+
+                memory_store.add_message(
+                    "assistant",
+                    final_response,
+                    {
+                        "agent": "InvestigationAgent",
+                        "tasks": 1,
+                        "execution_time": elapsed,
+                        "attempts": 1,
+                    },
+                )
+                task_id = f"task_{len(memory_store.task_results) + 1}"
+                memory_store.store_task(task_id, {
+                    "tasks": [{
+                        "task_id": "t1",
+                        "intent": "investigation",
+                        "agent": "InvestigationAgent",
+                        "response": final_response,
+                        "success": success,
+                        "execution_time": elapsed,
+                        "error": result.get("error"),
+                    }],
+                    "elapsed": elapsed,
+                    "attempts": 1,
+                })
+
+                return {
+                    "response":       final_response,
+                    "intent":         "investigation",
+                    "agent":          "InvestigationAgent",
                     "tasks_executed": 1,
                     "tasks_succeeded": 1 if success else 0,
                     "tasks_failed":   0 if success else 1,

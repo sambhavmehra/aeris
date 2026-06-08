@@ -138,7 +138,7 @@ export const SyncSequence: React.FC<SyncSequenceProps> = ({ onComplete }) => {
             <div>
               <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>CLUSTER ROUTING</div>
               <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.85)' }}>
-                32 INDEPENDENT NODE PIPES ESTABLISHED
+                35 INDEPENDENT NODE PIPES ESTABLISHED
               </div>
             </div>
 

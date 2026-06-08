@@ -301,7 +301,8 @@ class ToolForge:
     """Creates, stores, lists, and manages dynamically generated tools."""
 
     def __init__(self, workspace: str | None = None) -> None:
-        self.workspace = Path(workspace or os.getcwd()).resolve()
+        from config import settings
+        self.workspace = Path(workspace or settings.WORKSPACE_DIR).resolve()
         self.tools_dir = self.workspace / "aeris_tools"
         self.tools_dir.mkdir(parents=True, exist_ok=True)
         self._registry: dict[str, ForgedTool] = {}

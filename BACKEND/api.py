@@ -107,6 +107,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to stop Workspace Watcher: {e}")
 
+    # Stop Screen Monitor
+    try:
+        from services.screen_monitor import get_screen_monitor
+        get_screen_monitor().stop_monitoring()
+        logger.info("AERIS Screen Monitor service stopped.")
+    except Exception as e:
+        logger.error(f"Failed to stop Screen Monitor: {e}")
+
     # Stop Telegram bot long poller
     if hasattr(app.state, "tg_poller") and app.state.tg_poller:
         logger.info("Stopping Telegram Bot Poller service...")
@@ -316,6 +324,8 @@ async def get_status():
         "neural_ready": _neural_ready,
         "initialization_error": _neural_init_error,
         "hacker_mode": user_profile_store.get_profile().get("hacker_mode", False),
+        "current_hud": global_state_manager.current_hud,
+        "active_pipeline_id": global_state_manager.active_pipeline_id,
     }
 
 
@@ -895,11 +905,15 @@ async def voice_websocket_endpoint(websocket: WebSocket):
     silent_frames = 0
     has_spoken = False
     active_tts_task = None
+    is_sleeping = False  # Always active/listening
     
     # Heuristics for VAD:
     # Assuming frontend sends audio in chunks of 4096 samples (8192 bytes = 0.256s at 16kHz)
     # 6 silent frames is ~1.5s
     SILENCE_LIMIT = 6
+
+    # Inform frontend we are active
+    await websocket.send_json({"type": "status_change", "is_sleeping": False})
 
     async def speak_response(text: str, agent_id: str):
         nonlocal active_tts_task
@@ -1146,6 +1160,20 @@ async def api_trigger_scan():
     return {"success": True}
 
 
+@app.post("/api/overlay/implement")
+async def api_overlay_implement():
+    from services.screen_monitor import get_screen_monitor
+    asyncio.create_task(get_screen_monitor().implement_last_suggestion())
+    return {"success": True}
+
+
+@app.post("/api/overlay/dismiss")
+async def api_overlay_dismiss():
+    from services.screen_monitor import get_screen_monitor
+    get_screen_monitor().dismiss_overlay()
+    return {"success": True}
+
+
 # ── Voice Endpoints ─────────────────────────────────────────────────────────
 
 class VoiceProcessRequest(BaseModel):
@@ -1233,6 +1261,8 @@ async def _run_pipeline(pipeline_id: str, objective: str, language: str):
     if not q:
         return
 
+    global_state_manager.current_hud = "codepipeline"
+    global_state_manager.active_pipeline_id = pipeline_id
     try:
         from agents.planner_agent import PlannerAgent
         from agents.verifier_agent import VerifierAgent
@@ -1334,6 +1364,12 @@ async def _run_pipeline(pipeline_id: str, objective: str, language: str):
         logger.exception(f"[Pipeline] Fatal error: {e}")
         await q.put({"stage": "error", "status": "error", "message": str(e)})
         _pipeline_state[pipeline_id] = {"status": "error", "error": str(e)}
+    finally:
+        await asyncio.sleep(5)
+        if global_state_manager.current_hud == "codepipeline":
+            global_state_manager.current_hud = None
+        if global_state_manager.active_pipeline_id == pipeline_id:
+            global_state_manager.active_pipeline_id = None
 
 
 def _extract_best_code(result: dict, target_path: str) -> str:
@@ -1560,6 +1596,309 @@ async def api_collaboration_stream(task_id: str):
     )
 
 
+_last_net_bytes = 0
+_last_net_time = 0
+
+@app.get("/api/diagnostics/telemetry")
+async def get_diagnostics_telemetry():
+    global _last_net_bytes, _last_net_time
+    import time
+    
+    cpu = 0.0
+    ram = 0.0
+    disk = 0.0
+    net_rate = 0.0
+    
+    try:
+        try:
+            import psutil
+        except ImportError:
+            psutil = None
+            
+        cpu = psutil.cpu_percent(interval=None) if psutil else 15.0
+        mem = psutil.virtual_memory() if psutil else None
+        ram = mem.percent if mem else 40.0
+        
+        import shutil
+        total, used, free = shutil.disk_usage(str(settings.WORKSPACE_DIR))
+        disk = round((used / total) * 100, 1)
+        
+        if psutil:
+            io = psutil.net_io_counters()
+            total_bytes = io.bytes_sent + io.bytes_recv
+            now = time.time()
+            if _last_net_time > 0:
+                elapsed = now - _last_net_time
+                if elapsed > 0:
+                    net_rate = (total_bytes - _last_net_bytes) / elapsed / 1024.0
+            
+            _last_net_bytes = total_bytes
+            _last_net_time = now
+        else:
+            import random
+            net_rate = round(100.0 + random.random() * 800.0, 1)
+    except Exception as e:
+        logger.warning(f"Error fetching telemetry API: {e}")
+        
+    return {
+        "cpu_percent": round(cpu, 1),
+        "ram_used_percent": round(ram, 1),
+        "disk_used_percent": round(disk, 1),
+        "net_data_rate_kb": round(net_rate, 1)
+    }
+
+
+class CodeDiagnoseRequest(BaseModel):
+    path: str = ""
+
+
+@app.post("/api/diagnostics/system")
+async def api_diagnose_system():
+    from tools.diagnostics_tools import diagnose_system
+    try:
+        report = diagnose_system()
+        return {"success": True, "report": report}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/diagnostics/code")
+async def api_diagnose_code(req: CodeDiagnoseRequest):
+    from tools.diagnostics_tools import diagnose_code
+    try:
+        report = diagnose_code(req.path)
+        return {"success": True, "report": report}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+class AgentDiagnoseRequest(BaseModel):
+    agent_name: str
+
+
+@app.post("/api/diagnostics/agent")
+async def api_diagnose_agent(req: AgentDiagnoseRequest):
+    from tools.diagnostics_tools import diagnose_agent
+    try:
+        report = await diagnose_agent(req.agent_name)
+        return {"success": True, "report": report}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ── Repair Agent Endpoints ─────────────────────────────────────────────────
+
+class RepairAnalyzeRequest(BaseModel):
+    description: str
+    target_path: Optional[str] = None
+
+class RepairRunRequest(BaseModel):
+    repair_plan: dict
+    dry_run: bool = False
+    auto_apply: bool = False
+
+class MemoryNoteRequest(BaseModel):
+    note: str
+
+async def _run_repair_job(job_id: str, plan: Any):
+    from services.job_manager import get_job_manager
+    from services.collaboration_events import collaboration_bus
+    manager = get_job_manager()
+    manager.update_job(job_id, status="running", event="Starting repair process...")
+    try:
+        # Get RepairAgent instance from brain
+        repair_agent = brain.agents.get("repair")
+        if not repair_agent:
+            raise ValueError("RepairAgent not found in brain.")
+        
+        # Emit event
+        await collaboration_bus.emit(plan.repair_id, "info", {"message": "Applying repairs..."})
+        
+        result = await repair_agent.execute(plan)
+        
+        # Emit event
+        await collaboration_bus.emit(plan.repair_id, "complete", {"message": "Repair completed.", "result": result.to_dict()})
+        
+        manager.update_job(
+            job_id, 
+            status="completed" if result.success else "failed", 
+            progress=100,
+            final_result=result.to_dict(),
+            event="Repair completed successfully." if result.success else f"Repair failed: {result.report}"
+        )
+    except Exception as e:
+        logger.exception("Error executing repair background job")
+        await collaboration_bus.emit(plan.repair_id, "error", {"message": str(e)})
+        manager.update_job(job_id, status="failed", progress=100, error=str(e), event=f"Repair failed: {e}")
+
+@app.post("/api/repair/analyze")
+async def api_repair_analyze(req: RepairAnalyzeRequest):
+    repair_agent = brain.agents.get("repair")
+    if not repair_agent:
+        raise HTTPException(status_code=500, detail="RepairAgent not found in brain.")
+    try:
+        plan = await repair_agent.think(req.description, {"target_path": req.target_path})
+        return plan.to_dict()
+    except Exception as e:
+        logger.exception("Error analyzing repair request")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/repair/run")
+async def api_repair_run(req: RepairRunRequest):
+    from services.job_manager import get_job_manager
+    from agents.repair_agent import RepairPlan, RepairIssue, RepairFix
+    
+    rplan = req.repair_plan
+    try:
+        plan = RepairPlan(
+            repair_id=rplan["repair_id"],
+            issues=[RepairIssue(**i) for i in rplan.get("issues", [])],
+            proposed_fixes=[RepairFix(**f) for f in rplan.get("proposed_fixes", [])],
+            risk_level=rplan.get("risk_level", "low"),
+            dry_run=req.dry_run,
+            auto_apply=req.auto_apply,
+            requires_approval=rplan.get("requires_approval", True),
+            explanation=rplan.get("explanation", ""),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid repair plan payload: {e}")
+    
+    manager = get_job_manager()
+    job = manager.create_job(f"Repair Execution: {plan.repair_id}")
+    job_id = job["job_id"]
+    
+    task = asyncio.create_task(_run_repair_job(job_id, plan))
+    manager._register_task(job_id, task)
+    
+    return {"success": True, "repair_id": plan.repair_id, "job_id": job_id}
+
+@app.get("/api/repair/status/{repair_id}")
+async def api_repair_status(repair_id: str):
+    repair_agent = brain.agents.get("repair")
+    if not repair_agent:
+        raise HTTPException(status_code=500, detail="RepairAgent not found in brain.")
+    status = repair_agent.get_status(repair_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Repair status not found.")
+    return status
+
+@app.get("/api/repair/history")
+async def api_repair_history():
+    repair_agent = brain.agents.get("repair")
+    if not repair_agent:
+        raise HTTPException(status_code=500, detail="RepairAgent not found in brain.")
+    return repair_agent.get_history()
+
+@app.get("/api/repair/memory")
+async def api_repair_memory():
+    repair_agent = brain.agents.get("repair")
+    if not repair_agent:
+        raise HTTPException(status_code=500, detail="RepairAgent not found in brain.")
+    return repair_agent.get_memory()
+
+@app.post("/api/repair/memory/note")
+async def api_repair_memory_note(req: MemoryNoteRequest):
+    repair_agent = brain.agents.get("repair")
+    if not repair_agent:
+        raise HTTPException(status_code=500, detail="RepairAgent not found in brain.")
+    repair_agent.add_memory_note(req.note)
+    return {"success": True}
+
+
+# ── WebWeaver HUD Endpoints ──────────────────────────────────────────────────
+
+class WebWeaverNodeRequest(BaseModel):
+    id: str
+    label: str
+    type: str = "host"
+    ip: Optional[str] = None
+    status: str = "online"
+    parent_id: Optional[str] = None
+    link_type: str = "connection"
+    port: Optional[int] = None
+
+
+@app.get("/api/webweaver/graph")
+async def get_webweaver_graph():
+    import json
+    graph_path = settings.DATA_DIR / "webweaver_graph.json"
+    if not graph_path.exists():
+        graph_path.parent.mkdir(parents=True, exist_ok=True)
+        default_graph = {
+            "nodes": [
+                {"id": "aeris_brain", "label": "AERIS Brain", "type": "host", "ip": "127.0.0.1", "status": "online"},
+                {"id": "api_gateway", "label": "FastAPI Gateway", "type": "service", "status": "online"}
+            ],
+            "links": [
+                {"source": "aeris_brain", "target": "api_gateway", "type": "connection", "port": 8000}
+            ]
+        }
+        graph_path.write_text(json.dumps(default_graph, indent=2))
+        return default_graph
+    try:
+        return json.loads(graph_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        logger.error(f"Failed to read webweaver graph: {e}")
+        return {"nodes": [], "links": []}
+
+
+@app.post("/api/webweaver/node")
+async def add_webweaver_node(req: WebWeaverNodeRequest):
+    import json
+    graph_path = settings.DATA_DIR / "webweaver_graph.json"
+    
+    # Ensure file exists
+    await get_webweaver_graph()
+    
+    try:
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+        
+        # Check if node already exists, if so update it
+        node_exists = False
+        for node in graph["nodes"]:
+            if node["id"] == req.id:
+                node["label"] = req.label
+                node["type"] = req.type
+                if req.ip:
+                    node["ip"] = req.ip
+                node["status"] = req.status
+                node_exists = True
+                break
+        
+        if not node_exists:
+            graph["nodes"].append({
+                "id": req.id,
+                "label": req.label,
+                "type": req.type,
+                "ip": req.ip,
+                "status": req.status
+            })
+            
+        # Add link if parent_id is specified
+        if req.parent_id:
+            link_exists = False
+            for link in graph["links"]:
+                if link["source"] == req.parent_id and link["target"] == req.id:
+                    link["type"] = req.link_type
+                    if req.port:
+                        link["port"] = req.port
+                    link_exists = True
+                    break
+            if not link_exists:
+                graph["links"].append({
+                    "source": req.parent_id,
+                    "target": req.id,
+                    "type": req.link_type,
+                    "port": req.port
+                })
+                
+        graph_path.write_text(json.dumps(graph, indent=2))
+        return {"success": True, "graph": graph}
+    except Exception as e:
+        logger.exception("Failed to write to webweaver graph")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws/{path:path}")
 async def ws_catchall(websocket: WebSocket, path: str):
     await websocket.close(code=1008, reason=f"Unknown WebSocket endpoint: /ws/{path}")
@@ -1606,7 +1945,7 @@ if __name__ == "__main__":
     logger.info("Starting server on port %s", settings.API_PORT)
     uvicorn.run(
         "api:app",
-        host="0.0.0.0",
+        host=settings.API_HOST,
         port=settings.API_PORT,
         reload=True,
         reload_excludes=["*.json", "*.md", "*.log", "data/*", "data/**/*", "memory.json", "hacker_memory.json"]

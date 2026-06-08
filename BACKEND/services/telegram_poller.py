@@ -191,6 +191,8 @@ async def handle_text_message(client: httpx.AsyncClient, bot_token: str, message
     """Processes incoming text commands/messages from authorized Telegram users and executes them via the Brain."""
     chat_id = message.get("chat", {}).get("id")
     text = message.get("text", "").strip()
+    if text.startswith("/"):
+        text = text[1:].strip()
     
     if not text:
         return

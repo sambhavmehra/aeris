@@ -203,109 +203,134 @@ class LeakGraphAgent(BaseAgent):
         if not seed_value:
             return {"success": False, "error": "Could not identify seed target to analyze."}
 
-        # Initialize OSINT & Dorking Agents
-        osint_agent = OSINTAgent()
-        dork_agent = DorkingAgent()
+        from engine.state_manager import global_state_manager
+        from config import settings
+        import asyncio
+        global_state_manager.current_hud = "webweaver"
 
         # Normalize the seed
         normalized_seed = self._normalize_value(seed_value, seed_type)
 
-        # Graph structures
-        entities: Dict[str, Dict] = {}
-        relationships: List[Dict] = []
-        exposure_findings: List[Dict] = []
-        discovery_chain: List[str] = [f"Seed entity parsed: {normalized_seed} ({seed_type})"]
+        # Clear WebWeaver graph and add seed
+        graph_path = settings.DATA_DIR / "webweaver_graph.json"
+        try:
+            graph_path.parent.mkdir(parents=True, exist_ok=True)
+            initial_graph = {
+                "nodes": [
+                    {
+                        "id": normalized_seed,
+                        "label": f"Seed: {self._mask_value(normalized_seed, seed_type)}",
+                        "type": seed_type,
+                        "status": "online"
+                    }
+                ],
+                "links": []
+            }
+            graph_path.write_text(json.dumps(initial_graph, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Failed to initialize webweaver graph: {e}")
 
-        # Add seed to graph
-        seed_key = f"{seed_type}:{normalized_seed}"
-        entities[seed_key] = {
-            "value": normalized_seed,
-            "type": seed_type,
-            "confidence": 1.0,
-            "status": "CONFIRMED",
-            "source_type": "user_input",
-            "first_discovered_from": "User Input",
-            "round": 0,
-            "pivot_allowed": True,
-        }
+        try:
+            # Initialize OSINT & Dorking Agents
+            osint_agent = OSINTAgent()
+            dork_agent = DorkingAgent()
 
-        # Tracking set
-        searched_keys: Set[str] = set()
+            # Graph structures
+            entities: Dict[str, Dict] = {}
+            relationships: List[Dict] = []
+            exposure_findings: List[Dict] = []
+            discovery_chain: List[str] = [f"Seed entity parsed: {normalized_seed} ({seed_type})"]
 
-        # Hard limits
-        max_depth = 3
-        max_entities = 20
-        max_queries_per_round = 12
+            # Add seed to graph
+            seed_key = f"{seed_type}:{normalized_seed}"
+            entities[seed_key] = {
+                "value": normalized_seed,
+                "type": seed_type,
+                "confidence": 1.0,
+                "status": "CONFIRMED",
+                "source_type": "user_input",
+                "first_discovered_from": "User Input",
+                "round": 0,
+                "pivot_allowed": True,
+            }
 
-        # Round Loop
-        for round_idx in range(1, max_depth + 1):
-            if len(entities) >= max_entities:
-                discovery_chain.append(f"Round {round_idx}: Max entities limit reached. Stopping search.")
-                break
+            # Tracking set
+            searched_keys: Set[str] = set()
 
-            # A. Select pivot entities
-            pivots = [
-                ent for ent in entities.values()
-                if ent["confidence"] >= 0.60
-                and ent["pivot_allowed"]
-                and f"{ent['type']}:{ent['value']}" not in searched_keys
-            ]
+            # Hard limits
+            max_depth = 3
+            max_entities = 20
+            max_queries_per_round = 12
 
-            if not pivots:
-                discovery_chain.append(f"Round {round_idx}: No new high-confidence pivots available. Completing search.")
-                break
+            # Round Loop
+            for round_idx in range(1, max_depth + 1):
+                if len(entities) >= max_entities:
+                    discovery_chain.append(f"Round {round_idx}: Max entities limit reached. Stopping search.")
+                    break
 
-            # Limit pivot count per round to prevent API overload
-            pivots = pivots[:max_queries_per_round]
-            discovery_chain.append(f"Round {round_idx}: Pivoting from {len(pivots)} entities.")
+                # A. Select pivot entities
+                pivots = [
+                    ent for ent in entities.values()
+                    if ent["confidence"] >= 0.60
+                    and ent["pivot_allowed"]
+                    and f"{ent['type']}:{ent['value']}" not in searched_keys
+                ]
 
-            # B. Execute investigation in parallel
-            tasks = [
-                self._investigate_pivot(pivot, osint_agent, dork_agent)
-                for pivot in pivots
-            ]
-            results = await asyncio.gather(*tasks)
+                if not pivots:
+                    discovery_chain.append(f"Round {round_idx}: No new high-confidence pivots available. Completing search.")
+                    break
 
-            # Mark all as searched
-            for pivot in pivots:
-                searched_keys.add(f"{pivot['type']}:{pivot['value']}")
+                # Limit pivot count per round to prevent API overload
+                pivots = pivots[:max_queries_per_round]
+                discovery_chain.append(f"Round {round_idx}: Pivoting from {len(pivots)} entities.")
 
-            # C. Extract & Merge entities from results
-            for pivot, intel in zip(pivots, results):
-                if not intel or "error" in intel:
-                    continue
+                # B. Execute investigation in parallel
+                tasks = [
+                    self._investigate_pivot(pivot, osint_agent, dork_agent)
+                    for pivot in pivots
+                ]
+                results = await asyncio.gather(*tasks)
 
-                intel_text = osint_agent._format_search_results(intel)
+                # Mark all as searched
+                for pivot in pivots:
+                    searched_keys.add(f"{pivot['type']}:{pivot['value']}")
 
-                # Call LLM extractor
-                try:
-                    extract_prompt = EXTRACTION_PROMPT.format(
-                        target_value=pivot["value"],
-                        target_type=pivot["type"],
-                        search_results=intel_text[:6000]  # Avoid token limit overflow
-                    )
-                    raw_extracted = await ai_engine.chat(
-                        messages=[
-                            {"role": "system", "content": "You are a precise JSON extractor. Respond ONLY with valid JSON matching the requested schema."},
-                            {"role": "user", "content": extract_prompt}
-                        ],
-                        temperature=0.1,
-                        max_tokens=2048,
-                        response_format={"type": "json_object"}
-                    )
-                    raw_extracted = raw_extracted.strip()
-                    if raw_extracted.startswith("```"):
-                        raw_extracted = raw_extracted.split("\n", 1)[1] if "\n" in raw_extracted else raw_extracted[3:]
-                        if raw_extracted.endswith("```"):
-                            raw_extracted = raw_extracted[:-3]
-                        raw_extracted = raw_extracted.strip()
+                # C. Extract & Merge entities from results
+                for pivot, intel in zip(pivots, results):
+                    if not intel or "error" in intel:
+                        continue
 
+                    intel_text = osint_agent._format_search_results(intel)
+
+                    # Call LLM extractor
                     try:
-                        extraction_res = json.loads(raw_extracted)
-                    except json.JSONDecodeError as err:
-                        logger.warning(f"Initial JSON parse failed for pivot {pivot['value']}: {err}. Attempting auto-repair...")
-                        # Run a fast repair query with the LLM using chat (which supports max_tokens=2048)
-                        repair_prompt = f"""You are an expert JSON repair utility.
+                        extract_prompt = EXTRACTION_PROMPT.format(
+                            target_value=pivot["value"],
+                            target_type=pivot["type"],
+                            search_results=intel_text[:6000]  # Avoid token limit overflow
+                        )
+                        raw_extracted = await ai_engine.chat(
+                            messages=[
+                                {"role": "system", "content": "You are a precise JSON extractor. Respond ONLY with valid JSON matching the requested schema."},
+                                {"role": "user", "content": extract_prompt}
+                            ],
+                            temperature=0.1,
+                            max_tokens=2048,
+                            response_format={"type": "json_object"}
+                        )
+                        raw_extracted = raw_extracted.strip()
+                        if raw_extracted.startswith("```"):
+                            raw_extracted = raw_extracted.split("\n", 1)[1] if "\n" in raw_extracted else raw_extracted[3:]
+                            if raw_extracted.endswith("```"):
+                                raw_extracted = raw_extracted[:-3]
+                            raw_extracted = raw_extracted.strip()
+
+                        try:
+                            extraction_res = json.loads(raw_extracted)
+                        except json.JSONDecodeError as err:
+                            logger.warning(f"Initial JSON parse failed for pivot {pivot['value']}: {err}. Attempting auto-repair...")
+                            # Run a fast repair query with the LLM using chat (which supports max_tokens=2048)
+                            repair_prompt = f"""You are an expert JSON repair utility.
 The following JSON string failed to parse due to formatting/quoting issues (like unescaped double quotes, unescaped newlines, or control characters inside string fields, or truncation).
 Fix the formatting so that it is a 100% valid JSON object matching the schema.
 Do not change, omit, or invent keys or values. Just fix the JSON syntax (e.g. escape inner quotes as \\\" and inner newlines as \\n).
@@ -314,126 +339,160 @@ RAW INVALID JSON:
 {raw_extracted}
 
 Respond with ONLY the valid repaired JSON:"""
-                        try:
-                            repaired = await ai_engine.chat(
-                                messages=[
-                                    {"role": "system", "content": "You are a JSON repair utility. Respond ONLY with valid, complete JSON."},
-                                    {"role": "user", "content": repair_prompt}
-                                ],
-                                temperature=0.1,
-                                max_tokens=2048,
-                                response_format={"type": "json_object"}
-                            )
-                            repaired = repaired.strip()
-                            if repaired.startswith("```"):
-                                repaired = repaired.split("\n", 1)[1] if "\n" in repaired else repaired[3:]
-                                if repaired.endswith("```"):
-                                    repaired = repaired[:-3]
+                            try:
+                                repaired = await ai_engine.chat(
+                                    messages=[
+                                        {"role": "system", "content": "You are a JSON repair utility. Respond ONLY with valid, complete JSON."},
+                                        {"role": "user", "content": repair_prompt}
+                                    ],
+                                    temperature=0.1,
+                                    max_tokens=2048,
+                                    response_format={"type": "json_object"}
+                                )
                                 repaired = repaired.strip()
-                            extraction_res = json.loads(repaired)
-                            logger.info(f"JSON successfully repaired and parsed for pivot {pivot['value']}.")
-                        except Exception as repair_err:
-                            logger.error(f"JSON repair failed for pivot {pivot['value']}: {repair_err}")
-                            continue
+                                if repaired.startswith("```"):
+                                    repaired = repaired.split("\n", 1)[1] if "\n" in repaired else repaired[3:]
+                                    if repaired.endswith("```"):
+                                        repaired = repaired[:-3]
+                                    repaired = repaired.strip()
+                                extraction_res = json.loads(repaired)
+                                logger.info(f"JSON successfully repaired and parsed for pivot {pivot['value']}.")
+                            except Exception as repair_err:
+                                logger.error(f"JSON repair failed for pivot {pivot['value']}: {repair_err}")
+                                continue
 
-                    # Update Discovery Chain
-                    new_found_names = []
+                        # Update Discovery Chain
+                        new_found_names = []
 
-                    # Process extracted entities
-                    for ent in extraction_res.get("entities", []):
-                        val = ent.get("value")
-                        etype = ent.get("type")
-                        conf = float(ent.get("confidence", 0.5))
-                        conf_label = ent.get("confidence_label", "POSSIBLE")
-                        rel = ent.get("relationship", "associated_with")
-                        evidence = ent.get("evidence", "")
+                        # Process extracted entities
+                        for ent in extraction_res.get("entities", []):
+                            val = ent.get("value")
+                            etype = ent.get("type")
+                            conf = float(ent.get("confidence", 0.5))
+                            conf_label = ent.get("confidence_label", "POSSIBLE")
+                            rel = ent.get("relationship", "associated_with")
+                            evidence = ent.get("evidence", "")
 
-                        if not val or not etype:
-                            continue
+                            if not val or not etype:
+                                continue
 
-                        # Normalize
-                        norm_val = self._normalize_value(val, etype)
-                        ent_key = f"{etype}:{norm_val}"
+                            # Normalize
+                            norm_val = self._normalize_value(val, etype)
+                            ent_key = f"{etype}:{norm_val}"
 
-                        # Skip weak matches
-                        if conf < 0.60:
-                            continue
+                            # Skip weak matches
+                            if conf < 0.60:
+                                continue
 
-                        # Determine if pivot allowed (pivoting restrictions)
-                        pivot_ok = True
-                        if etype == "location":
-                            pivot_ok = False
-                        elif etype in ("person_name", "organization") and conf < 0.80:
-                            pivot_ok = False
+                            # Determine if pivot allowed (pivoting restrictions)
+                            pivot_ok = True
+                            if etype == "location":
+                                pivot_ok = False
+                            elif etype in ("person_name", "organization") and conf < 0.80:
+                                pivot_ok = False
 
-                        # Add or update entity
-                        if ent_key in entities:
-                            # Keep higher confidence
-                            if conf > entities[ent_key]["confidence"]:
-                                entities[ent_key]["confidence"] = conf
-                                entities[ent_key]["status"] = conf_label
-                        else:
-                            if len(entities) < max_entities:
-                                entities[ent_key] = {
-                                    "value": norm_val,
-                                    "type": etype,
-                                    "confidence": conf,
-                                    "status": conf_label,
-                                    "source_type": "osint_pivot",
-                                    "first_discovered_from": f"Pivot from {pivot['value']}",
-                                    "round": round_idx,
-                                    "pivot_allowed": pivot_ok,
-                                }
-                                new_found_names.append(f"{norm_val} ({etype})")
+                            # Add or update entity
+                            if ent_key in entities:
+                                # Keep higher confidence
+                                if conf > entities[ent_key]["confidence"]:
+                                    entities[ent_key]["confidence"] = conf
+                                    entities[ent_key]["status"] = conf_label
+                            else:
+                                if len(entities) < max_entities:
+                                    entities[ent_key] = {
+                                        "value": norm_val,
+                                        "type": etype,
+                                        "confidence": conf,
+                                        "status": conf_label,
+                                        "source_type": "osint_pivot",
+                                        "first_discovered_from": f"Pivot from {pivot['value']}",
+                                        "round": round_idx,
+                                        "pivot_allowed": pivot_ok,
+                                    }
+                                    new_found_names.append(f"{norm_val} ({etype})")
 
-                        # Record relationship
-                        # Avoid duplicates
-                        rel_exists = any(
-                            r["from"] == pivot["value"] and r["to"] == norm_val
-                            for r in relationships
-                        )
-                        if not rel_exists:
-                            relationships.append({
-                                "from": pivot["value"],
-                                "to": norm_val,
-                                "relationship": rel,
-                                "confidence": conf,
-                                "evidence_summary": evidence
-                            })
+                                    # Update WebWeaver graph file in real-time
+                                    try:
+                                        if graph_path.exists():
+                                            graph_data = json.loads(graph_path.read_text(encoding="utf-8"))
+                                        else:
+                                            graph_data = {"nodes": [], "links": []}
 
-                    if new_found_names:
-                        discovery_chain.append(
-                            f"  ↳ Pivot '{pivot['value']}' yielded: {', '.join(new_found_names[:5])}"
-                        )
+                                        # Add node if not exists
+                                        if not any(n["id"] == norm_val for n in graph_data["nodes"]):
+                                            graph_data["nodes"].append({
+                                                "id": norm_val,
+                                                "label": self._mask_value(norm_val, etype),
+                                                "type": etype,
+                                                "status": "online"
+                                            })
+                                        # Add link if not exists
+                                        link_exists = any(
+                                            l["source"] == pivot["value"] and l["target"] == norm_val
+                                            for l in graph_data["links"]
+                                        )
+                                        if not link_exists:
+                                            graph_data["links"].append({
+                                                "source": pivot["value"],
+                                                "target": norm_val,
+                                                "type": rel
+                                            })
+                                        graph_path.write_text(json.dumps(graph_data, indent=2), encoding="utf-8")
+                                    except Exception as ge:
+                                        logger.warning(f"Failed to update webweaver graph: {ge}")
 
-                    # Add exposure findings
-                    for finding in extraction_res.get("exposure_findings", []):
-                        f_name = finding.get("finding")
-                        if f_name:
+                            # Record relationship
                             # Avoid duplicates
-                            if not any(ef["finding"] == f_name for ef in exposure_findings):
-                                exposure_findings.append(finding)
+                            rel_exists = any(
+                                r["from"] == pivot["value"] and r["to"] == norm_val
+                                for r in relationships
+                            )
+                            if not rel_exists:
+                                relationships.append({
+                                    "from": pivot["value"],
+                                    "to": norm_val,
+                                    "relationship": rel,
+                                    "confidence": conf,
+                                    "evidence_summary": evidence
+                                })
 
-                except Exception as e:
-                    logger.warning(f"Failed to extract entities/findings for pivot {pivot['value']}: {e}")
+                        if new_found_names:
+                            discovery_chain.append(
+                                f"  ↳ Pivot '{pivot['value']}' yielded: {', '.join(new_found_names[:5])}"
+                            )
 
-        # Compute risk score
-        risk_score, risk_level, breakdown = self._calculate_risk(entities, relationships, exposure_findings)
+                        # Add exposure findings
+                        for finding in extraction_res.get("exposure_findings", []):
+                            f_name = finding.get("finding")
+                            if f_name:
+                                # Avoid duplicates
+                                if not any(ef["finding"] == f_name for ef in exposure_findings):
+                                    exposure_findings.append(finding)
 
-        return {
-            "success": True,
-            "seed_value": normalized_seed,
-            "seed_type": seed_type,
-            "authorization_status": "explicit" if explicit_auth else "assumed_public_only",
-            "search_depth": max_depth,
-            "entities": list(entities.values()),
-            "relationships": relationships,
-            "exposure_findings": exposure_findings,
-            "discovery_chain": discovery_chain,
-            "risk_score": risk_score,
-            "risk_level": risk_level,
-            "risk_breakdown": breakdown
-        }
+                    except Exception as e:
+                        logger.warning(f"Failed to extract entities/findings for pivot {pivot['value']}: {e}")
+
+            # Compute risk score
+            risk_score, risk_level, breakdown = self._calculate_risk(entities, relationships, exposure_findings)
+
+            return {
+                "success": True,
+                "seed_value": normalized_seed,
+                "seed_type": seed_type,
+                "authorization_status": "explicit" if explicit_auth else "assumed_public_only",
+                "search_depth": max_depth,
+                "entities": list(entities.values()),
+                "relationships": relationships,
+                "exposure_findings": exposure_findings,
+                "discovery_chain": discovery_chain,
+                "risk_score": risk_score,
+                "risk_level": risk_level,
+                "risk_breakdown": breakdown
+            }
+        finally:
+            await asyncio.sleep(8)
+            if global_state_manager.current_hud == "webweaver":
+                global_state_manager.current_hud = None
 
     # ── Report ─────────────────────────────────────────────────────
 

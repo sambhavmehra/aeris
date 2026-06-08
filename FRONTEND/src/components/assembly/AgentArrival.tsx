@@ -66,7 +66,7 @@ export const AgentArrival: React.FC<AgentArrivalProps> = ({ onComplete, onSkip }
     }
   }, [terminalLogs]);
 
-  // Autocomplete checker (all 32 agents online)
+  // Autocomplete checker (all 34 agents online)
   useEffect(() => {
     if (onlineCount === agents.length && agents.length > 0) {
       const timer = setTimeout(() => {
@@ -110,11 +110,11 @@ export const AgentArrival: React.FC<AgentArrivalProps> = ({ onComplete, onSkip }
         gap: '20px'
       }}>
         
-        {/* ── 32 Agent Status Grid ── */}
+        {/* ── 34 Agent Status Grid ── */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(8, 1fr)',
-          gridTemplateRows: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(12, 1fr)',
+          gridTemplateRows: 'repeat(3, 1fr)',
           gap: '8px',
           width: '100%',
           flex: 1,

@@ -1,0 +1,122 @@
+{
+  "rep_1d5521f6": {
+    "status": "plan_ready",
+    "progress": 40,
+    "plan": {
+      "repair_id": "rep_1d5521f6",
+      "issues": [
+        {
+          "issue_type": "agent_registry_error",
+          "file_path": null,
+          "error_msg": "Unknown agent 'agestnt' not found in agent registry",
+          "line_number": null,
+          "severity": "medium"
+        }
+      ],
+      "proposed_fixes": [
+        {
+          "file_path": null,
+          "description": "Check agent name for typos and ensure it matches a registered agent",
+          "original_content": null,
+          "fixed_content": null,
+          "command": null,
+          "risk_level": "low"
+        }
+      ],
+      "risk_level": "low",
+      "dry_run": true,
+      "auto_apply": false,
+      "requires_approval": false,
+      "explanation": "The agent 'agestnt' is not recognized, possibly due to a typo. Verify the agent name and try again."
+    },
+    "updated_at": "2026-06-05T18:42:33.472794+00:00"
+  },
+  "rep_5dac0fc3": {
+    "status": "complete_dry_run",
+    "progress": 100,
+    "result": {
+      "repair_id": "rep_5dac0fc3",
+      "success": true,
+      "issues_found": 1,
+      "issues_fixed": 0,
+      "files_changed": [],
+      "commands_run": [],
+      "verification_status": "not_verified",
+      "remaining_risks": [],
+      "report": "DRY RUN \u2014 No changes applied. Review the repair plan above."
+    },
+    "updated_at": "2026-06-05T19:28:19.461278+00:00"
+  },
+  "rep_5fd1403b": {
+    "status": "complete_dry_run",
+    "progress": 100,
+    "result": {
+      "repair_id": "rep_5fd1403b",
+      "success": true,
+      "issues_found": 3,
+      "issues_fixed": 0,
+      "files_changed": [],
+      "commands_run": [],
+      "verification_status": "not_verified",
+      "remaining_risks": [],
+      "report": "DRY RUN \u2014 No changes applied. Review the repair plan above."
+    },
+    "updated_at": "2026-06-06T10:38:11.159274+00:00"
+  },
+  "rep_46fe6c54": {
+    "status": "plan_ready",
+    "progress": 40,
+    "plan": {
+      "repair_id": "rep_46fe6c54",
+      "issues": [
+        {
+          "issue_type": "runtime_error",
+          "file_path": "audio_config.json",
+          "error_msg": "Microphone not detected",
+          "line_number": null,
+          "severity": "medium"
+        }
+      ],
+      "proposed_fixes": [
+        {
+          "file_path": "audio_config.json",
+          "description": "Check and update microphone settings",
+          "original_content": null,
+          "fixed_content": null,
+          "command": null,
+          "risk_level": "low"
+        },
+        {
+          "file_path": "system_settings.py",
+          "description": "Verify audio driver installation and updates",
+          "original_content": null,
+          "fixed_content": null,
+          "command": null,
+          "risk_level": "low"
+        }
+      ],
+      "risk_level": "low",
+      "dry_run": true,
+      "auto_apply": false,
+      "requires_approval": false,
+      "explanation": "The microphone issue is likely due to incorrect configuration or outdated audio drivers. Checking and updating the microphone settings and verifying the audio driver installation should resolve the issue."
+    },
+    "updated_at": "2026-06-06T12:06:11.874004+00:00"
+  },
+  "rep_7cb822cc": {
+    "status": "complete_dry_run",
+    "progress": 100,
+    "result": {
+      "repair_id": "rep_7cb822cc",
+      "success": true,
+      "issues_found": 1,
+      "issues_fixed": 0,
+      "files_changed": [],
+      "commands_run": [],
+      "verification_status": "not_verified",
+      "remaining_risks": [],
+      "report": "DRY RUN \u2014 No changes applied. Review the repair plan above."
+    },
+    "updated_at": "2026-06-06T17:27:15.177972+00:00"
+  }
+}

@@ -132,9 +132,24 @@ class TaskScheduler:
             logger.info(f"Cancelled task {cancelled_id} successfully.")
         return found
 
+    def _cleanup_stale_tasks(self):
+        """On startup, mark any tasks left in 'running' status as 'failed'."""
+        tasks = self._load_tasks()
+        changed = False
+        for t in tasks:
+            if t.get("status") == "running":
+                t["status"] = "failed"
+                t["completed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                t["error"] = "Task was interrupted by system shutdown or crash."
+                changed = True
+        if changed:
+            self._save_tasks(tasks)
+            logger.info("Cleaned up stale running tasks from previous session.")
+
     def start(self):
         if self._running:
             return
+        self._cleanup_stale_tasks()
         self._running = True
         self._loop_task = asyncio.create_task(self._scheduler_loop())
         logger.info("AERIS Task Scheduler service started.")
@@ -191,12 +206,13 @@ class TaskScheduler:
                 reminder_content = instruction[len(p):].strip()
                 break
 
+        # Check if this is a power command (shutdown, restart, etc.)
+        is_power_command = any(word in inst_lower for word in ["shutdown", "shut down", "restart", "reboot", "turn off"])
+
         try:
-            # 1. Announce execution via TTS (non-blocking)
+            # 1. Announce execution via TTS (non-blocking) - Only for tasks, skip for reminders
             from services.texttospeech import speak_async
-            if is_reminder:
-                speak_async(f"Sir, scheduled reminder: {reminder_content}")
-            else:
+            if not is_reminder:
                 speak_async(f"Sir, scheduled task run kar raha hoon: {instruction}")
 
             # 2. Trigger Windows toast notification
@@ -214,6 +230,13 @@ class TaskScheduler:
             from memory.store import memory_store
             memory_store.add_message("user", f"[Scheduled Task]: {instruction}")
 
+            # If it is a power command, delete from database BEFORE executing
+            if is_power_command:
+                logger.info(f"Power command detected for task {task['task_id']}: '{instruction}'. Removing from database before execution.")
+                tasks = self._load_tasks()
+                tasks = [t for t in tasks if t["task_id"] != task["task_id"]]
+                self._save_tasks(tasks)
+
             if is_reminder:
                 # Direct reminder display, bypass brain planning loop
                 response_text = f"Sir, aapka scheduled reminder: '{reminder_content}'."
@@ -223,10 +246,11 @@ class TaskScheduler:
                 result = await brain.process(instruction)
                 response_text = result.get("response", "Task completed.")
 
-            # Remove completed task from the database
-            tasks = self._load_tasks()
-            tasks = [t for t in tasks if t["task_id"] != task["task_id"]]
-            self._save_tasks(tasks)
+            # Remove completed task from the database (if not already done for power command)
+            if not is_power_command:
+                tasks = self._load_tasks()
+                tasks = [t for t in tasks if t["task_id"] != task["task_id"]]
+                self._save_tasks(tasks)
 
             # Add response to the chat memory so it appears on the chat screen
             memory_store.add_message("assistant", response_text)
@@ -237,15 +261,17 @@ class TaskScheduler:
         except Exception as e:
             logger.error(f"Failed to execute scheduled task {task['task_id']}: {e}")
             
-            # Keep failed task in the database and update its status
+            # Keep failed task in the database and update its status (only if it wasn't deleted)
             tasks = self._load_tasks()
-            for t in tasks:
-                if t["task_id"] == task["task_id"]:
-                    t["status"] = "failed"
-                    t["completed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    t["error"] = str(e)
-                    break
-            self._save_tasks(tasks)
+            task_exists = any(t["task_id"] == task["task_id"] for t in tasks)
+            if task_exists:
+                for t in tasks:
+                    if t["task_id"] == task["task_id"]:
+                        t["status"] = "failed"
+                        t["completed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        t["error"] = str(e)
+                        break
+                self._save_tasks(tasks)
 
             # Add failure message to the chat memory so it shows on the chat screen
             error_msg = f"Sir, scheduled task '{instruction}' fail ho gaya: {str(e)}"

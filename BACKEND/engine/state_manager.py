@@ -128,6 +128,8 @@ class StateManager:
         self._observers: List[Callable] = []  # sync callbacks
         self._async_observers: List[Callable] = []  # async callbacks (WebSocket)
         self.global_current_action: str = "Idle"
+        self.current_hud: Optional[str] = None
+        self.active_pipeline_id: Optional[str] = None
 
     # ── Observers ────────────────────────────────────────────────────
     def register_observer(self, callback: Callable):

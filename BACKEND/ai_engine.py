@@ -30,6 +30,15 @@ class AIEngine:
         for key in settings.GROQ_API_KEYS:
             self._groq_clients.append(AsyncGroq(api_key=key, max_retries=0))
 
+        # --- Groq Vision client (dedicated API key support) ---
+        self._groq_vision_client: Optional[AsyncGroq] = None
+        vision_key = settings.GROQ_VISION_API_KEY
+        if vision_key:
+            self._groq_vision_client = AsyncGroq(api_key=vision_key, max_retries=0)
+            logger.info("Dedicated Groq Vision client initialized.")
+        else:
+            logger.warning("Dedicated Groq Vision API key not configured. Groq Vision will be unavailable.")
+
         # --- Gemini client ---
         self._gemini_client: Optional[genai.Client] = None
         if settings.has_gemini:
@@ -214,33 +223,92 @@ class AIEngine:
 
     async def vision(self, prompt: str, image_b64: str) -> str:
         """
-        Analyze an image using Gemini Vision.
+        Analyze an image using Gemini Vision with Groq Vision & local Ollama (Qwen2.5-VL) fallback.
         """
-        if not self._gemini_client:
-            raise RuntimeError("Gemini API key not configured for Vision")
+        # Try Gemini Vision first if configured
+        if self._gemini_client:
+            try:
+                import base64
+                image_bytes = base64.b64decode(image_b64)
+                
+                # Prepare image for Gemini
+                loop = asyncio.get_event_loop()
+                
+                def _call_vision():
+                    from google.genai import types
+                    return self._gemini_client.models.generate_content(
+                        model=settings.GEMINI_MODEL,
+                        contents=[
+                            prompt,
+                            types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+                        ]
+                    )
 
-        try:
-            import base64
-            image_bytes = base64.b64decode(image_b64)
-            
-            # Prepare image for Gemini
-            loop = asyncio.get_event_loop()
-            
-            def _call_vision():
-                from google.genai import types
-                return self._gemini_client.models.generate_content(
-                    model=settings.GEMINI_MODEL,
-                    contents=[
-                        prompt,
-                        types.Part.from_bytes(data=image_bytes, mime_type="image/png")
-                    ]
+                response = await loop.run_in_executor(None, _call_vision)
+                return response.text or ""
+            except Exception as e:
+                logger.warning(f"Gemini Vision failed ({e}). Falling back to Groq Vision...")
+
+        # Fallback to Groq Vision (using dedicated or primary Groq client)
+        if self._groq_vision_client:
+            try:
+                completion = await self._groq_vision_client.chat.completions.create(
+                    model="meta-llama/llama-4-scout-17b-16e-instruct",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/png;base64,{image_b64}"
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    temperature=0.2,
                 )
+                logger.info("Groq Vision analysis completed successfully as fallback.")
+                return completion.choices[0].message.content or ""
+            except Exception as ge:
+                logger.warning(f"Groq Vision fallback failed ({ge}). Falling back to local Ollama...")
 
-            response = await loop.run_in_executor(None, _call_vision)
-            return response.text or ""
-        except Exception as e:
-            logger.error(f"Vision analysis failed: {e}")
-            raise e
+        # Fallback to local Ollama (Qwen2.5-VL)
+        try:
+            return await self._ollama_vision(prompt, image_b64)
+        except Exception as oe:
+            logger.error(f"Local Ollama Vision fallback also failed: {oe}")
+            raise RuntimeError(
+                f"All Vision models failed. Gemini, Groq, and Ollama Vision models are unavailable."
+            )
+
+    async def _ollama_vision(self, prompt: str, image_b64: str) -> str:
+        """Analyze an image using local Ollama model (Qwen2.5-VL)."""
+        url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
+        # Ollama expects list of base64 strings in the 'images' field of the message
+        # without any 'data:image/png;base64,' prefix.
+        clean_b64 = image_b64
+        if "," in clean_b64:
+            clean_b64 = clean_b64.split(",")[1]
+            
+        payload = {
+            "model": settings.OLLAMA_VISION_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": [clean_b64]
+                }
+            ],
+            "stream": False,
+        }
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("message", {}).get("content", "")
 
     # ──────────────────────────── Summarize ────────────────────────────
 

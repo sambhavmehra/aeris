@@ -249,6 +249,11 @@ def _register_all_tools():
             r = _ft.write_file(path, content)
             if not r.success:
                 raise RuntimeError(r.output)
+            try:
+                from utils.file_tracker import record_file_creation
+                record_file_creation(path, "Written content via write_file tool")
+            except Exception:
+                pass
             return r.output
 
         def edit_file(path: str, old_text: str, new_text: str) -> str:
@@ -298,7 +303,7 @@ def _register_all_tools():
             open_folder, open_app, close_app, close_all_apps, play_youtube,
             play_music_background, play_on_youtube_visible,
             google_search, youtube_search, system_control, take_screenshot, write_content,
-            open_file, monitor_system, share_file_whatsapp, record_audio, send_file_telegram,
+            open_file, monitor_system, share_file_whatsapp, read_whatsapp_messages, record_audio, send_file_telegram,
         )
 
         reg.register("open_folder", "Open a folder or directory in the file explorer.", open_folder, ["path"], RiskLevel.LOW, "automation")
@@ -325,8 +330,51 @@ def _register_all_tools():
         )
         reg.register("monitor_system", "Monitor system health metrics: CPU, RAM, Disk, battery, and top active processes.", monitor_system, [], RiskLevel.SAFE, "system")
         reg.register("share_file_whatsapp", "Share any file via WhatsApp Web to a contact by name.", share_file_whatsapp, ["contact_name", "file_path"], RiskLevel.MEDIUM, "automation")
+        reg.register("read_whatsapp_messages", "Read the latest messages from a WhatsApp contact or the active chat.", read_whatsapp_messages, [], RiskLevel.LOW, "automation", optional_params=["contact_name"])
         reg.register("record_audio", "Record audio from your microphone for a given duration (in seconds) and save it to disk.", record_audio, ["duration"], RiskLevel.MEDIUM, "system")
         reg.register("send_file_telegram", "Send any captured file (photo, document, or audio recording) to your Telegram chat.", send_file_telegram, ["file_path"], RiskLevel.MEDIUM, "system", optional_params=["caption"])
+        
+        # Excel Tools
+        try:
+            from tools.excel_tools import export_to_excel, update_excel_from_screen
+            reg.register(
+                "export_to_excel",
+                "Create a premium styled Excel spreadsheet from a list of rows (data) and save it to file_path. Inputs: file_path (string), data (list of dictionaries), columns (optional list of column header strings).",
+                export_to_excel,
+                ["file_path", "data"],
+                RiskLevel.MEDIUM,
+                "automation",
+                optional_params=["columns"]
+            )
+            reg.register(
+                "update_excel_from_screen",
+                "Updates or appends details for a person/entity to a styled Excel sheet. It intelligently maps the role of the target to the sheet name (e.g. 'hr.xlsx') if no sheet name is specified. It captures the screen to scrape details if they are visible. If the data source is specified by the user as web search or internet search, set the source parameter to 'web'. Inputs: excel_path_or_keyword (optional string path or keyword like 'hr'), target_name (optional string name of the target like 'Sandeep'), manual_details (optional dict/string details), source (optional string: 'web' or 'screen').",
+                update_excel_from_screen,
+                [],
+                RiskLevel.MEDIUM,
+                "automation",
+                optional_params=["excel_path_or_keyword", "target_name", "manual_details", "source"]
+            )
+            logger.info("Registered Excel tools in global registry")
+        except Exception as ex_err:
+            logger.warning(f"Failed to register Excel tools: {ex_err}")
+            
+        # Word Tools
+        try:
+            from tools.word_tools import extract_transcript_to_word
+            reg.register(
+                "extract_transcript_to_word",
+                "Extracts a transcript/content from a link (YouTube video or article URL) or accepts direct text, generates styled professional meeting/topic notes using AI, saves them as a Word document (.docx) to disk, and automatically opens it. Inputs: url (optional string), text (optional string), output_path (optional string), notes_style (optional string: 'detailed', 'summary', 'key_takeaways').",
+                extract_transcript_to_word,
+                [],
+                RiskLevel.MEDIUM,
+                "automation",
+                optional_params=["url", "text", "output_path", "notes_style"]
+            )
+            logger.info("Registered Word tools in global registry")
+        except Exception as w_err:
+            logger.warning(f"Failed to register Word tools: {w_err}")
+            
         logger.info("Registered automation tools")
     except Exception as e:
         logger.warning(f"Failed to register automation tools: {e}")
@@ -1054,7 +1102,7 @@ def _register_all_tools():
 
         reg.register("list_workflows", "List available AERIS workflows.", list_workflows, [], RiskLevel.SAFE, "automation")
         reg.register("run_workflow", "Execute a saved workflow by its workflow_id.", run_workflow, ["workflow_id"], RiskLevel.MEDIUM, "automation")
-        reg.register("security_status", "Check whether AERIS's local security layer is locked.", security_status, [], RiskLevel.SAFE, "security")
+        reg.register("security_status", "Check whether AERIS's local security layer is locked.", security_status, [], RiskLevel.SAFE, "system")
         reg.register("open_map", "Open Google Maps focused on a location.", open_map, ["location"], RiskLevel.LOW, "navigation")
         reg.register("get_directions", "Open directions between an origin and destination in Google Maps.", get_directions, ["origin", "destination"], RiskLevel.LOW, "navigation")
         logger.info("Registered workflow, security, and navigation tools")
@@ -1195,6 +1243,139 @@ def _register_all_tools():
         logger.info("Registered missing recon tools for SecurityAgent")
     except Exception as e:
         logger.warning(f"Failed to register recon tools: {e}")
+
+    # ── 20. Diagnostics & Health Assessment ──────────────────────────
+    try:
+        from tools.diagnostics_tools import diagnose_system, diagnose_code, suggest_code_fixes, diagnose_agent
+
+        reg.register(
+            "diagnose_system",
+            "Perform a complete system check including hardware resource loads, API keys status, package dependencies, and agent health.",
+            diagnose_system,
+            [],
+            RiskLevel.SAFE,
+            "diagnostics",
+        )
+        reg.register(
+            "diagnose_agent",
+            "Diagnose a specific agent by its name (e.g. 'SecurityAgent', 'ChatAgent'). Checks capabilities, child sub-agents, and runs a dry-run test.",
+            diagnose_agent,
+            ["agent_name"],
+            RiskLevel.SAFE,
+            "diagnostics",
+        )
+        reg.register(
+            "diagnose_code",
+            "Scan files in the codebase recursively for syntax errors, console log checks, naming anomalies, and large file warnings. Provide path parameter if checking a subfolder.",
+            diagnose_code,
+            [],
+            RiskLevel.SAFE,
+            "diagnostics",
+            optional_params=["path"]
+        )
+        reg.register(
+            "suggest_code_fixes",
+            "Generate automatic repair solutions, clean code corrections, and Git patch diffs for code warnings or errors. Requires path and errors parameters.",
+            suggest_code_fixes,
+            ["path", "errors"],
+            RiskLevel.MEDIUM,
+            "diagnostics",
+        )
+        logger.info("Registered diagnostics tools")
+    except Exception as e:
+        logger.warning(f"Failed to register diagnostics tools: {e}")
+
+    # ── 21. Advanced Features (NLP, ML, CV, Analytics, Cloud, Assistant) ──
+    try:
+        # 21.1. NLP Tools
+        from services.nlp_service import nlp_service
+        def nlp_analyze_text(text: str) -> str:
+            """Perform named entity recognition, sentiment analysis, and tokenization."""
+            import json
+            return json.dumps(nlp_service.analyze_text(text), indent=2)
+
+        reg.register(
+            "nlp_analyze_text",
+            "Perform sentiment analysis, named entity recognition, key phrase extraction, and tokenization on a text using SpaCy and NLTK.",
+            nlp_analyze_text,
+            ["text"],
+            RiskLevel.SAFE,
+            "research"
+        )
+
+        # 21.2. ML Tools
+        from services.ml_service import ml_service
+        def ml_predict_linear(x_vals: List[float], y_vals: List[float], target_x: float) -> str:
+            """Train a Linear Regression model and predict output for a target X value."""
+            import json
+            return json.dumps(ml_service.predict_linear_regression(x_vals, y_vals, target_x), indent=2)
+
+        def ml_cluster_kmeans(coordinates: List[List[float]], n_clusters: int = 2) -> str:
+            """Perform K-Means clustering on coordinates."""
+            import json
+            return json.dumps(ml_service.cluster_kmeans(coordinates, n_clusters), indent=2)
+
+        def ml_classify_data(train_features: List[List[float]], train_labels: List[Any], test_features: List[List[float]]) -> str:
+            """Train a Random Forest classifier and predict labels for test features."""
+            import json
+            return json.dumps(ml_service.classify_data(train_features, train_labels, test_features), indent=2)
+
+        reg.register("ml_predict_linear", "Perform linear regression modeling and predict output for a target X.", ml_predict_linear, ["x_vals", "y_vals", "target_x"], RiskLevel.SAFE, "research")
+        reg.register("ml_cluster_kmeans", "Group coordinates or points using K-Means clustering algorithm.", ml_cluster_kmeans, ["coordinates"], RiskLevel.SAFE, "research", optional_params=["n_clusters"])
+        reg.register("ml_classify_data", "Train a classifier and predict class labels for test features.", ml_classify_data, ["train_features", "train_labels", "test_features"], RiskLevel.SAFE, "research")
+
+        # 21.3. Data Analytics Tools
+        from services.analytics_service import analytics_service
+        def analytics_summarize_csv(csv_path: str) -> str:
+            """Generate descriptive statistics and metadata overview for a CSV file using Pandas."""
+            import json
+            return json.dumps(analytics_service.summarize_csv(csv_path), indent=2)
+
+        def analytics_correlation_csv(csv_path: str) -> str:
+            """Calculate the Pearson correlation matrix for numerical columns in a CSV file using Pandas."""
+            import json
+            return json.dumps(analytics_service.calculate_correlation(csv_path), indent=2)
+
+        reg.register("analytics_summarize_csv", "Generate descriptive statistics, column types, and data head preview for a CSV file.", analytics_summarize_csv, ["csv_path"], RiskLevel.SAFE, "research")
+        reg.register("analytics_correlation_csv", "Compute Pearson correlation matrix of numerical columns in a CSV file.", analytics_correlation_csv, ["csv_path"], RiskLevel.SAFE, "research")
+
+        # 21.4. Cloud Tools
+        from services.cloud_service import cloud_service
+        def cloud_bucket_operation(action: str, file_path: str = "", bucket_name: str = "aeris-default-bucket", object_name: str = "") -> str:
+            """Simulate AWS S3/Cloud Storage operations: create_bucket, upload_file, download_file, list_bucket, delete_file."""
+            import json
+            return json.dumps(cloud_service.storage_operation(action, file_path, bucket_name, object_name), indent=2)
+
+        def cloud_provision_instance(instance_type: str = "t3.micro", region: str = "us-east-1") -> str:
+            """Simulate provisioning a virtual machine instance in the cloud."""
+            import json
+            return json.dumps(cloud_service.provision_instance(instance_type, region), indent=2)
+
+        reg.register("cloud_bucket_operation", "Simulate cloud storage operations: create_bucket, upload_file, download_file, list_bucket, delete_file.", cloud_bucket_operation, ["action"], RiskLevel.MEDIUM, "system", optional_params=["file_path", "bucket_name", "object_name"])
+        reg.register("cloud_provision_instance", "Simulate compute VM provisioning in the cloud (e.g. EC2/Compute Engine).", cloud_provision_instance, [], RiskLevel.MEDIUM, "system", optional_params=["instance_type", "region"])
+
+        # 21.5. Computer Vision filter tool
+        def vision_apply_filter(image_path: str, filter_type: str) -> str:
+            """Apply a computer vision filter to an image using OpenCV (grayscale, blur, edge, threshold)."""
+            import json
+            from services.vision_engine import VisionEngine
+            v = VisionEngine()
+            return json.dumps(v.apply_cv_filter(image_path, filter_type), indent=2)
+
+        reg.register("vision_apply_filter", "Apply filters (grayscale, blur, edge, threshold) to an image file using OpenCV.", vision_apply_filter, ["image_path", "filter_type"], RiskLevel.MEDIUM, "vision")
+
+        # 21.6. Assistant log/recommendation tool
+        from services.virtual_assistant_service import assistant_service
+        def assistant_recommend_personalized() -> str:
+            """Get personalized assistant recommendations based on behavior interaction log history."""
+            import json
+            return json.dumps(assistant_service.get_personalized_recommendations(), indent=2)
+
+        reg.register("assistant_recommend_personalized", "Analyze system history and generate machine learning personalized tips/recommendations.", assistant_recommend_personalized, [], RiskLevel.SAFE, "conversation")
+
+        logger.info("Registered Advanced Features & Capabilities tools (NLP, ML, CV, Analytics, Cloud, Assistant)")
+    except Exception as e:
+        logger.warning(f"Failed to register advanced feature tools: {e}")
 
     logger.info(f"Tool registry initialized with {len(reg.get_tool_names())} tools.")
 

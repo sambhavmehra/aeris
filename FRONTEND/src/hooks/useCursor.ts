@@ -15,13 +15,17 @@ export function useCursor() {
     function onMove(e: MouseEvent) {
       mx = e.clientX;
       my = e.clientY;
-      if (dot) { dot.style.left = mx + 'px'; dot.style.top = my + 'px'; }
+      if (dot) {
+        dot.style.transform = `translate3d(calc(${mx}px - 50%), calc(${my}px - 50%), 0)`;
+      }
     }
 
     function animate() {
       gx += (mx - gx) * 0.1;
       gy += (my - gy) * 0.1;
-      if (glow) { glow.style.left = gx + 'px'; glow.style.top = gy + 'px'; }
+      if (glow) {
+        glow.style.transform = `translate3d(calc(${gx}px - 50%), calc(${gy}px - 50%), 0)`;
+      }
       animId = requestAnimationFrame(animate);
     }
 
@@ -33,3 +37,4 @@ export function useCursor() {
     };
   }, []);
 }
+

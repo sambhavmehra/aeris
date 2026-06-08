@@ -52,6 +52,7 @@ class IntentAnalyzer:
         (["play "],                     "play_youtube",   "execution"),
         (["system monitor", "monitor system", "system health check", "system check", "check status", "system status", "monitor"], "monitor_system", "execution"),
         (["whatsapp share", "share on whatsapp", "send on whatsapp", "whatsapp par file", "whatsapp pe file", "whatsapp file share"], "share_file_whatsapp", "execution"),
+        (["whatsapp read", "read whatsapp", "whatsapp checking", "check whatsapp", "whatsapp check", "whatsapp message read", "read messages from whatsapp", "whatsapp message dekh", "whatsapp check kar", "kisi ka message aaya hai kya"], "read_whatsapp_messages", "execution"),
         (["record audio", "record my voice", "voice record", "audio record", "mic record"], "record_audio", "execution"),
         (["telegram file", "send file on telegram", "share file on telegram", "telegram par file", "telegram pe file", "send on telegram"], "send_file_telegram", "execution"),
         (["project status", "status of project", "build status", "builder status", "status kya hai", "kya status hai"], "check_project_status", "execution"),
@@ -187,7 +188,7 @@ RULES:
 8. IMPORTANT: If the user wants to generate visual workflows, flowcharts, or diagrams, you are CAPABLE. Use 'generate_diagram_widget' with a descriptive prompt — the AI will auto-detect the best diagram type, generate Mermaid code, and render it as an animated widget in the UI.
 9. IMPORTANT: If the user wants to merge/integrate another project or learn from external code, you are CAPABLE. Use 'find_system_file' or 'list_dir' to locate the project, 'read_file' to read its code, then 'edit_file'/'write_file' to merge relevant parts into your own codebase.
 10. IMPORTANT: MULTI-AGENT SWARM AWARENESS. You are CAPABLE of handling extremely complex tasks because you possess an autonomous Multi-Agent Swarm. If the user asks for "deep research", "full-stack code generation", "vulnerability scanning", "data analysis", "creating new tools", or "dynamic execution", you MUST set "is_capable": true. The system will automatically route these to specialized agents (CodingAgent, ResearchAgent, etc.).
-11. IMPORTANT: If the user asks to "build a project", "create an app", "generate a full system", or "scaffold an application", you MUST select the 'build_project' tool, which uses the Project Builder System (PBS) to orchestrate a multi-agent swarm for generating and saving complete projects to /Aeris_Projects/.
+11. IMPORTANT: If the user asks to "build a project", "create an app", "generate a full system", or "scaffold an application", or mentions 'antigravity', 'ide', or 'antigravity_agent', you MUST select the 'build_project' tool, which delegates to the external Antigravity IDE assistant (PBS) to generate the complete project. Do NOT select 'generate_website' or 'generate_code' when Antigravity or IDE is mentioned.
 """
         user_prompt = f"Objective: {actual_task}"
 

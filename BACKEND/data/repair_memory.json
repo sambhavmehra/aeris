@@ -1,0 +1,16 @@
+{
+  "failure_patterns": [],
+  "known_fixes": {},
+  "user_preferences": {
+    "auto_email_on_failure": true,
+    "preferred_fix_style": "conservative"
+  },
+  "personal_notes": [],
+  "stats": {
+    "total_repairs": 0,
+    "successful_repairs": 0,
+    "failed_repairs": 0,
+    "most_common_error": null
+  },
+  "last_updated": null
+}

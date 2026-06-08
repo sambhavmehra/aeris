@@ -164,11 +164,21 @@ _TOOL_BEHAVIORAL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
     },
     "generate_website": {
         "typical_use_cases": ["Build websites", "Create dashboards", "Landing pages"],
-        "anti_patterns": ["Do NOT pass $prev as prompt", "Do NOT call read_file after this"],
+        "anti_patterns": ["Do NOT pass $prev as prompt", "Do NOT call read_file after this", "Do NOT use if the user mentions 'antigravity', 'ide', or 'antigravity_agent' (use build_project instead)"],
         "output_type": "json",
         "follow_ups": [],
         "param_descriptions": {"prompt": "Detailed design instruction describing the website to build"},
         "limitations": ["Prompt must be descriptive, not a reference to previous output"],
+    },
+    "build_project": {
+        "typical_use_cases": [
+            "Build complete multi-file projects, applications, or systems",
+            "Generate workspace folders and dependencies",
+            "Delegate project building to the external Antigravity IDE assistant when the user mentions 'antigravity', 'ide', or 'antigravity_agent'"
+        ],
+        "anti_patterns": ["Do NOT use for single web page designs or simple informational sites (use generate_website instead)"],
+        "output_type": "string",
+        "param_descriptions": {"objective": "Detailed description of the project, applications, or systems to build"},
     },
     "find_system_file": {
         "typical_use_cases": ["Locate files by name when path is unknown", "Find documents like resume.pdf"],
@@ -212,7 +222,7 @@ _TOOL_BEHAVIORAL_KNOWLEDGE: Dict[str, Dict[str, Any]] = {
     },
     "generate_code": {
         "typical_use_cases": ["Generate pure code from description", "Code without markdown"],
-        "anti_patterns": ["Output is raw code, not markdown-wrapped"],
+        "anti_patterns": ["Output is raw code, not markdown-wrapped", "Do NOT use for creating a new project or building complex multi-file applications (use build_project instead)"],
         "param_descriptions": {"request": "Natural language description of code to generate"},
     },
     "dynamic_tool_forge": {

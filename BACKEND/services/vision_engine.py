@@ -114,6 +114,58 @@ Provide a VERY DETAILED, point-by-point structured analysis. Do not omit any vis
             return f"Image not found: {image_path}"
         return await self._analyze_image(image_path, prompt)
 
+    def apply_cv_filter(self, image_path: str, filter_type: str) -> dict:
+        """
+        Apply a computer vision filter to an image using OpenCV.
+        Supported filter types: grayscale, blur, edge, threshold.
+        """
+        if not os.path.exists(image_path):
+            return {"success": False, "error": f"Image file not found: {image_path}"}
+
+        try:
+            import cv2
+            from datetime import datetime
+            
+            # Read image
+            img = cv2.imread(image_path)
+            if img is None:
+                return {"success": False, "error": f"Failed to load image at: {image_path}"}
+
+            filter_type = filter_type.strip().lower()
+            
+            # Apply filter
+            if filter_type == "grayscale":
+                processed = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            elif filter_type == "blur":
+                processed = cv2.GaussianBlur(img, (15, 15), 0)
+            elif filter_type == "edge":
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                processed = cv2.Canny(gray, 100, 200)
+            elif filter_type == "threshold":
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                _, processed = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+            else:
+                return {"success": False, "error": f"Unsupported filter type: '{filter_type}'. Use grayscale, blur, edge, or threshold."}
+
+            # Save processed image
+            dest_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Screenshots")
+            os.makedirs(dest_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"cv_processed_{filter_type}_{timestamp}.png"
+            dest_path = os.path.join(dest_dir, filename)
+            
+            cv2.imwrite(dest_path, processed)
+            logger.info(f"OpenCV {filter_type} filter applied, saved at {dest_path}")
+            
+            return {
+                "success": True,
+                "message": f"Successfully applied '{filter_type}' filter using OpenCV.",
+                "path": dest_path
+            }
+        except Exception as e:
+            logger.error(f"Failed to apply OpenCV filter: {e}")
+            return {"success": False, "error": str(e)}
+
     async def _analyze_image(self, image_path, prompt):
         """Send image to AI Engine for analysis"""
         try:

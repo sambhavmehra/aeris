@@ -1,0 +1,25 @@
+{
+  "nodes": [
+    {
+      "id": "aeris_brain",
+      "label": "AERIS Brain",
+      "type": "host",
+      "ip": "127.0.0.1",
+      "status": "online"
+    },
+    {
+      "id": "api_gateway",
+      "label": "FastAPI Gateway",
+      "type": "service",
+      "status": "online"
+    }
+  ],
+  "links": [
+    {
+      "source": "aeris_brain",
+      "target": "api_gateway",
+      "type": "connection",
+      "port": 8000
+    }
+  ]
+}

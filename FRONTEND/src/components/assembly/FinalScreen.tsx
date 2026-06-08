@@ -136,7 +136,7 @@ export const FinalScreen: React.FC<FinalScreenProps> = ({ onComplete }) => {
             <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
               <span style={{ color: 'rgba(255,255,255,0.5)' }}>CORE AGENTS</span>
               <span style={{ color: 'rgba(255,255,255,0.2)' }}>.....................</span>
-              <span style={{ color: '#00e5ff', fontWeight: 700 }}>ONLINE (12)</span>
+              <span style={{ color: '#00e5ff', fontWeight: 700 }}>ONLINE (13)</span>
             </motion.div>
           )}
 
@@ -160,7 +160,7 @@ export const FinalScreen: React.FC<FinalScreenProps> = ({ onComplete }) => {
             <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', fontSize: '11px' }}>
               <span style={{ color: 'rgba(255,255,255,0.5)' }}>SPECIAL AGENTS</span>
               <span style={{ color: 'rgba(255,255,255,0.2)' }}>..................</span>
-              <span style={{ color: '#ff3366', fontWeight: 700 }}>ONLINE (7)</span>
+              <span style={{ color: '#ff3366', fontWeight: 700 }}>ONLINE (9)</span>
             </motion.div>
           )}
 
@@ -182,7 +182,7 @@ export const FinalScreen: React.FC<FinalScreenProps> = ({ onComplete }) => {
               }}
             >
               <span>TOTAL OPERATIVE SWARM</span>
-              <span>32 / 32 ONLINE</span>
+              <span>35 / 35 ONLINE</span>
             </motion.div>
           )}
         </div>

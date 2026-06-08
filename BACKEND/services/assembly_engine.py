@@ -19,7 +19,7 @@ class AssemblyEngine:
         """Yields SSE-formatted events for the full assembly sequence.
 
         Phase 1: Core Activation (7 loading steps, ~400ms each)
-        Phase 2: Agent Arrival (32 agents, yields events for each)
+        Phase 2: Agent Arrival (35 agents, yields events for each)
         Phase 3: Synchronization (6 sync steps, ~500ms each)
         Phase 4: Final Report
         """
@@ -72,7 +72,7 @@ class AssemblyEngine:
                     category = "control"
                 elif agent_id in ["nexus", "archon", "forge", "insight", "scribe", "sentinel", "pulse", "atlas", "command"]:
                     category = "swarm"
-                elif agent_id in ["hunter", "reaper", "ghost", "webweaver", "strategos", "validator", "blueprint"]:
+                elif agent_id in ["hunter", "reaper", "ghost", "webweaver", "strategos", "validator", "blueprint", "diagnostician", "medic"]:
                     category = "special"
 
                 # Trigger initializing state (means agent is introducing themselves)
@@ -132,7 +132,7 @@ class AssemblyEngine:
             yield f"data: {json.dumps({'type': 'phase_change', 'phase': 'final'})}\n\n"
             await asyncio.sleep(0.5)
             yield f"data: {json.dumps({'type': 'complete', 'total_agents': len(agent_ids)})}\n\n"
-            logger.info("AERIS Assembly Sequence complete. 32 agents assembled.")
+            logger.info(f"AERIS Assembly Sequence complete. {len(agent_ids)} agents assembled.")
 
         except asyncio.CancelledError:
             logger.warning("Assembly streaming was cancelled.")

@@ -75,6 +75,7 @@ const CORE_AGENTS: Agent[] = [
   { id: 'mercury', codename: 'MERCURY', role: 'EmailAgent', category: 'core', status: 'offline', introduction: 'Mercury online hai, Sir. Communication queues aur emails manage karne ke liye taiyar.', voiceId: 'en-IN-NeerjaNeural', icon: '📧', color: '#00b0ff', description: 'Email and communication management' },
   { id: 'chronos', codename: 'CHRONOS', role: 'SchedulerAgent', category: 'core', status: 'offline', introduction: 'Chronos active hai. Schedulers aur system timers sync ho chuke hain.', voiceId: 'hi-IN-MadhurNeural', icon: '⏱️', color: '#ffd600', description: 'Scheduling and time management' },
   { id: 'drana', codename: 'DRANA', role: 'DranaAgent', category: 'core', status: 'offline', introduction: 'Drana active hai, Sir. Firewall subversion aur vulnerability exploits load ho chuke hain.', voiceId: 'hi-IN-SwaraNeural', icon: '☠️', color: '#d50000', description: 'Advanced penetration and security testing' },
+  { id: 'antigravity', codename: 'ANTIGRAVITY', role: 'AntigravityAgent', category: 'core', status: 'offline', introduction: 'Antigravity agent online hai, Sir. Autonomously swarm agents ko command aur track karne ke liye system synchronized hai.', voiceId: 'hi-IN-MadhurNeural', icon: '🚀', color: '#ff00ff', description: 'Swarm project builder controller' },
 ];
 
 const CONTROL_AGENTS: Agent[] = [
@@ -104,6 +105,8 @@ const SPECIAL_AGENTS: Agent[] = [
   { id: 'strategos', codename: 'STRATEGOS', role: 'PlannerAgent', category: 'special', status: 'offline', introduction: 'Strategos active hai, Sir. Target scan objectives aur alternate routes map kar liye hain.', voiceId: 'hi-IN-MadhurNeural', icon: '♟️', color: '#ffc400', description: 'Strategic planning and execution' },
   { id: 'validator', codename: 'VALIDATOR', role: 'VerifierAgent', category: 'special', status: 'offline', introduction: 'Validator online. Checksums aur compile metrics complete ho chuke hain.', voiceId: 'en-IN-NeerjaNeural', icon: '✅', color: '#00e676', description: 'Code verification and validation' },
   { id: 'blueprint', codename: 'BLUEPRINT', role: 'DiagramAgent', category: 'special', status: 'offline', introduction: 'Blueprint active hai, Sir. Vector architecture diagrams render ho rahe hain.', voiceId: 'hi-IN-SwaraNeural', icon: '📊', color: '#448aff', description: 'System diagram and architecture visualization' },
+  { id: 'diagnostician', codename: 'DIAGNOSTICIAN', role: 'DiagnosisAgent', category: 'special', status: 'offline', introduction: 'Diagnostician active hai, Sir. System layers, environment configs, aur code files fully diagnose karne ke liye taiyar.', voiceId: 'hi-IN-SwaraNeural', icon: '🩺', color: '#00e676', description: 'System and codebase diagnostics' },
+  { id: 'medic', codename: 'MEDIC', role: 'RepairAgent', category: 'special', status: 'offline', introduction: 'Medic online hai, Sir. Self-healing protocols aur auto-repair systems fully armed hain.', voiceId: 'hi-IN-MadhurNeural', icon: '🛠️', color: '#ff6d00', description: 'Self-healing code and system repair' },
 ];
 
 const ALL_AGENTS: Agent[] = [...CORE_AGENTS, ...CONTROL_AGENTS, ...SWARM_AGENTS, ...SPECIAL_AGENTS];

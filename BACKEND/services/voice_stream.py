@@ -67,7 +67,7 @@ async def transcribe_audio(audio_bytes: bytes) -> Optional[str]:
     if settings.has_gemini:
         client = None
         try:
-            from google.genai import genai
+            from google import genai
             from google.genai import types
             
             # Use generation client to transcribe

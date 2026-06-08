@@ -20,6 +20,10 @@ from agents.pentest_agent import PentestAgent
 from agents.phantom_agent import PhantomAgent
 from agents.leak_graph_agent import LeakGraphAgent
 from agents.antigravity_agent import AntigravityAgent
+from agents.diagnosis_agent import DiagnosisAgent
+from agents.repair_agent import RepairAgent
+from agents.debate_agent import DebateAgent
+from agents.investigation_agent import InvestigationAgent
 
 __all__ = [
     "BaseAgent",
@@ -43,7 +47,12 @@ __all__ = [
     "PhantomAgent",
     "LeakGraphAgent",
     "AntigravityAgent",
+    "DiagnosisAgent",
+    "RepairAgent",
+    "DebateAgent",
+    "InvestigationAgent",
 ]
+
 
 
 

@@ -1,16 +1,20 @@
 [
   {
-    "task_id": "sch_1780217561_1563",
-    "instruction": "Shutdown the system",
-    "scheduled_time": "2026-05-31 14:27:39",
-    "created_at": "2026-05-31 14:22:39",
-    "status": "running"
+    "task_id": "sch_1780741633_2769",
+    "instruction": "Check if the features I mentioned are implemented",
+    "scheduled_time": "2026-06-06 16:00:00",
+    "created_at": "2026-06-06 15:57:12",
+    "status": "failed",
+    "completed_at": "2026-06-06 16:00:24",
+    "error": "Task was interrupted by system shutdown or crash."
   },
   {
-    "task_id": "sch_1780217609_6072",
-    "instruction": "Send email to Sambhav Mehra with subject 'System Shutdown Alert' and body 'System is shutting down in a few seconds.'",
-    "scheduled_time": "2026-05-31 14:28:21",
-    "created_at": "2026-05-31 14:23:26",
-    "status": "running"
+    "task_id": "sch_1780741790_7019",
+    "instruction": "Check implementation status of listed tools",
+    "scheduled_time": "2026-06-06 16:00:00",
+    "created_at": "2026-06-06 15:59:49",
+    "status": "failed",
+    "completed_at": "2026-06-06 16:00:24",
+    "error": "Task was interrupted by system shutdown or crash."
   }
 ]

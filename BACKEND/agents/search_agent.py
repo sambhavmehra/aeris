@@ -160,9 +160,10 @@ class SearchAgent(BaseAgent):
             plan.setdefault("topic", "general")
             plan.setdefault("needs_live_data", True)
             plan["original_question"] = message
+            plan["hacker_mode"] = context.get("hacker_mode", False) or context.get("mode") == "hacker"
             logger.info(
                 f"[SearchAgent] Plan → queries={plan['queries']}, "
-                f"depth={plan['search_depth']}, delegate={plan['delegate_to']}"
+                f"depth={plan['search_depth']}, delegate={plan['delegate_to']}, hacker_mode={plan['hacker_mode']}"
             )
             return plan
         except Exception as e:
@@ -175,6 +176,7 @@ class SearchAgent(BaseAgent):
                 "topic": "general",
                 "needs_live_data": True,
                 "original_question": message,
+                "hacker_mode": context.get("hacker_mode", False) or context.get("mode") == "hacker"
             }
 
     # ─────────────────────────── Execute ──────────────────────────────────────
@@ -186,6 +188,7 @@ class SearchAgent(BaseAgent):
         depth      = plan.get("search_depth", "basic")
         scrape_urls = plan.get("scrape_urls", [])
         delegate_to = plan.get("delegate_to")
+        hacker_mode = plan.get("hacker_mode", False)
 
         # ── Cross-agent delegation ─────────────────────────────────────────
         if delegate_to in ("security", "research"):
@@ -202,7 +205,7 @@ class SearchAgent(BaseAgent):
         # ── Parallel search tasks ──────────────────────────────────────────
         tavily_tasks = [self._tavily_search(q, depth) for q in queries]
         google_tasks = [self._google_search(q) for q in queries[:2]]  # limit Google calls
-        scrape_tasks = [self._scrape_page(url, question) for url in scrape_urls[:3]]
+        scrape_tasks = [self._scrape_page(url, question, hacker_mode=hacker_mode) for url in scrape_urls[:3]]
 
         all_results = await asyncio.gather(
             *tavily_tasks, *google_tasks, *scrape_tasks,
@@ -231,7 +234,7 @@ class SearchAgent(BaseAgent):
         if depth == "advanced" and tavily_results:
             top_urls = self._extract_top_urls(tavily_results, limit=3)
             extra_scrapes = await asyncio.gather(
-                *[self._scrape_page(u, question) for u in top_urls],
+                *[self._scrape_page(u, question, hacker_mode=hacker_mode) for u in top_urls],
                 return_exceptions=True
             )
             for res in extra_scrapes:
@@ -346,24 +349,29 @@ class SearchAgent(BaseAgent):
 
     # ─────────────────────────── Scraper ──────────────────────────────────────
 
-    async def _scrape_page(self, url: str, question: str) -> dict:
+    async def _scrape_page(self, url: str, question: str, hacker_mode: bool = False) -> dict:
         """Scrape a URL and extract meaningful text content."""
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.5",
+        from utils.stealth import configure_client_stealth
+
+        client_kwargs = {
+            "timeout": self.SCRAPE_TIMEOUT,
+            "follow_redirects": True,
+            "headers": {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+            }
         }
 
+        # Apply stealth headers and proxies if hacker_mode is enabled
+        client_kwargs = configure_client_stealth(client_kwargs, hacker_mode=hacker_mode)
+
         try:
-            async with httpx.AsyncClient(
-                timeout=self.SCRAPE_TIMEOUT,
-                follow_redirects=True,
-                headers=headers,
-            ) as client:
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 html = resp.text

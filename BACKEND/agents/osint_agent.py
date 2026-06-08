@@ -37,7 +37,7 @@ Determine the type of each target. Possible types:
 - "domain_ip": A website domain (e.g. example.com) or IP address (e.g. 8.8.8.8)
 - "email": An email address (e.g. user@domain.com)
 - "username": A social handle or username (e.g. @username or username)
-- "person": A full name or partial name of an individual
+- "person": A full name or partial name of an individual. VERY IMPORTANT: If the user provides additional context about the person (such as their company, location, title, or age, e.g. "John Doe from Google" or "Jane Smith in Seattle"), capture the core name as the value, but ALSO capture a "qualifiers" field containing those distinguishing terms.
 - "organization": A company, school, group, or institution
 - "phone": A phone number
 - "cryptocurrency": A wallet address (e.g. BTC, ETH address)
@@ -49,15 +49,16 @@ Respond with ONLY valid JSON:
 {{
   "targets": [
     {{
-      "value": "extracted target value (e.g., example.com or @john)",
+      "value": "extracted target value (e.g., example.com or John Doe)",
       "type": "one of the types above",
       "confidence": 0.0 to 1.0,
-      "reason": "brief explanation of why this target was inferred"
+      "reason": "brief explanation of why this target was inferred",
+      "qualifiers": "any company, location, role, or other context keywords (e.g. 'Google' or 'Seattle \"software engineer\"'), or empty string"
     }}
   ],
   "is_self_inquiry": false,
   "reasoning": "Overall approach or conversational response if self inquiry"
-}}
+}
 """
 
 PIVOT_EXTRACTION_PROMPT = """You are the pivoting engine of AERIS's OSINT Agent.
@@ -79,6 +80,11 @@ Look for connected:
 - Phone numbers
 - Cryptocurrency wallets
 
+CRITICAL VERIFICATION GUIDELINES:
+1. ONLY extract a pivot if there is clear, explicit evidence linking it directly to the target (e.g. "John's email is john@work.com" or a profile page explicitly linking to a Twitter handle).
+2. DO NOT extract unrelated names, domains, or companies that just happen to appear in navigation footers, copyright notices, sidebar links, ads, or generic articles.
+3. If no high-confidence connected entities are found, return an empty list.
+
 Filter out any entities that match the original targets.
 Respond with ONLY valid JSON:
 {{
@@ -86,7 +92,7 @@ Respond with ONLY valid JSON:
     {{
       "value": "new target value discovered",
       "type": "domain_ip | email | username | person | organization | phone | cryptocurrency",
-      "relationship": "how is this connected to the original target?",
+      "relationship": "how is this connected to the original target? (be specific)",
       "confidence": 0.0 to 1.0
     }}
   ]
@@ -103,17 +109,28 @@ Pivots Traced: {pivots_summary}
 {intel_results}
 === END GATHERED INTELLIGENCE ===
 
+CRITICAL OSINT GUIDELINES (ENTITY RESOLUTION & CORRELATION):
+1. **Verify Identity & Resolve Names**: Carefully analyze the search results for common names or ambiguous targets. Determine if they describe multiple different individuals (e.g., matching name but different locations, occupations, or company affiliations).
+2. **Handle Multiple Candidates**: If the raw data contains profiles/information for multiple different people sharing the same name:
+   - DO NOT merge them into one hallucinated profile.
+   - List them explicitly as separate candidates (e.g., "Candidate A (Software Engineer in NY)", "Candidate B (Doctor in London)").
+   - Identify which candidate is the most likely target and explain why.
+3. **Cross-Correlate Evidence**: Document how different data points are linked (e.g., "The Twitter account is linked to the GitHub account because they share the same unique username and profile bio").
+4. **Attribution and Confidence**: Explain the confidence in attributing each social profile or record to the primary target.
+
 Create a comprehensive markdown dossier with the following structure:
 1. **Executive Intelligence Summary**
    - High-level overview of the target(s) and key findings.
    - Assigned OSINT Confidence & Corroboration Score (0-100%) with justification.
+   - **Identity Correlation Note**: Explicitly detail if this is a common/ambiguous name and how you resolved/distinguished candidates.
 2. **Inferred Target Vectors**
    - Details of what target was searched, how it was inferred, and the entry vectors.
 3. **Pivoted Investigation Chain**
    - Map out the step-by-step pivot trace (e.g., username -> found email -> uncovered associated domain).
 4. **Platform & Social Footprint Profile**
-   - A structured markdown table detailing ALL social media profiles, usernames, and accounts found across every platform (LinkedIn, Twitter/X, GitHub, Reddit, Instagram, Facebook, YouTube, TikTok, Medium, Pinterest, etc.).
-   - Table columns: Platform | Profile URL | Username/Handle | Status/Notes
+   - A structured markdown table detailing ALL social media profiles, usernames, and accounts found across every platform.
+   - Table columns: Platform | Profile URL | Username/Handle | Attribution Confidence | Status/Notes
+   - Group the table by Candidate if multiple possible targets were resolved.
    - If a platform was searched but no profile was found, note it as "Not Found" in the table.
 5. **Detailed News & Public Mentions**
    - A chronologically-ordered list of every news article, interview, press mention, blog post, or public media appearance found.
@@ -177,6 +194,7 @@ class OSINTAgent(BaseAgent):
             
             plan = json.loads(raw)
             plan.setdefault("targets", [])
+            plan["hacker_mode"] = context.get("hacker_mode", False) or context.get("mode") == "hacker"
             
             # Fallback if no target inferred
             if not plan["targets"]:
@@ -191,7 +209,8 @@ class OSINTAgent(BaseAgent):
             extracted = self._extract_fallback_target(message)
             return {
                 "targets": [{"value": extracted or message, "type": "general", "confidence": 0.5, "reason": "Basic fallback"}],
-                "reasoning": "Fallback planning due to exception"
+                "reasoning": "Fallback planning due to exception",
+                "hacker_mode": context.get("hacker_mode", False) or context.get("mode") == "hacker"
             }
 
     async def execute(self, plan: Any) -> Any:
@@ -217,7 +236,7 @@ class OSINTAgent(BaseAgent):
             self.logger.info(f"[OSINTAgent] Phase 1: Investigating '{target_value}' of type '{target_type}'")
 
             # Perform customized searches depending on target type
-            intel = await self._run_target_search(target_value, target_type, mode=mode, dork_agent=dork_agent)
+            intel = await self._run_target_search(target_value, target_type, mode=mode, dork_agent=dork_agent, target=target)
             phase1_data.append({
                 "target": target_value,
                 "type": target_type,
@@ -263,7 +282,7 @@ class OSINTAgent(BaseAgent):
             pivot_type = pivot["type"]
             self.logger.info(f"[OSINTAgent] Phase 2 (Pivot): Investigating '{pivot_val}' of type '{pivot_type}'")
             
-            intel = await self._run_target_search(pivot_val, pivot_type, mode=mode, dork_agent=dork_agent)
+            intel = await self._run_target_search(pivot_val, pivot_type, mode=mode, dork_agent=dork_agent, target=pivot)
             phase2_data.append({
                 "target": pivot_val,
                 "type": pivot_type,
@@ -322,8 +341,39 @@ class OSINTAgent(BaseAgent):
 
     # ────────────────────────── Helpers ───────────────────────────────────────
 
-    async def _run_target_search(self, value: str, target_type: str, mode: str = "normal", dork_agent: Optional[DorkingAgent] = None) -> Any:
-        """Run parallel social-footprint + news/media searches for every target type."""
+    def _build_tavily_queries(self, value: str, target_type: str) -> tuple[str, str]:
+        """Build simple, high-signal queries optimized for Tavily's search parser."""
+        value = (value or "").strip()
+        if target_type == "person":
+            social_query = f'"{value}" social media profiles LinkedIn Twitter GitHub Facebook Instagram'
+            news_query = f'"{value}" news articles public mentions interviews publications'
+        elif target_type == "email":
+            social_query = f'"{value}" social media profile footprint accounts'
+            news_query = f'"{value}" public database leaks mentions news'
+        elif target_type == "username":
+            clean = value.lstrip("@")
+            social_query = f'"{clean}" social media profiles accounts LinkedIn Twitter GitHub'
+            news_query = f'"{clean}" public mentions posts news articles'
+        elif target_type == "domain_ip":
+            social_query = f'"{value}" site overview social profiles about contact'
+            news_query = f'"{value}" news mentions press releases announcements'
+        elif target_type == "organization":
+            social_query = f'"{value}" official website company profiles LinkedIn Twitter GitHub'
+            news_query = f'"{value}" news articles announcements funding press releases'
+        elif target_type == "phone":
+            social_query = f'"{value}" contact info owner name directory'
+            news_query = f'"{value}" spam reports public mentions comments'
+        elif target_type == "cryptocurrency":
+            social_query = f'"{value}" wallet address details blockchain owner'
+            news_query = f'"{value}" transaction history scam hacks mentions'
+        else:
+            social_query = f'"{value}" social profile web presence footprint'
+            news_query = f'"{value}" news mentions articles posts'
+            
+        return social_query, news_query
+
+    async def _run_target_search(self, value: str, target_type: str, mode: str = "normal", dork_agent: Optional[DorkingAgent] = None, target: Optional[dict] = None) -> Any:
+        """Run parallel social-footprint + news/media searches for every target type, with dorking and qualifiers."""
         import asyncio
 
         # 1. Specialized domains and IP lookups (uses fast recon)
@@ -340,65 +390,59 @@ class OSINTAgent(BaseAgent):
                     except Exception as e:
                         infra_data[tool_name] = {"error": str(e)}
 
-        # 2. Build dual queries for all target types
+        # 2. Extract context qualifiers
+        qualifiers = target.get("qualifiers", "") if isinstance(target, dict) else ""
+
+        # 3. Build queries (use advanced dorks if dork_agent is present)
         if dork_agent:
             social_query, news_query = dork_agent.build_queries(value, target_type, mode=mode)
+            extra_queries = dork_agent._build_extra_dork_queries(value, target_type) if mode == "hacker" else []
         else:
-            # Manual fallback queries
-            if target_type == "domain_ip":
-                social_query = f"site:{value} OR \"{value}\" social profile OR footprint OR about"
-                news_query = f"\"{value}\" news OR press OR announcement OR article OR interview"
-            elif target_type == "email":
-                social_query = f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com OR site:facebook.com OR site:instagram.com OR site:reddit.com OR social profile'
-                news_query = f'"{value}" news OR article OR press OR interview OR mention'
-            elif target_type == "username":
-                clean = value.lstrip("@")
-                social_query = (
-                    f'"{clean}" OR "@{clean}" '
-                    f'site:twitter.com OR site:x.com OR site:linkedin.com OR site:github.com '
-                    f'OR site:instagram.com OR site:reddit.com OR site:facebook.com '
-                    f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
-                    f'OR site:pinterest.com social profile'
-                )
-                news_query = f'"{clean}" OR "@{clean}" news OR article OR interview OR press OR mention'
-            elif target_type == "person":
-                social_query = (
-                    f'"{value}" '
-                    f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
-                    f'OR site:instagram.com OR site:facebook.com OR site:reddit.com '
-                    f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
-                    f'OR site:pinterest.com profile'
-                )
-                news_query = f'"{value}" news OR article OR interview OR press release OR media OR achievement OR announcement'
-            elif target_type == "organization":
-                social_query = (
-                    f'"{value}" '
-                    f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
-                    f'OR site:facebook.com OR site:youtube.com OR site:instagram.com '
-                    f'profile OR about OR headquarters OR official'
-                )
-                news_query = f'"{value}" news OR press release OR announcement OR article OR funding OR acquisition'
-            elif target_type == "phone":
-                social_query = f'"{value}" social profile OR contact OR directory'
-                news_query = f'"{value}" news OR mention OR article'
-            elif target_type == "cryptocurrency":
-                social_query = f'"{value}" crypto wallet OR blockchain OR address lookup'
-                news_query = f'"{value}" news OR transaction OR mention OR scam OR alert'
-            else:
-                social_query = f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com OR site:instagram.com OR site:reddit.com profile OR footprint'
-                news_query = f'"{value}" news OR article OR interview OR press OR mention'
+            social_query, news_query = self._build_tavily_queries(value, target_type)
+            extra_queries = []
 
-        # Run both searches in parallel
-        social_fut = self._run_tavily_search(social_query)
-        news_fut = self._run_tavily_search(news_query)
-        social_data, news_data = await asyncio.gather(social_fut, news_fut)
+        if qualifiers:
+            # Append qualifiers to narrow down the target context
+            social_query = f"{social_query} {qualifiers}"
+            news_query = f"{news_query} {qualifiers}"
+            extra_queries = [f"{eq} {qualifiers}" for eq in extra_queries]
+
+        self.logger.info(f"[OSINTAgent] Executing queries:\nSocial: {social_query}\nNews: {news_query}")
+        if extra_queries:
+            self.logger.info(f"[OSINTAgent] Hacker extra queries: {extra_queries}")
+
+        # Run both searches (and extra dorks) in parallel
+        hacker_mode = (mode == "hacker")
+        tasks = [
+            self._run_tavily_search(social_query, hacker_mode=hacker_mode),
+            self._run_tavily_search(news_query, hacker_mode=hacker_mode)
+        ]
+        for eq in extra_queries:
+            tasks.append(self._run_tavily_search(eq, hacker_mode=hacker_mode))
+
+        completed = await asyncio.gather(*tasks)
+        social_data = completed[0]
+        news_data = completed[1]
+        extra_data = completed[2:] if len(completed) > 2 else []
+
+        result = {
+            "social_footprint": social_data,
+            "news_mentions": news_data,
+            "dork_queries": {
+                "social": social_query,
+                "news": news_query,
+                "extra": extra_queries
+            }
+        }
+        if extra_data:
+            result["extra_dorks"] = extra_data
 
         if target_type == "domain_ip":
-            return {"infrastructure": infra_data, "social_footprint": social_data, "news_mentions": news_data}
-        else:
-            return {"social_footprint": social_data, "news_mentions": news_data}
+            result["infrastructure"] = infra_data
 
-    async def _run_tavily_search(self, query: str) -> dict:
+        return result
+
+    async def _run_tavily_search(self, query: str, hacker_mode: bool = False) -> dict:
         """Wrapper for calling the Tavily Search API — advanced depth, 8 results."""
         api_key = os.getenv("VITE_TAVILY_API_KEY", "")
         if not api_key:
@@ -406,7 +450,11 @@ class OSINTAgent(BaseAgent):
             return {"error": "Tavily API key not set"}
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            from utils.stealth import configure_client_stealth
+            client_kwargs = {"timeout": 30.0}
+            client_kwargs = configure_client_stealth(client_kwargs, hacker_mode=hacker_mode, is_api=True)
+            
+            async with httpx.AsyncClient(**client_kwargs) as client:
                 resp = await client.post(
                     "https://api.tavily.com/search",
                     json={
@@ -430,55 +478,53 @@ class OSINTAgent(BaseAgent):
         if isinstance(data, dict) and "error" in data:
             return f"Error: {data['error']}"
 
+        lines = []
+
+        # 1. Print queries used
+        if isinstance(data, dict) and "dork_queries" in data:
+            dq = data["dork_queries"]
+            lines.append("**Dork Queries Executed:**")
+            lines.append(f"- Social Dork: `{dq['social']}`")
+            lines.append(f"- News Dork: `{dq['news']}`")
+            for i, eq in enumerate(dq.get("extra", [])):
+                lines.append(f"- Extra Dork {i+1}: `{eq}`")
+            lines.append("")
+
         # If domain infra data with dual streams
         if isinstance(data, dict) and "infrastructure" in data:
             infra = data["infrastructure"]
-            lines = ["**Infrastructure Recon:**"]
+            lines.append("**Infrastructure Recon:**")
             for tool, res in infra.items():
                 lines.append(f"- **{tool}:** {str(res)[:1000]}")
 
-            social = data.get("social_footprint")
-            if social and isinstance(social, dict) and "results" in social:
-                lines.append("\n**Social & Web Presence:**")
-                if social.get("answer"):
-                    lines.append(social["answer"])
-                for r in social.get("results", []):
-                    lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
+        # Social footprint
+        social = data.get("social_footprint") if isinstance(data, dict) else None
+        if social and isinstance(social, dict) and "results" in social:
+            lines.append("\n**Social & Web Presence:**")
+            if social.get("answer"):
+                lines.append(social["answer"])
+            for r in social.get("results", []):
+                lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
 
-            news = data.get("news_mentions")
-            if news and isinstance(news, dict) and "results" in news:
-                lines.append("\n**News & Media Mentions:**")
-                if news.get("answer"):
-                    lines.append(news["answer"])
-                for r in news.get("results", []):
-                    lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
+        # News mentions
+        news = data.get("news_mentions") if isinstance(data, dict) else None
+        if news and isinstance(news, dict) and "results" in news:
+            lines.append("\n**News & Media Mentions:**")
+            if news.get("answer"):
+                lines.append(news["answer"])
+            for r in news.get("results", []):
+                lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
 
-            return "\n".join(lines)
+        # Extra dork results (for hacker mode)
+        extra_dorks = data.get("extra_dorks") if isinstance(data, dict) else None
+        if extra_dorks and isinstance(extra_dorks, list):
+            lines.append("\n**Exposed Files, Directory Listings & Pastes (Advanced Dorking):**")
+            for idx, res in enumerate(extra_dorks):
+                if isinstance(res, dict) and "results" in res:
+                    for r in res.get("results", []):
+                        lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
 
-        # Dual-stream social + news (non-domain targets)
-        if isinstance(data, dict) and "social_footprint" in data:
-            lines = []
-            social = data.get("social_footprint", {})
-            news = data.get("news_mentions", {})
-
-            lines.append("**Social & Platform Footprint:**")
-            if isinstance(social, dict) and not social.get("error"):
-                if social.get("answer"):
-                    lines.append(f"Summary: {social['answer']}\n")
-                for r in social.get("results", []):
-                    lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
-            else:
-                lines.append("No social footprint data returned.")
-
-            lines.append("\n**News & Public Mentions:**")
-            if isinstance(news, dict) and not news.get("error"):
-                if news.get("answer"):
-                    lines.append(f"Summary: {news['answer']}\n")
-                for r in news.get("results", []):
-                    lines.append(f"- [{r.get('title')}]({r.get('url')}): {r.get('content')}")
-            else:
-                lines.append("No news data returned.")
-
+        if lines:
             return "\n".join(lines)
 
         # Legacy / standard web search data fallback
@@ -494,7 +540,7 @@ class OSINTAgent(BaseAgent):
         return str(data)
 
     def _extract_fallback_target(self, message: str) -> Optional[str]:
-        """Simple regex fallback to extract domains, emails, or usernames."""
+        """Simple regex and string-cleaning fallback to extract targets from message."""
         # Try email
         m = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', message)
         if m:
@@ -507,4 +553,16 @@ class OSINTAgent(BaseAgent):
         m = re.search(r'@[a-zA-Z0-9_]+', message)
         if m:
             return m.group(0)
+            
+        # Clean string for names/general terms by stripping common command verbs
+        words = message.split()
+        skip_words = {
+            "dork", "dorking", "google", "search", "find", "lookup", "check", "scan",
+            "hacker", "mode", "advanced", "deep", "karo", "kar", "please", "do", "run",
+            "execute", "osint", "investigate", "who", "is", "profile", "information",
+            "info", "details", "recon", "target", "about", "me", "show"
+        }
+        filtered = [w for w in words if w.lower().strip("?,.!:;\"'") not in skip_words]
+        if filtered:
+            return " ".join(filtered)
         return None

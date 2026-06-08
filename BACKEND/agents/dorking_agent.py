@@ -359,8 +359,8 @@ class DorkingAgent(BaseAgent):
 
             if target_type == "email":
                 social_query = (
-                    f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com '
-                    f'OR site:facebook.com OR site:instagram.com OR site:reddit.com OR social profile'
+                    f'"{value}" (site:linkedin.com/in/ OR site:twitter.com OR site:github.com '
+                    f'OR site:facebook.com OR site:instagram.com OR site:reddit.com/user/) social profile'
                 )
                 news_query = f'"{value}" news OR article OR press OR interview OR mention'
                 return social_query.strip(), news_query.strip()
@@ -369,10 +369,9 @@ class DorkingAgent(BaseAgent):
                 clean = value
                 social_query = (
                     f'"{clean}" OR "@{clean}" '
-                    f'site:twitter.com OR site:x.com OR site:linkedin.com OR site:github.com '
-                    f'OR site:instagram.com OR site:reddit.com OR site:facebook.com '
-                    f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
-                    f'OR site:pinterest.com social profile'
+                    f'(site:twitter.com/{clean} OR site:x.com/{clean} OR site:linkedin.com/in/{clean} OR site:github.com/{clean} '
+                    f'OR site:instagram.com/{clean} OR site:reddit.com/user/{clean} OR site:facebook.com/{clean} '
+                    f'OR site:youtube.com/@{clean} OR site:tiktok.com/@{clean} OR site:medium.com/@{clean})'
                 )
                 news_query = f'"{clean}" OR "@{clean}" news OR article OR interview OR press OR mention'
                 return social_query.strip(), news_query.strip()
@@ -380,22 +379,20 @@ class DorkingAgent(BaseAgent):
             if target_type == "person":
                 social_query = (
                     f'"{value}" '
-                    f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
-                    f'OR site:instagram.com OR site:facebook.com OR site:reddit.com '
-                    f'OR site:youtube.com OR site:tiktok.com OR site:medium.com '
-                    f'OR site:pinterest.com profile'
+                    f'(site:linkedin.com/in/ OR site:twitter.com OR site:x.com OR site:github.com '
+                    f'OR site:instagram.com OR site:facebook.com OR site:reddit.com/user/ '
+                    f'OR site:medium.com/@) profile'
                 )
-                news_query = f'"{value}" news OR article OR interview OR press release OR media OR achievement OR announcement'
+                news_query = f'"{value}" news OR article OR interview OR "press release" OR media OR achievement OR announcement'
                 return social_query.strip(), news_query.strip()
 
             if target_type == "organization":
                 social_query = (
                     f'"{value}" '
-                    f'site:linkedin.com OR site:twitter.com OR site:x.com OR site:github.com '
-                    f'OR site:facebook.com OR site:youtube.com OR site:instagram.com '
+                    f'(site:linkedin.com/company/ OR site:twitter.com OR site:x.com OR site:github.com) '
                     f'profile OR about OR headquarters OR official'
                 )
-                news_query = f'"{value}" news OR press release OR announcement OR article OR funding OR acquisition'
+                news_query = f'"{value}" news OR "press release" OR announcement OR article OR funding OR acquisition'
                 return social_query.strip(), news_query.strip()
 
             if target_type == "phone":
@@ -409,7 +406,7 @@ class DorkingAgent(BaseAgent):
                 return social_query.strip(), news_query.strip()
 
             # fallback
-            social_query = f'"{value}" site:linkedin.com OR site:twitter.com OR site:github.com OR site:instagram.com OR site:reddit.com profile OR footprint'
+            social_query = f'"{value}" (site:linkedin.com/in/ OR site:twitter.com OR site:github.com OR site:instagram.com OR site:reddit.com/user/) profile OR footprint'
             news_query = f'"{value}" news OR article OR interview OR press OR mention'
             return social_query.strip(), news_query.strip()
 
@@ -417,7 +414,7 @@ class DorkingAgent(BaseAgent):
         intitle = f'intitle:"{value}"'
         inurl = f'inurl:"{value}"'
         intext = f'intext:"{value}"'
-        time_bias = ' after:2019-01-01 '
+        time_bias = ' after:2020-01-01 '
 
         # Advanced site lists
         twitter_sites = "site:twitter.com OR site:x.com"
@@ -446,7 +443,7 @@ class DorkingAgent(BaseAgent):
         if target_type == "email":
             social_query = (
                 f'"{value}" '
-                f'({linkedin_sites} OR {twitter_sites} OR {github_sites} OR {facebook_sites} OR {instagram_sites} OR {reddit_sites}) '
+                f'(site:linkedin.com/in/ OR {twitter_sites} OR {github_sites} OR {facebook_sites} OR {instagram_sites} OR site:reddit.com/user/) '
                 f'("profile" OR "contact" OR "about" OR "email") '
                 f'({inurl} OR {intext}) {excludes}'
             )
@@ -461,8 +458,9 @@ class DorkingAgent(BaseAgent):
             clean = value
             social_query = (
                 f'("@{clean}" OR "{clean}") '
-                f'({twitter_sites} OR {linkedin_sites} OR {github_sites} OR {instagram_sites} OR {reddit_sites} OR {facebook_sites} '
-                f'OR {youtube_sites} OR {tiktok_sites} OR {medium_sites} OR {pinterest_sites}) '
+                f'(site:twitter.com/{clean} OR site:x.com/{clean} OR site:linkedin.com/in/{clean} OR site:github.com/{clean} '
+                f'OR site:instagram.com/{clean} OR site:reddit.com/user/{clean} OR site:facebook.com/{clean} '
+                f'OR site:youtube.com/@{clean} OR site:tiktok.com/@{clean} OR site:medium.com/@{clean} OR {pinterest_sites}) '
                 f'("profile" OR "account" OR "handle" OR "bio" OR "about") '
                 f'({inurl} OR {intext}) {excludes}'
             )
@@ -476,10 +474,10 @@ class DorkingAgent(BaseAgent):
         if target_type == "person":
             social_query = (
                 f'"{value}" '
-                f'({linkedin_sites} OR {twitter_sites} OR {github_sites} OR {instagram_sites} OR {facebook_sites} OR {reddit_sites} '
-                f'OR {youtube_sites} OR {tiktok_sites} OR {medium_sites} OR {pinterest_sites}) '
+                f'(site:linkedin.com/in/ OR site:linkedin.com/pub/ OR site:twitter.com/ OR site:x.com/ OR site:github.com/ '
+                f'OR site:instagram.com/ OR site:facebook.com/ OR site:reddit.com/user/ OR site:medium.com/@) '
                 f'("profile" OR "bio" OR "about" OR "contact" OR "speaker") '
-                f'({inurl} OR {intext}) {excludes}'
+                f'{excludes}'
             )
             news_query = (
                 f'"{value}" '
@@ -491,7 +489,7 @@ class DorkingAgent(BaseAgent):
         if target_type == "organization":
             social_query = (
                 f'"{value}" '
-                f'({linkedin_sites} OR {twitter_sites} OR {github_sites} OR {facebook_sites} OR {youtube_sites} OR {instagram_sites}) '
+                f'(site:linkedin.com/company/ OR site:twitter.com OR site:x.com OR site:github.com OR site:facebook.com) '
                 f'("official" OR "about" OR "headquarters" OR "profile" OR "careers") '
                 f'({inurl} OR {intext}) {excludes}'
             )
@@ -508,7 +506,7 @@ class DorkingAgent(BaseAgent):
                 f'"{value}" '
                 f'("contact" OR "phone" OR "call" OR "call us") '
                 f'({inurl} OR {intext}) '
-                f'({twitter_sites} OR {linkedin_sites} OR {facebook_sites} OR {instagram_sites} OR {reddit_sites}) '
+                f'(site:linkedin.com/in/ OR {twitter_sites} OR {facebook_sites} OR {instagram_sites} OR site:reddit.com/user/) '
                 f'{excludes}'
             )
             news_query = (
@@ -532,7 +530,7 @@ class DorkingAgent(BaseAgent):
         # fallback advanced
         social_query = (
             f'"{value}" '
-            f'({twitter_sites} OR {linkedin_sites} OR {github_sites} OR {instagram_sites} OR {reddit_sites}) '
+            f'(site:linkedin.com/in/ OR {twitter_sites} OR {github_sites} OR {instagram_sites} OR site:reddit.com/user/) '
             f'("profile" OR "about" OR "footprint") {excludes}'
         )
         news_query = f'"{value}" (news OR article OR interview OR press OR mention) {excludes} {time_bias}'
@@ -549,34 +547,46 @@ class DorkingAgent(BaseAgent):
 
         if target_type == "domain_ip":
             # Exposed documents
-            extras.append(f'site:{value} filetype:pdf OR filetype:doc OR filetype:xls OR filetype:csv OR filetype:txt')
+            extras.append(f'site:{value} filetype:pdf OR filetype:doc OR filetype:docx OR filetype:xls OR filetype:xlsx OR filetype:csv OR filetype:txt')
             # Directory listings
             extras.append(f'site:{value} intitle:"index of" OR intitle:"directory listing"')
             # Config / backup / log files
-            extras.append(f'site:{value} filetype:log OR filetype:conf OR filetype:env OR filetype:bak OR filetype:sql')
+            extras.append(f'site:{value} filetype:log OR filetype:conf OR filetype:env OR filetype:bak OR filetype:sql OR filetype:ini OR filetype:yaml')
+            # Subdomains
+            extras.append(f'site:*.{value} -www')
 
         elif target_type == "email":
             # Pastes and leaks (public)
-            extras.append(f'"{value}" site:pastebin.com OR site:ghostbin.co OR site:dpaste.org OR "paste"')
+            extras.append(f'"{value}" site:pastebin.com OR site:ghostbin.co OR site:dpaste.org OR site:controlc.com OR "paste"')
+            # Leak indicators
+            extras.append(f'"{value}" filetype:txt OR filetype:csv OR filetype:log "password" OR "hash" OR "leak"')
 
         elif target_type == "organization":
             # Public documents
-            extras.append(f'"{value}" filetype:pdf OR filetype:pptx OR filetype:docx "confidential" OR "internal" OR "proprietary"')
+            extras.append(f'"{value}" filetype:pdf OR filetype:xlsx OR filetype:docx OR filetype:pptx "confidential" OR "internal" OR "proprietary" OR "salary" OR "budget"')
             # Employee profiles
-            extras.append(f'"{value}" site:linkedin.com/in/ employees OR team OR staff')
+            extras.append(f'"{value}" site:linkedin.com/company/ OR site:linkedin.com/in/ employees OR team OR staff OR founder')
+            # Login endpoints
+            extras.append(f'site:{value} inurl:login OR inurl:admin OR inurl:portal OR inurl:dashboard OR inurl:wp-login')
 
         elif target_type == "person":
+            # Resumes / CVs
+            extras.append(f'"{value}" filetype:pdf OR filetype:doc OR filetype:docx "resume" OR "cv" OR "curriculum vitae"')
             # Academic / publications
             extras.append(f'"{value}" site:scholar.google.com OR site:researchgate.net OR site:academia.edu')
-            # Court records / public records
-            extras.append(f'"{value}" "public record" OR "court" OR "case" OR "filing"')
+            # Professional profiles
+            extras.append(f'"{value}" site:crunchbase.com OR site:zoominfo.com OR site:bloomberg.com/profile OR site:pitchbook.com')
+            # Public records
+            extras.append(f'"{value}" "public record" OR "court" OR "case" OR "filing" OR "judgement"')
 
         elif target_type == "username":
             clean = value.lstrip("@")
             # Code repositories
-            extras.append(f'"{clean}" site:github.com OR site:gitlab.com OR site:bitbucket.org')
+            extras.append(f'"{clean}" site:github.com OR site:gitlab.com OR site:bitbucket.org OR site:gitea.com')
             # Forum presence
-            extras.append(f'"{clean}" site:stackoverflow.com OR site:quora.com OR site:hackernews.com OR site:dev.to')
+            extras.append(f'"{clean}" site:stackoverflow.com OR site:quora.com OR site:news.ycombinator.com OR site:dev.to')
+            # Pastes and dumps
+            extras.append(f'"{clean}" site:pastebin.com OR site:ghostbin.co OR site:dpaste.org OR site:controlc.com')
 
         return extras
 
@@ -634,7 +644,7 @@ class DorkingAgent(BaseAgent):
         return "\n".join(lines) if lines else "No results found."
 
     def _extract_fallback_target(self, message: str) -> Optional[str]:
-        """Simple regex fallback to extract targets from message."""
+        """Simple regex and string-cleaning fallback to extract targets from message."""
         # Try email
         m = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', message)
         if m:
@@ -647,14 +657,16 @@ class DorkingAgent(BaseAgent):
         m = re.search(r'@[a-zA-Z0-9_]+', message)
         if m:
             return m.group(0)
-        # Fallback: extract the most meaningful words
+            
+        # Clean string for names/general terms by stripping common command verbs
         words = message.split()
         skip_words = {
-            "dork", "dorking", "google", "search", "find", "lookup",
-            "hacker", "mode", "advanced", "deep", "karo", "kar",
-            "do", "run", "execute", "check", "scan",
+            "dork", "dorking", "google", "search", "find", "lookup", "check", "scan",
+            "hacker", "mode", "advanced", "deep", "karo", "kar", "please", "do", "run",
+            "execute", "osint", "investigate", "who", "is", "profile", "information",
+            "info", "details", "recon", "target", "about", "me", "show"
         }
-        meaningful = [w for w in words if w.lower() not in skip_words and len(w) > 2]
-        if meaningful:
-            return " ".join(meaningful[:3])
+        filtered = [w for w in words if w.lower().strip("?,.!:;\"'") not in skip_words]
+        if filtered:
+            return " ".join(filtered)
         return None

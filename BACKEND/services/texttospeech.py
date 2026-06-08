@@ -49,6 +49,7 @@ _BATCH_THRESHOLD = 6_000  # ~6 KB ≈ 0.3s of MP3 audio
 _stop_event = threading.Event()
 _is_speaking = False
 _last_spoke_at: float = 0.0
+_speech_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 #  Persistent asyncio loop (runs in a daemon thread)
@@ -295,38 +296,39 @@ def text_to_speech(
     if not text or not text.strip():
         return False
 
-    # Truncate long responses for snappy speech
-    sentences = [s.strip() for s in text.replace("!", ".").split(".") if s.strip()]
-    if len(sentences) > max_spoken_sentences or len(text) > max_spoken_chars:
-        spoken_text = (
-            ". ".join(sentences[:max_spoken_sentences])
-            + ". "
-            + random.choice(_COMPLETION_RESPONSES)
-        )
-    else:
-        spoken_text = text
+    with _speech_lock:
+        # Truncate long responses for snappy speech
+        sentences = [s.strip() for s in text.replace("!", ".").split(".") if s.strip()]
+        if len(sentences) > max_spoken_sentences or len(text) > max_spoken_chars:
+            spoken_text = (
+                ". ".join(sentences[:max_spoken_sentences])
+                + ". "
+                + random.choice(_COMPLETION_RESPONSES)
+            )
+        else:
+            spoken_text = text
 
-    loop = _get_bg_loop()
+        loop = _get_bg_loop()
 
-    try:
-        # Primary: streaming PyAudio playback (lowest latency)
-        future = asyncio.run_coroutine_threadsafe(
-            _stream_and_play(spoken_text, voice, pitch=pitch, rate=rate), loop
-        )
-        result = future.result(timeout=120)
-        if result:
-            return True
+        try:
+            # Primary: streaming PyAudio playback (lowest latency)
+            future = asyncio.run_coroutine_threadsafe(
+                _stream_and_play(spoken_text, voice, pitch=pitch, rate=rate), loop
+            )
+            result = future.result(timeout=120)
+            if result:
+                return True
 
-        # Fallback: pygame buffer playback
-        logger.info("Streaming playback returned False, trying pygame fallback")
-        future = asyncio.run_coroutine_threadsafe(
-            _buffer_and_play_pygame(spoken_text, voice, pitch=pitch, rate=rate), loop
-        )
-        return future.result(timeout=120)
+            # Fallback: pygame buffer playback
+            logger.info("Streaming playback returned False, trying pygame fallback")
+            future = asyncio.run_coroutine_threadsafe(
+                _buffer_and_play_pygame(spoken_text, voice, pitch=pitch, rate=rate), loop
+            )
+            return future.result(timeout=120)
 
-    except Exception as e:
-        logger.exception("TTS pipeline error:")
-        return False
+        except Exception as e:
+            logger.exception("TTS pipeline error:")
+            return False
 
 
 def speak_async(text: str, voice: str = DEFAULT_VOICE, pitch: str = "+5Hz", rate: str = "+13%") -> None:

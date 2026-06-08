@@ -246,7 +246,7 @@ export const CoreActivation: React.FC<CoreActivationProps> = ({ onComplete }) =>
             <div>
               <div style={{ fontSize: '8px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>SWARM NET CAPABILITY</div>
               <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.85)' }}>
-                32 ACTIVE THREADS POOLED
+                35 ACTIVE THREADS POOLED
               </div>
             </div>
           </div>

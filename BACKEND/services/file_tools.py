@@ -32,7 +32,8 @@ class FileToolSystem:
     """Real file system operations with permission enforcement."""
 
     def __init__(self, workspace: str | None = None) -> None:
-        self.workspace = Path(workspace or os.getcwd()).resolve()
+        from config import settings
+        self.workspace = Path(workspace or settings.WORKSPACE_DIR).resolve()
         self.enforcer = PermissionEnforcer(workspace_root=self.workspace)
         self.sandbox = SandboxExecutor(enforcer=self.enforcer)
 
@@ -103,11 +104,17 @@ class FileToolSystem:
                 except ImportError:
                     return FileToolResult(False, "Missing dependency: python-docx. Cannot edit DOCX.", "edit_file")
 
-            content = target.read_text(encoding="utf-8")
+            encoding = "utf-8"
+            try:
+                content = target.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                content = target.read_text(encoding="cp1252")
+                encoding = "cp1252"
+
             if old_text not in content:
                 return FileToolResult(False, "Target text not found in file", "edit_file")
             updated = content.replace(old_text, new_text, 1)
-            target.write_text(updated, encoding="utf-8")
+            target.write_text(updated, encoding=encoding)
             return FileToolResult(True, f"Edited {target}", "edit_file")
         except Exception as exc:
             return FileToolResult(False, str(exc), "edit_file")

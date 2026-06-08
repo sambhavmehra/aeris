@@ -34,6 +34,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isVoiceModeEnabled, setIsVoiceModeEnabled] = useState(false);
+  const [isVoiceSleeping, setIsVoiceSleeping] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
 
   // Hacker Mode Challenge State
@@ -238,6 +239,20 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     if (!msg || isTyping) return;
     setInput('');
     
+    // Intercept mic toggle commands
+    if (msg.toLowerCase() === 'mic on' || msg.toLowerCase() === '/mic') {
+      if (!isVoiceModeEnabled) {
+        startVoiceSession();
+      }
+      return;
+    }
+    if (msg.toLowerCase() === 'mic off') {
+      if (isVoiceModeEnabled) {
+        stopVoiceSession();
+      }
+      return;
+    }
+
     // Intercept Assembly Command
     if (msg.toLowerCase().includes('agent assemble') || msg.toLowerCase().trim() === 'assemble') {
       onClose();
@@ -370,6 +385,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
 
     setIsVoiceModeEnabled(false);
     setIsListening(false);
+    setIsVoiceSleeping(true);
     onSpeakingChange(false);
     stopThinking();
   }, [stopPlayback, onSpeakingChange, stopThinking]);
@@ -387,10 +403,14 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       return;
     }
     
+    // Create both contexts immediately to capture user gesture
     const outContext = new AudioContextClass({ sampleRate: 24000 });
     audioOutContextRef.current = outContext;
     nextPlayTimeRef.current = 0;
     activeSourcesRef.current = [];
+
+    const inContext = new AudioContextClass({ sampleRate: 16000 });
+    audioInContextRef.current = inContext;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//localhost:8000/ws/voice`;
@@ -434,7 +454,11 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       } else {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === 'speak_start') {
+          if (data.type === 'status_change') {
+            if (typeof data.is_sleeping === 'boolean') {
+              setIsVoiceSleeping(data.is_sleeping);
+            }
+          } else if (data.type === 'speak_start') {
             onSpeakingChange(true);
           } else if (data.type === 'speak_end') {
             if (activeSourcesRef.current.length === 0) {
@@ -449,7 +473,13 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
           } else if (data.type === 'chat_response') {
             stopThinking();
             
-            if (data.hacker_mode_activated === true) {
+            if (data.intent === 'wakeup') {
+              setIsVoiceSleeping(false);
+              addAIMessage(data.response || 'System active, Sir.', true, data.agent, data.intent);
+            } else if (data.intent === 'sleep') {
+              setIsVoiceSleeping(true);
+              addAIMessage(data.response || 'System in standby.', true, data.agent, data.intent);
+            } else if (data.hacker_mode_activated === true) {
               document.body.classList.add('hacker');
               setIsHacker(true);
               addAIMessage(data.response || 'Hacker Brain Mode activated.', true, 'Brain', 'hacker_mode_activation');
@@ -489,8 +519,13 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
 
-      const inContext = new AudioContextClass({ sampleRate: 16000 });
-      audioInContextRef.current = inContext;
+      // Explicitly resume AudioContexts to bypass browser autoplay/interaction restrictions
+      if (outContext.state === 'suspended') {
+        await outContext.resume();
+      }
+      if (inContext.state === 'suspended') {
+        await inContext.resume();
+      }
 
       const source = inContext.createMediaStreamSource(stream);
       const processor = inContext.createScriptProcessor(4096, 1, 1);
@@ -525,6 +560,82 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       startVoiceSession();
     }
   }, [isVoiceModeEnabled, startVoiceSession, stopVoiceSession]);
+
+  // Keyboard Shortcut: Ctrl+M / Alt+M to toggle voice
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen) return;
+      if ((e.ctrlKey || e.altKey) && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        toggleVoice();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, toggleVoice]);
+
+  // Monitor audio devices to detect when Bluetooth/earbuds connect
+  useEffect(() => {
+    if (typeof window === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      return;
+    }
+
+    let previousDevices: MediaDeviceInfo[] = [];
+
+    // Initialize list of devices
+    navigator.mediaDevices.enumerateDevices()
+      .then(devices => {
+        previousDevices = devices;
+      })
+      .catch(err => console.warn("Failed to enumerate devices on init:", err));
+
+    const handleDeviceChange = async () => {
+      try {
+        const currentDevices = await navigator.mediaDevices.enumerateDevices();
+        
+        // Find newly added devices
+        const newDevices = currentDevices.filter(current => 
+          !previousDevices.some(prev => prev.deviceId === current.deviceId)
+        );
+
+        previousDevices = currentDevices;
+
+        if (newDevices.length > 0) {
+          const newMics = newDevices.filter(d => d.kind === 'audioinput');
+          if (newMics.length > 0) {
+            const hasBuds = newMics.some(mic => {
+              const label = mic.label.toLowerCase();
+              return label.includes('bluetooth') || 
+                     label.includes('buds') || 
+                     label.includes('pods') || 
+                     label.includes('headset') || 
+                     label.includes('hands-free') || 
+                     label.includes('wireless') || 
+                     label.includes('stereo');
+            });
+
+            if (hasBuds && isOpen) {
+              console.log("Bluetooth earbud/mic connected. Activating voice mode.");
+              if (!isVoiceModeEnabled) {
+                // Add a small delay for OS device registration
+                setTimeout(() => {
+                  startVoiceSession();
+                  addAIMessage("🎧 Earbuds connected. Microphone active and listening.", false, "Brain", "system");
+                }, 1200);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Error handling device change:", err);
+      }
+    };
+
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+    };
+  }, [isOpen, isVoiceModeEnabled, startVoiceSession, addAIMessage]);
 
   const currentStageText = THINKING_STAGES[thinkingStage]?.text || 'Processing...';
 
@@ -835,26 +946,28 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
             />
             <button
               onClick={toggleVoice}
-              title="Voice input"
+              title={isListening ? (isVoiceSleeping ? "Standby mode (listening for wakeup)" : "Listening") : "Voice input"}
               style={{
                 width: '32px', height: '32px', borderRadius: '50%',
                 background: isListening 
-                  ? 'rgba(139,92,246,0.28)' 
+                  ? (isVoiceSleeping ? 'rgba(139,92,246,0.15)' : 'rgba(139,92,246,0.28)')
                   : (isVoiceModeEnabled ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.1)'),
                 border: isListening 
-                  ? '1px solid rgba(139,92,246,0.4)' 
+                  ? (isVoiceSleeping ? '1px solid rgba(139,92,246,0.2)' : '1px solid rgba(139,92,246,0.4)')
                   : (isVoiceModeEnabled ? '1px solid rgba(139,92,246,0.25)' : '1px solid rgba(139,92,246,0.22)'),
                 color: isListening 
-                  ? 'rgba(190,160,255,0.95)' 
+                  ? (isVoiceSleeping ? 'rgba(190,160,255,0.5)' : 'rgba(190,160,255,0.95)')
                   : (isVoiceModeEnabled ? 'rgba(190,160,255,0.8)' : 'rgba(160,120,255,0.72)'),
                 cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                animation: isListening ? 'voice-ring 1s ease-out infinite' : 'none',
+                animation: isListening && !isVoiceSleeping ? 'voice-ring 1s ease-out infinite' : 'none',
                 transition: 'all 0.2s', flexShrink: 0,
-                boxShadow: isListening 
+                boxShadow: isListening && !isVoiceSleeping
                   ? '0 0 10px rgba(139,92,246,0.4)' 
                   : (isVoiceModeEnabled ? '0 0 6px rgba(139,92,246,0.2)' : 'none'),
               }}
-            >🎙</button>
+            >
+              {isListening && isVoiceSleeping ? '💤' : '🎙️'}
+            </button>
             <button
               onClick={() => isTyping ? handleStop() : sendMessage()}
               title={isTyping ? 'Stop' : 'Send'}

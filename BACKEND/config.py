@@ -18,11 +18,13 @@ class Settings:
     def __init__(self):
         # --- LLM API Keys ---
         self.GROQ_API_KEYS: list[str] = self._collect_groq_keys()
+        self.GROQ_VISION_API_KEY: str = os.getenv("GROQ_VISION_API_KEY", "").strip()
         self.GEMINI_API_KEY: str = os.getenv("VITE_GEMINI_API_KEY", "")
         self.CEREBRAS_API_KEY: str = os.getenv("CEREBRAS_API_KEY", "")
         self.HF_API_KEY: str = os.getenv("VITE_IMAGE_AI_API_KEY", "")
         self.TAVILY_API_KEY: str = os.getenv("VITE_TAVILY_API_KEY", "")
         self.COHERE_API_KEY: str = os.getenv("COHERE_API_KEY", "").strip()
+        self.OLLAMA_VISION_MODEL: str = os.getenv("OLLAMA_VISION_MODEL", "qwen2.5vl:3b")
 
         # --- Identity ---
         self.USERNAME: str = os.getenv("Username", "User")

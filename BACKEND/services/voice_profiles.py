@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 AERIS Voice Profiles Registry
-Defines the Edge-TTS voice mapping and speech parameters for all 32 AERIS agents.
+Defines the Edge-TTS voice mapping and speech parameters for all 35 AERIS agents.
 Introductions are tuned to natural, agentic Hinglish.
 """
 
 # Default voice profile for the overall AERIS system
 DEFAULT_VOICE = "hi-IN-MadhurNeural"
 
-# Full registry of all 32 agents with their voice configurations and speech tuning
+# Full registry of all 35 agents with their voice configurations and speech tuning
 VOICE_PROFILES = {
     "aurora": {
         "voice": "en-IN-NeerjaNeural",
@@ -265,6 +265,30 @@ VOICE_PROFILES = {
         "codename": "BLUEPRINT",
         "role": "Diagram Architect",
         "intro": "Blueprint active hai, Sir. Vector architecture diagrams render ho rahe hain."
+    },
+    "diagnostician": {
+        "voice": "hi-IN-SwaraNeural",
+        "rate": "+0%",
+        "pitch": "+3Hz",
+        "codename": "DIAGNOSTICIAN",
+        "role": "DiagnosisAgent",
+        "intro": "Diagnostician active hai, Sir. System layers, environment configs, aur code files fully diagnose karne ke liye taiyar."
+    },
+    "antigravity": {
+        "voice": "hi-IN-MadhurNeural",
+        "rate": "+0%",
+        "pitch": "+0Hz",
+        "codename": "ANTIGRAVITY",
+        "role": "AntigravityAgent",
+        "intro": "Antigravity agent online hai, Sir. Autonomously swarm agents ko command aur track karne ke liye system synchronized hai."
+    },
+    "medic": {
+        "voice": "hi-IN-MadhurNeural",
+        "rate": "+0%",
+        "pitch": "+0Hz",
+        "codename": "MEDIC",
+        "role": "RepairAgent",
+        "intro": "Medic online hai, Sir. Self-healing protocols aur auto-repair systems fully armed hain."
     }
 }
 
@@ -287,5 +311,5 @@ def get_voice_profile(agent_id: str) -> dict:
     }
 
 def get_all_agent_ids() -> list:
-    """Returns a list of all 32 agent IDs in the system."""
+    """Returns a list of all 35 agent IDs in the system."""
     return list(VOICE_PROFILES.keys())

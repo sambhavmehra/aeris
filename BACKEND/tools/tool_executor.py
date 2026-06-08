@@ -206,6 +206,22 @@ class ToolExecutorService:
         
         result.receipt_id = receipt.receipt_id
         
+        # Log failure if result.success is False
+        if not result.success:
+            try:
+                from utils.failure_logger import log_task_failure
+                log_task_failure(
+                    task_id=task_id,
+                    step_id=step_id or getattr(result, "step_id", ""),
+                    tool_name=tool_name,
+                    args=kwargs,
+                    error=result.stderr or "Unknown tool execution failure",
+                    agent_name="ToolExecutorService",
+                    intent="tool_execution"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log task failure in ToolExecutorService: {e}")
+        
         # 6. Global State Update & Health Tracking
         self._update_global_state(tool.name)
         try:

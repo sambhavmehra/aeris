@@ -128,18 +128,18 @@ export default function AerisInterface() {
       <div
         id="aeris-cursor-glow"
         style={{
-          position: 'fixed', width: '220px', height: '220px', borderRadius: '50%',
+          position: 'fixed', left: 0, top: 0, width: '220px', height: '220px', borderRadius: '50%',
           background: 'radial-gradient(circle, rgba(var(--cyan-rgb),0.065) 0%, transparent 70%)',
-          pointerEvents: 'none', transform: 'translate(-50%, -50%)',
+          pointerEvents: 'none', transform: 'translate3d(-50%, -50%, 0)',
           zIndex: 9999, transition: 'opacity 0.3s',
         }}
       />
       <div
         id="aeris-cursor-dot"
         style={{
-          position: 'fixed', width: '6px', height: '6px', borderRadius: '50%',
+          position: 'fixed', left: 0, top: 0, width: '6px', height: '6px', borderRadius: '50%',
           background: 'rgba(var(--cyan-rgb),0.85)', pointerEvents: 'none',
-          transform: 'translate(-50%, -50%)', zIndex: 10000,
+          transform: 'translate3d(-50%, -50%, 0)', zIndex: 10000,
           boxShadow: '0 0 12px rgba(var(--cyan-rgb),0.9)',
         }}
       />
@@ -203,6 +203,26 @@ export default function AerisInterface() {
           }}>
             <span style={{ fontSize: '10px' }}>🤖</span>
             <span style={{ fontSize: '10px', color: 'var(--purple)', letterSpacing: '2px', fontWeight: 500 }}>CODE PIPELINE</span>
+          </a>
+          <a href="/repaircenter" style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            background: 'rgba(255,109,0,0.1)', border: '1px solid rgba(255,109,0,0.35)',
+            borderRadius: '20px', padding: '5px 14px', textDecoration: 'none',
+            cursor: 'pointer', transition: 'all 0.3s', marginTop: '6px',
+            boxShadow: '0 0 12px rgba(255,109,0,0.1)',
+          }}>
+            <span style={{ fontSize: '10px' }}>🔧</span>
+            <span style={{ fontSize: '10px', color: '#ff6d00', letterSpacing: '2px', fontWeight: 500 }}>REPAIR CENTER</span>
+          </a>
+          <a href="/webweaver" style={{
+            display: 'flex', alignItems: 'center', gap: '6px',
+            background: 'rgba(124,77,255,0.1)', border: '1px solid rgba(124,77,255,0.35)',
+            borderRadius: '20px', padding: '5px 14px', textDecoration: 'none',
+            cursor: 'pointer', transition: 'all 0.3s', marginTop: '6px',
+            boxShadow: '0 0 12px rgba(124,77,255,0.1)',
+          }}>
+            <span style={{ fontSize: '10px' }}>🕸️</span>
+            <span style={{ fontSize: '10px', color: '#7c4dff', letterSpacing: '2px', fontWeight: 500 }}>WEBWEAVER HUD</span>
           </a>
         </div>
 

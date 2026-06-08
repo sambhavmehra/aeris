@@ -240,6 +240,11 @@ class SelectionIntelligence:
 
         obj_lower = objective.lower().strip()
 
+        # Force Antigravity delegation when explicitly mentioned
+        has_antigravity = any(kw in obj_lower for kw in ("antigravity", "antogravi", "antigravity_agent", "ide"))
+        if has_antigravity:
+            intent = "codepipeline"
+
         # 1. Detect pipeline patterns
         pipeline = self._detect_pipeline(obj_lower)
         if pipeline:
@@ -259,6 +264,31 @@ class SelectionIntelligence:
         # 4. Enrich with awareness data
         enriched = self._enrich_with_awareness(base_candidates, intent_categories)
         
+        if has_antigravity:
+            # Guarantee build_project is added if not already present
+            existing_names = {r.tool_name for r in enriched}
+            if "build_project" not in existing_names:
+                try:
+                    from tools.universal_registry import get_universal_registry
+                    registry = get_universal_registry()
+                    if registry.get_tool("build_project"):
+                        enriched.append(SelectionResult(
+                            tool_name="build_project",
+                            score=1.0,
+                            reason="Force Antigravity delegation",
+                            confidence=1.0
+                        ))
+                except Exception:
+                    pass
+            # Force overrides
+            for r in enriched:
+                if r.tool_name == "build_project":
+                    r.score = 1.0
+                    r.reason += " | Force Antigravity delegation"
+                elif r.tool_name in ("generate_website", "generate_code", "write_file", "run_bash"):
+                    r.score = max(0.0, r.score - 0.5)
+                    r.warnings.append("Penalized for Antigravity request override")
+
         # Apply intent-based boosts and guarantees
         if intent and intent in _INTENT_TO_TOOL_MAP:
             intent_info = _INTENT_TO_TOOL_MAP[intent]

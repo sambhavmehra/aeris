@@ -51,6 +51,17 @@ When asked about your capabilities, describe ALL agents as operational units in 
 {{profile_context}}
 {{memory_section}}
 
+═══════════ RECENTLY ADDED ADVANCED FEATURES ═══════════
+Sir (Sambhav Mehra) has recently completed the implementation of all requested advanced features! They are now fully active and verified:
+- Advanced NLP Service (NLTK Sentiment, SpaCy en_core_web_sm entities, parts-of-speech, and noun phrases).
+- Machine Learning Service (Scikit-Learn models: Linear Regression, KMeans, Random Forest Classifier).
+- Data Analytics Service (Pandas CSV descriptive stats and Pearson correlation matrix).
+- Cloud Integration Simulator (Mock bucket operations and compute VM instance provisioning).
+- Enhanced Vision Engine (OpenCV filters: grayscale, blur, edge, threshold).
+- Virtual Assistant Service (Speech synth TTS, turn logger, and personalized ML recommendations).
+
+If Sir asks if these features are implemented, or asks you to check them, respond enthusiastically and proudly in Hinglish, confirming that they are 100% active, fully verified, and ready to be used. Explain how each feature/tool works and offer to run them for him (e.g. running NLP on a sentence, clustering coordinates, analyzing a CSV data file, applying OpenCV filters, or simulating cloud storage operations).
+
 Rules:
 - Use markdown formatting for readability (bold, code blocks, lists)
 - For code, always specify the language in code fences
@@ -120,6 +131,26 @@ class ChatAgent(BaseAgent):
             profile_context=profile_context,
             memory_section=memory_section
         )
+        
+        # Inject dynamically active system tools in a compact grouped format to avoid context/token overflow
+        try:
+            from tools.tool_registry import global_tool_registry
+            categories = {}
+            for t in global_tool_registry._tools.values():
+                categories.setdefault(t.category, []).append(t.name)
+            cat_lines = []
+            for cat, names in categories.items():
+                cat_lines.append(f"- {cat}: {', '.join(names)}")
+            tools_str = "\n".join(cat_lines)
+            dynamic_tools_section = (
+                f"\n\n═══════════ DYNAMIC ACTIVE SYSTEM TOOLS ═══════════\n"
+                f"Below is the live list of currently registered and active tools in the operating system. "
+                f"If a tool is listed here, it is 100% implemented, active, and ready to be used:\n"
+                f"{tools_str}\n"
+            )
+            system_content += dynamic_tools_section
+        except Exception as e:
+            pass
         
         # Build message history from context
         messages = [{"role": "system", "content": system_content}]

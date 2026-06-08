@@ -774,7 +774,8 @@ class RAGVoiceEngine:
     """
 
     def __init__(self, workspace: str | None = None) -> None:
-        self.workspace = Path(workspace or os.getcwd()).resolve()
+        from config import settings
+        self.workspace = Path(workspace or settings.WORKSPACE_DIR).resolve()
         self.vector_store = VectorStore()
         self.code_analyzer = CodeAnalyzer()
         self.indexer = FileIndexer(self.vector_store, self.code_analyzer)

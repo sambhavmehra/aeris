@@ -42,6 +42,12 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
   const [thinkingStage, setThinkingStage] = useState(0);
   const [isMuted, setIsMuted] = useState(soundEngine.isMuted());
   const [isListening, setIsListening] = useState(false);
+  const [telemetry, setTelemetry] = useState({
+    cpu_percent: 15,
+    ram_used_percent: 40,
+    disk_used_percent: 30,
+    net_data_rate_kb: 0
+  });
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -94,6 +100,23 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  useEffect(() => {
+    const fetchTelemetry = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/diagnostics/telemetry');
+        if (res.ok) {
+          const data = await res.json();
+          setTelemetry(data);
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Lock window scroll to prevent layout shifting on input focus
   useEffect(() => {
@@ -464,7 +487,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
             letterSpacing: '1px',
             textShadow: '0 0 5px rgba(0, 255, 255, 0.3)'
           }}>
-            SWARM CODES ACTIVE [32/32]
+            SWARM CODES ACTIVE [35/35]
           </span>
         </div>
 
@@ -775,7 +798,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
             marginTop: '8px',
             letterSpacing: '0.5px'
           }}>
-            DEVICES DEPLOYED [32]
+            DEVICES DEPLOYED [35]
           </div>
 
           {/* Diagnostic Stats Widget */}
@@ -799,10 +822,10 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: 'rgba(255,255,255,0.5)' }}>
                 <span>CPU UTILIZATION</span>
-                <span style={{ color: 'var(--cyan)' }}>42%</span>
+                <span style={{ color: 'var(--cyan)' }}>{telemetry.cpu_percent}%</span>
               </div>
               <div style={{ height: '3px', background: 'rgba(255,255,255,0.05)', borderRadius: '1.5px', overflow: 'hidden' }}>
-                <div style={{ height: '100%', background: 'var(--cyan)', width: '42%', animation: 'telemetry-bar 3s infinite ease-in-out' }} />
+                <div style={{ height: '100%', background: 'var(--cyan)', width: `${telemetry.cpu_percent}%`, transition: 'width 0.5s ease-out' }} />
               </div>
             </div>
 
@@ -810,10 +833,10 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: 'rgba(255,255,255,0.5)' }}>
                 <span>MEMORY LOAD</span>
-                <span style={{ color: '#a855f7' }}>61%</span>
+                <span style={{ color: '#a855f7' }}>{telemetry.ram_used_percent}%</span>
               </div>
               <div style={{ height: '3px', background: 'rgba(255,255,255,0.05)', borderRadius: '1.5px', overflow: 'hidden' }}>
-                <div style={{ height: '100%', background: '#a855f7', width: '61%' }} />
+                <div style={{ height: '100%', background: '#a855f7', width: `${telemetry.ram_used_percent}%`, transition: 'width 0.5s ease-out' }} />
               </div>
             </div>
 
@@ -821,10 +844,21 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: 'rgba(255,255,255,0.5)' }}>
                 <span>NET DATA RATE</span>
-                <span style={{ color: '#ff9100' }}>842 KB/s</span>
+                <span style={{ color: '#ff9100' }}>{telemetry.net_data_rate_kb} KB/s</span>
               </div>
               <div style={{ height: '3px', background: 'rgba(255,255,255,0.05)', borderRadius: '1.5px', overflow: 'hidden' }}>
-                <div style={{ height: '100%', background: '#ff9100', width: '38%', animation: 'telemetry-bar-net 2.5s infinite ease-in-out' }} />
+                <div style={{ height: '100%', background: '#ff9100', width: `${Math.min(100, (telemetry.net_data_rate_kb / 5000) * 100)}%`, transition: 'width 0.5s ease-out' }} />
+              </div>
+            </div>
+
+            {/* Disk space metric */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '8px', color: 'rgba(255,255,255,0.5)' }}>
+                <span>WORKSPACE DISK</span>
+                <span style={{ color: '#00e5ff' }}>{telemetry.disk_used_percent}%</span>
+              </div>
+              <div style={{ height: '3px', background: 'rgba(255,255,255,0.05)', borderRadius: '1.5px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', background: '#00e5ff', width: `${telemetry.disk_used_percent}%`, transition: 'width 0.5s ease-out' }} />
               </div>
             </div>
           </div>
