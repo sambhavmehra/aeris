@@ -24,21 +24,19 @@ logger = logging.getLogger("AerisToolManagerAgent")
 TOOL_GEN_SYSTEM_PROMPT = """You are AERIS's Tool Manager — you generate new Python tools at runtime.
 
 When asked to create a tool, output a COMPLETE Python file that follows this contract:
-1. The file must define a function with a clear docstring.
-2. The function must accept keyword arguments.
+1. The file must define a function named `run(**kwargs)` as the main entry point, with a clear docstring.
+2. The function must accept keyword arguments (`**kwargs`).
 3. The function must return a string result.
 4. Include all necessary imports at the top.
 5. Include a TOOL_METADATA dict at module level:
-   TOOL_METADATA = {{
+   TOOL_METADATA = {
        "name": "tool_name",
        "description": "What the tool does",
        "required_params": ["param1", "param2"],
        "risk_level": "safe",    # safe|low|medium|high
        "category": "general",   # general|system|web|file|utility
-   }}
-6. The main function name must match the tool name.
-
-Output ONLY the Python code — no explanation, no markdown fences.
+   }
+6. Do NOT use markdown code fences in your output. Just return the raw Python code.
 """
 
 
@@ -137,12 +135,11 @@ class ToolManagerAgent(BaseAgent):
         except json.JSONDecodeError:
             return {"matches": [], "note": raw.strip()}
 
-    def create_tool(self, request: str,
+    def create_tool(self, request: str, tool_name: Optional[str] = None,
                     context: SharedContextBuffer = None) -> Dict[str, Any]:
         """
-        Generate a new tool as a Python script and register it.
-        The script is saved to the dynamic tools directory and
-        hot-reloaded into the UniversalToolRegistry.
+        Generate a new tool as a Python script, validate it in a sandbox,
+        auto-repair if validation fails, and hot-reload it into the UniversalToolRegistry.
         """
         self.log(f"Generating new tool for: {request[:60]}")
 
@@ -153,30 +150,112 @@ class ToolManagerAgent(BaseAgent):
             if research:
                 enriched += f"\n\nResearch context:\n{str(research)[:500]}"
 
-        raw_code = self._llm_call(
-            TOOL_GEN_SYSTEM_PROMPT,
-            f"Create a tool for: {enriched}",
-            temperature=0.2,
-            max_tokens=2048,
-        )
-
-        # Clean the response
-        code = raw_code.strip()
-        if code.startswith("```"):
-            code = code.split("\n", 1)[-1]
-            if code.endswith("```"):
-                code = code[:-3]
-            code = code.strip()
-
-        # Extract tool name from TOOL_METADATA
-        tool_name = self._extract_tool_name(code)
+        # Infer tool name if not provided
         if not tool_name:
-            tool_name = f"custom_tool_{hash(request) % 10000}"
+            import re
+            # Extract tool name from metadata parser or infer from prompt
+            tool_name = f"dynamic_tool_{abs(hash(request)) % 10000}"
 
-        # Save to dynamic tools directory
+        # Loop for generation, sandbox validation, and auto-repair
+        max_attempts = 3
+        current_attempt = 1
+        last_error = ""
+        code = ""
+        success = False
+
+        while current_attempt <= max_attempts:
+            self.log(f"Tool generation attempt {current_attempt}/{max_attempts} for '{tool_name}'")
+            if current_attempt == 1:
+                prompt_input = f"Create a tool named '{tool_name}' for: {enriched}"
+            else:
+                prompt_input = (
+                    f"Create a tool named '{tool_name}' for: {enriched}\n\n"
+                    f"Your previous attempt failed validation with the following error:\n{last_error}\n\n"
+                    f"Please correct the implementation (fix syntax, missing imports, or incorrect arguments) and output the complete corrected python code. No explanation."
+                )
+
+            raw_code = self._llm_call(
+                TOOL_GEN_SYSTEM_PROMPT,
+                prompt_input,
+                temperature=0.2,
+                max_tokens=2048,
+            )
+
+            # Clean the response
+            code = raw_code.strip()
+            if code.startswith("```"):
+                code = code.split("\n", 1)[-1]
+                if code.endswith("```"):
+                    code = code[:-3]
+                code = code.strip()
+
+            # Ensure tool_name matches TOOL_METADATA if generated has one
+            extracted_name = self._extract_tool_name(code)
+            if extracted_name and extracted_name != tool_name:
+                code = code.replace(extracted_name, tool_name)
+
+            # 1. Write to temporary file for sandbox validation
+            temp_filename = f"temp_validate_{tool_name}.py"
+            temp_filepath = self._tools_dir / temp_filename
+            try:
+                temp_filepath.write_text(code, encoding="utf-8")
+
+                # 2. Run validation (sandbox run in subprocess)
+                import subprocess
+                import sys
+
+                # Syntax compile check
+                compile(code, temp_filename, "exec")
+
+                # Test importing and loading metadata
+                val_script = (
+                    f"import sys\n"
+                    f"sys.path.insert(0, r'{self._tools_dir}')\n"
+                    f"try:\n"
+                    f"    import temp_validate_{tool_name} as mod\n"
+                    f"    assert hasattr(mod, 'run') or hasattr(mod, '{tool_name}'), 'No run() or main function found'\n"
+                    f"    print('SUCCESS')\n"
+                    f"except Exception as e:\n"
+                    f"    print(f'ERROR: {{e}}')\n"
+                    f"    sys.exit(1)\n"
+                )
+                result = subprocess.run(
+                    [sys.executable, "-c", val_script],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+
+                if result.returncode == 0 and "SUCCESS" in result.stdout:
+                    success = True
+                    self.log(f"Sandbox validation passed for '{tool_name}'")
+                else:
+                    err_msg = result.stderr or result.stdout or "Import check failed"
+                    raise RuntimeError(err_msg)
+
+            except Exception as val_ex:
+                last_error = str(val_ex)
+                self.log(f"Validation failed on attempt {current_attempt}: {last_error}", "WARNING")
+            finally:
+                if temp_filepath.exists():
+                    try:
+                        import os
+                        os.remove(temp_filepath)
+                    except Exception:
+                        pass
+
+            if success:
+                break
+
+            current_attempt += 1
+
+        if not success:
+            raise RuntimeError(f"Failed to generate a valid tool for '{tool_name}' after {max_attempts} attempts. Last error: {last_error}")
+
+        # Save permanent file
         file_path = self._tools_dir / f"{tool_name}.py"
         file_path.write_text(code, encoding="utf-8")
-        self.log(f"Saved new tool to: {file_path}")
+        self.log(f"Successfully saved validated tool to: {file_path}")
 
         # Hot-reload
         count = self.reload_tools()
@@ -186,6 +265,7 @@ class ToolManagerAgent(BaseAgent):
             "file_path": str(file_path),
             "code_preview": code[:500],
             "reloaded_count": count,
+            "success": True
         }
 
     def reload_tools(self) -> int:

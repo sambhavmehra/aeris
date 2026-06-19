@@ -64,13 +64,17 @@ class BaseAgent(ABC):
         import asyncio
         from ai_engine import ai_engine
         
-        loop = asyncio.get_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+            
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
         
-        if loop.is_running():
+        if loop and loop.is_running():
             # If we're already in an async context, this is tricky for sync code.
             # But sub_agents run in a ThreadPoolExecutor, so loop.is_running() is usually False in their thread,
             # or they have their own event loop.
@@ -83,7 +87,16 @@ class BaseAgent(ABC):
                 nest_asyncio.apply()
                 return asyncio.run(ai_engine.chat(messages, temperature=temperature, max_tokens=max_tokens))
         else:
-            return asyncio.run(ai_engine.chat(messages, temperature=temperature, max_tokens=max_tokens))
+            try:
+                return asyncio.run(ai_engine.chat(messages, temperature=temperature, max_tokens=max_tokens))
+            except RuntimeError:
+                # Thread has no event loop running, run loop manually
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    return new_loop.run_until_complete(ai_engine.chat(messages, temperature=temperature, max_tokens=max_tokens))
+                finally:
+                    new_loop.close()
 
     async def think(self, message: str, context: dict) -> Any:
         """

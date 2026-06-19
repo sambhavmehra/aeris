@@ -24,6 +24,10 @@ from agents.diagnosis_agent import DiagnosisAgent
 from agents.repair_agent import RepairAgent
 from agents.debate_agent import DebateAgent
 from agents.investigation_agent import InvestigationAgent
+from agents.guardian_agent import GuardianAgent
+from agents.mechanic_agent import MechanicAgent
+from agents.critic_agent import CriticAgent
+from agents.sub_agents.tool_manager_agent import ToolManagerAgent
 
 __all__ = [
     "BaseAgent",
@@ -51,6 +55,10 @@ __all__ = [
     "RepairAgent",
     "DebateAgent",
     "InvestigationAgent",
+    "GuardianAgent",
+    "MechanicAgent",
+    "CriticAgent",
+    "ToolManagerAgent",
 ]
 
 

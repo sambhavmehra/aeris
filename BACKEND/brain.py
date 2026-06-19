@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 
 from ai_engine import ai_engine
-from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent, AntigravityAgent, DiagnosisAgent, RepairAgent, DebateAgent, InvestigationAgent
+from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent, AntigravityAgent, DiagnosisAgent, RepairAgent, DebateAgent, InvestigationAgent, GuardianAgent, MechanicAgent, CriticAgent, ToolManagerAgent
 from agents.agent_registry import agent_registry, AgentStatus
 from memory.store import memory_store
 from neural.core import neural_core
@@ -98,7 +98,11 @@ WORKSPACE DIRECTORY: {workspace_dir}
 All file paths for write_file/read_file/edit_file MUST be relative paths (e.g. "report.txt") or within the workspace directory above.
 NEVER use paths like "C:/", "D:/", "/tmp", or any absolute path outside the workspace.
 
+KNOWN FOLDERS (use these EXACT paths when the user refers to these by name, alias, or Hinglish):
+{known_folders_context}
+
 CRITICAL RULES:
+- FOLDER RESOLUTION: When the user refers to a folder using vague names, Hinglish, or aliases (e.g. "backend folder", "agents wala", "d drive pe kya hai", "download folder kholo", "services mein dekho", "wo folder dikhao"), you MUST resolve the folder name using the KNOWN FOLDERS section above. Use `list_system_dir` with the EXACT absolute path from the known folders. If the user says "open" a folder, use `open_folder` with the resolved path. Do NOT guess paths or use relative paths for folder browsing.
 - When the user asks about "agents" (e.g. "kitne agent hai", "list agents", "how many agents"), use the `list_agents` tool, NOT `list_tools`.
 - `list_tools` is ONLY for listing executable tool functions. `list_agents` is for listing AI agents.
 - For ANY security-related request (SSL check, port scan, DNS lookup, recon, VAPT, vulnerability scan, WHOIS, subdomain enumeration), use the `security_scan` tool. NEVER use `smart_shell_generate` or `run_bash` for security scanning tasks.
@@ -119,6 +123,7 @@ CRITICAL RULES:
 - NEVER use text-editing tools (edit_file, write_file) to modify or create binary file types like Excel sheets (.xlsx, .xls), Word files (.docx, .doc), PDFs (.pdf), or images. To create, update, or append details to Excel files, you MUST use update_excel_from_screen or export_to_excel. To extract transcripts/webpage content or take direct text and generate styled structured notes into a Word document, you MUST use extract_transcript_to_word.
   - For `update_excel_from_screen`, if the user explicitly asks to search the web/internet or if details should be looked up online, set the `source` parameter to "web". Otherwise, let it default to checking the screen, and the tool will ask the user for confirmation if not found on screen.
 - Read each tool's description carefully and pick the BEST match for the user's intent.
+- DYNAMIC TOOL CREATION: If a required capability or utility does not exist in the available tools list, you can propose a new, specific tool name that starts with `dynamic_` (e.g. `dynamic_calculate_fibonacci` or `dynamic_convert_currency`) and specify its required arguments and description. The system will autonomously forge, validate in a sandbox, and register the tool for execution on the fly.
 
 ARGUMENT CONSTRUCTION RULES (VERY IMPORTANT):
 - Read the parameter list under each tool carefully. Each parameter shows its TYPE and whether it is REQUIRED.
@@ -184,7 +189,7 @@ async def query_llm_json(prompt: str, system_prompt: str = "You are a helpful as
             return {}
 
 
-def parse_memory_command(message: str) -> Optional[str]:
+async def parse_memory_command(message: str) -> Optional[str]:
     """Intercept and parse memory commands."""
     import re
     text = message.strip()
@@ -203,21 +208,21 @@ def parse_memory_command(message: str) -> Optional[str]:
     from memory.store import memory_store
     
     if cmd in ["remember that", "remember"]:
-        added = memory_store.add_fact(fact)
+        added = await memory_store.add_fact(fact)
         if added:
             return f"I will remember that: \"{fact}\""
         else:
             return f"I already know that or it looks like sensitive information."
             
     elif cmd in ["forget that", "forget"]:
-        removed = memory_store.remove_fact(fact)
+        removed = await memory_store.remove_fact(fact)
         if removed:
             return f"I have forgotten: \"{fact}\""
         else:
             return f"I couldn't find a matching fact to forget."
             
     elif cmd == "update memory":
-        added = memory_store.add_fact(fact)
+        added = await memory_store.add_fact(fact)
         if added:
             return f"I have updated my memory with: \"{fact}\""
         else:
@@ -287,6 +292,7 @@ RULES:
 # ──────────────────────────────────────────────────────────────────────────────
 
 _KEYWORD_MAP: List[Tuple[List[str], str]] = [
+    (["agent assemble", "assemble agents", "agent assembly", "assemble", "launch assembly"], "assemble"),
     (["scan", "port", "recon", "vulnerability", "nmap", "ssl", "hack",
       "header", "fuzz", "whois", "dns", "subdomain"], "security"),
     # ── System / OS automation ─────────────────────────────────────────────
@@ -407,6 +413,14 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
       "investigate karo", "investigation karo", "failed log",
       "apni memory update", "memory update", "profile update", "update profile"
     ], "investigation"),
+    # ── Casual Chat / Greeting / Personalization ──────────────────────────────
+    ([
+      "hello", "hi ", "hey", "good morning", "good afternoon", "good evening",
+      "kaise ho", "how are you", "namaste", "suna", "yaar", "mast joke",
+      "tell me a joke", "tell me a story", "suna de", "suna do", "sunaa de",
+      "kaise hai", "kaise hain", "what is your name", "who are you",
+      "who made you", "what is aeris", "aeris kya hai"
+    ], "chat"),
 ]
 
 
@@ -447,7 +461,7 @@ class Brain:
       3. LLM multi-task planner (Groq primary, Gemini fallback)
     """
 
-    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler", "drana", "diagnose", "repair", "debate", "investigation"}
+    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler", "drana", "diagnose", "repair", "debate", "investigation", "assemble", "guardian", "mechanic", "critic", "tools"}
 
     def __init__(self):
         # ── Instantiate all Core agents ──
@@ -469,6 +483,10 @@ class Brain:
             "repair":   RepairAgent(),
             "debate":   DebateAgent(),
             "investigation": InvestigationAgent(),
+            "guardian": GuardianAgent(),
+            "mechanic": MechanicAgent(),
+            "critic":   CriticAgent(),
+            "tools":    ToolManagerAgent(),
         }
         self.antigravity_agent = self.agents["codepipeline"]
         self.audit_agent = AuditAgent()
@@ -498,7 +516,7 @@ class Brain:
             from agents.sub_agents import (
                 DelegatorAgent, CodingAgent as SwarmCodingAgent,
                 ResearchAgent as SwarmResearchAgent, AnalysisAgent,
-                VulnerabilityAgent, ToolManagerAgent, RuntimeAgent,
+                VulnerabilityAgent, RuntimeAgent,
                 ArchitectureAgent, DocumentationAgent,
             )
             sub_agents_meta = [
@@ -603,17 +621,29 @@ class Brain:
 
     # ─────────────────────────── Intent Routing ───────────────────────────────
 
-    def _build_history_summary(self, limit: int = 3) -> str:
+    def _build_history_summary(self, limit: int = 4) -> str:
         """Format last N memory messages as a compact context string for LLM prompts."""
         try:
-            history = memory_store.get_context(limit)
-            if not history:
-                return "No prior conversation."
+            # Enforce last 2 turns (up to 4 messages) as raw history to preserve tone/phrasing
+            history = memory_store.get_context(4)
             lines = []
-            for msg in history:
-                role = msg.get("role", "user").upper()
-                content = msg.get("content", "")[:180]
-                lines.append(f"[{role}]: {content}")
+            
+            # Add active working facts from the memory store if any
+            working_facts = memory_store.working_fact_cache
+            if working_facts:
+                lines.append("=== ACTIVE WORKING CONTEXT FACTS ===")
+                for fact in working_facts:
+                    lines.append(f"- {fact}")
+                lines.append("====================================")
+                lines.append("") # blank line separator
+            
+            if not history:
+                lines.append("No prior conversation.")
+            else:
+                for msg in history:
+                    role = msg.get("role", "user").upper()
+                    content = msg.get("content", "")[:2000]
+                    lines.append(f"[{role}]: {content}")
             return "\n".join(lines)
         except Exception:
             return "No prior conversation."
@@ -650,24 +680,29 @@ class Brain:
         """
         Single-intent classification with conversation context.
 
-        Priority:
-          1. Neural ML — only at high confidence (85%+) for instant routing
-          2. LLM classification — primary classifier, understands any language + history
-          3. Keyword fallback — only if LLM fails entirely
+        # 2. Keyword fast-route (instant local mapping, bypass LLM latency)
+          3. LLM classification — primary classifier, understands any language + history
+          4. Keyword fallback — only if LLM fails entirely
         """
         # 1. Neural ML fast-route (high confidence only)
         if neural_core.is_intent_ready:
             try:
                 label, confidence = neural_core.predict_intent_from_text(message)
                 if label in self.VALID_INTENTS and confidence >= 0.85:
-                    logger.info(f"[Brain] Neural fast-route -> '{label}' (conf={confidence:.2f})")
-                    return label
+                     logger.info(f"[Brain] Neural fast-route -> '{label}' (conf={confidence:.2f})")
+                     return label
                 else:
-                    logger.debug(f"[Brain] Neural not confident enough ({confidence:.2f}) for '{label}', using LLM.")
+                     logger.debug(f"[Brain] Neural not confident enough ({confidence:.2f}) for '{label}', checking keywords.")
             except Exception as e:
                 logger.warning(f"[Brain] Neural routing failed: {e}")
 
-        # 2. LLM classification — primary, understands any language + conversation context
+        # 2. Keyword fast-route (instant local mapping, bypass LLM latency)
+        keyword_intent = _keyword_route(message)
+        if keyword_intent:
+            logger.info(f"[Brain] Keyword fast-route -> '{keyword_intent}'")
+            return keyword_intent
+
+        # 3. LLM classification — primary, understands any language + conversation context
         history_summary = self._build_history_summary(3)
         recent_tasks_summary = self._build_recent_tasks_summary(3)
         try:
@@ -788,8 +823,18 @@ class Brain:
         logger.info(f"[Brain] Task {step_idx + 1}/{total}: intent='{task.intent}' — {task.description[:80]}")
 
         result = None
+        # Handle assemble intent
+        if task.intent == "assemble":
+            result = {
+                "task_id": task.task_id,
+                "intent": "assemble",
+                "agent": "Brain",
+                "response": "Initiating agent assembly sequence, Sir.",
+                "success": True,
+                "execution_time": 0.0,
+            }
         # Handle diagram intent — generate an interactive React Flow widget
-        if task.intent == "diagram":
+        elif task.intent == "diagram":
             try:
                 from agents.diagram_agent import get_diagram_agent
                 agent = get_diagram_agent()
@@ -1051,6 +1096,8 @@ class Brain:
         if pending_state:
             # Resume from saved state
             plan_dict = pending_state.get("plan")
+            if not isinstance(plan_dict, dict):
+                plan_dict = {}
             plan = AgenticPlan(**plan_dict)
             current_step_index = pending_state.get("current_step_index", 0)
             observations = [Observation(**obs) for obs in pending_state.get("observations", [])]
@@ -1071,7 +1118,7 @@ class Brain:
             retrieved_names = {c.tool_name for c in retrieved_candidates}
             
             # Always ensure core utility tools are available to prevent planner getting stuck
-            core_utilities = {"chat_with_ai", "run_bash", "read_file", "write_file", "edit_file", "web_research", "realtime_search", "schedule_execution", "read_system_file", "find_system_file", "list_system_dir"}
+            core_utilities = {"chat_with_ai", "run_bash", "read_file", "write_file", "edit_file", "web_research", "realtime_search", "schedule_execution", "read_system_file", "find_system_file", "find_system_folder", "list_system_dir", "open_folder"}
             selected_names = retrieved_names.union(core_utilities)
             
             registry = get_universal_registry()
@@ -1081,15 +1128,20 @@ class Brain:
                 if tool_def and tool_def.is_enabled:
                     selected_tools.append(tool_def)
             
-            # Format selected tools for the planner prompt
-            tools_summary = "\n".join(t.to_llm_string() for t in selected_tools)
-            all_tools_count = len(registry.get_enabled_tools())
-            logger.info(f"[Brain] Retracted tools list from {all_tools_count} to {len(selected_tools)} (savings: {round((1 - len(selected_tools)/all_tools_count)*100, 1)}%)")
+            from intelligence.context_injector import get_context_injector
             
             history = self._build_history_summary(10)
+            memory_context = await memory_store.get_relevant_memory_context(message)
             
-            # 3. Memory Retriever
-            memory_context = memory_store.get_relevant_memory_context(message)
+            # Build planning context package
+            context_pkg = get_context_injector().build_planning_context(
+                objective=message,
+                memory_context=memory_context,
+                selected_tool_names=list(selected_names)
+            )
+            
+            all_tools_count = len(registry.get_enabled_tools())
+            logger.info(f"[Brain] Retracted tools list from {all_tools_count} to {len(selected_tools)} (savings: {round((1 - len(selected_tools)/all_tools_count)*100, 1)}%)")
             
             from memory.user_profile import user_profile_store
             profile = user_profile_store.get_profile()
@@ -1100,12 +1152,20 @@ class Brain:
                 f"Preferred Response Style: {profile.get('preferred_response_style', '')}"
             )
             
+            # 4. Known Folders Context (for smart folder resolution in planner)
+            try:
+                from intelligence.folder_intelligence import get_folder_intelligence
+                known_folders_context = get_folder_intelligence().get_known_folders_summary(20)
+            except Exception:
+                known_folders_context = "No folder index available."
+            
             prompt = PLANNER_PROMPT.format(
-                tools_summary=tools_summary,
+                tools_summary=context_pkg["tools_text"],
                 history=history,
-                memory_context=memory_context,
+                memory_context=context_pkg["full_system_prompt_section"],
                 profile_context=profile_context,
                 created_files_context=self._build_created_files_summary(5),
+                known_folders_context=known_folders_context,
                 message=message,
                 workspace_dir=workspace_dir
             )
@@ -1121,6 +1181,24 @@ class Brain:
 
         # 2. Loop Execution
         while current_step_index < len(plan.steps):
+            # Check pause status
+            from services.job_manager import get_job_manager
+            job_mgr = get_job_manager()
+            job = job_mgr.get_job(task_id)
+            if job and job["status"] == "paused":
+                logger.info(f"[Brain] Job {task_id} is paused. Waiting for resume/cancel.")
+                while True:
+                    await asyncio.sleep(1)
+                    job = job_mgr.get_job(task_id)
+                    if not job:
+                        break
+                    if job["status"] == "cancelled":
+                        raise asyncio.CancelledError()
+                    if job["status"] in ("running", "queued"):
+                        logger.info(f"[Brain] Job {task_id} resumed.")
+                        job_mgr.update_job(task_id, status="running", event="Job execution resumed from pause.")
+                        break
+
             step = plan.steps[current_step_index]
             
             # If this is a background job, update its progress
@@ -1141,6 +1219,26 @@ class Brain:
             from tools.tool_permissions import get_permission_system
             
             tool_def = get_universal_registry().get_tool(step.tool_name)
+            if not tool_def:
+                if step.tool_name.startswith("dynamic_") or "create" in step.description.lower():
+                    logger.info(f"[Brain] Tool '{step.tool_name}' not found. Attempting autonomous generation...")
+                    try:
+                        tm_agent = self.agents.get("tools")
+                        if not tm_agent:
+                            from agents.sub_agents.tool_manager_agent import ToolManagerAgent
+                            tm_agent = ToolManagerAgent()
+                        
+                        forge_res = await asyncio.to_thread(
+                            tm_agent.create_tool,
+                            request=f"Create a tool named '{step.tool_name}' that does: {step.description}. Input arguments: {json.dumps(step.args)}",
+                            tool_name=step.tool_name
+                        )
+                        if forge_res.get("success"):
+                            logger.info(f"[Brain] Successfully forged and registered dynamic tool '{step.tool_name}'. Retrying execution...")
+                            tool_def = get_universal_registry().get_tool(step.tool_name)
+                    except Exception as forge_err:
+                        logger.error(f"[Brain] Failed to autonomously forge tool '{step.tool_name}': {forge_err}")
+
             if not tool_def:
                 obs = Observation(
                     step_id=step.step_id,
@@ -1510,9 +1608,9 @@ Respond with ONLY valid JSON matching this schema:
             "summary": summary_actions,
         }
 
-    async def process(self, message: str) -> dict:
+    async def _process_internal(self, message: str) -> dict:
         """
-        Main entry point: receive user message, check memory commands,
+        Internal process logic: receive user message, check memory commands,
         check pending approvals, execute agentic loop, or run legacy flow.
         """
         # Intercept Hacker Mode Toggle Commands
@@ -1520,7 +1618,6 @@ Respond with ONLY valid JSON matching this schema:
 
         # Intercept Map/HUD Clearing Commands
         if any(cmd in lower_msg for cmd in ("clear map", "clear scan map", "reset map", "clear hud", "clear graph")):
-            import json
             graph_path = settings.DATA_DIR / "webweaver_graph.json"
             default_graph = {
                 "nodes": [
@@ -1563,7 +1660,79 @@ Respond with ONLY valid JSON matching this schema:
                 "success": True,
                 "task_id": "screen_monitor_start"
             }
+
+        elif any(w in lower_msg for w in ("select area", "select screen", "crop screen", "crop area", "analyze area", "selection chalu", "selection enable", "region select")):
+            from services.screen_monitor import get_screen_monitor
+            get_screen_monitor().trigger_selection()
+            response_text = "Sir, maine screen selection mode chalu kar diya hai. Aap screen par click aur drag karke region select kar sakte hain."
+            memory_store.add_message("user", message)
+            memory_store.add_message("assistant", response_text)
+            return {
+                "response": response_text,
+                "intent": "chat",
+                "agent": "Brain",
+                "success": True,
+                "task_id": "screen_selection_start"
+            }
+
+        elif any(w in lower_msg for w in ("clear selection", "clear crop", "reset screen", "full screen", "selection clear", "crop reset", "normal screen")):
+            from services.screen_monitor import get_screen_monitor
+            get_screen_monitor().clear_crop_box()
+            response_text = "Sir, maine screen selection reset kar di hai. Ab main poori screen monitor karunga."
+            memory_store.add_message("user", message)
+            memory_store.add_message("assistant", response_text)
+            return {
+                "response": response_text,
+                "intent": "chat",
+                "agent": "Brain",
+                "success": True,
+                "task_id": "screen_selection_reset"
+            }
+
+        # Check for visual grounding/localization command
+        # E.g. "analyze the terminal on screen", "tokay wala text analyze karo"
+        elif any(w in lower_msg for w in ("on screen", "wala", "locate", "find on screen")) and any(w in lower_msg for w in ("analyze", "check", "select", "dhoondo", "dekh", "scan")):
+            import re
+            target_term = None
             
+            # Pattern 1: (analyze|locate|find|select) <target> on screen
+            m1 = re.search(r'\b(?:analyze|locate|find|select|check|scan)\s+(.+?)\s+on\s+screen\b', lower_msg)
+            if m1:
+                target_term = m1.group(1).strip()
+                
+            # Pattern 2: <target> wala (text|image|video|chiz|photo) analyze (karo|kro|kr)
+            m2 = re.search(r'\b(.+?)\s+wala\s+(text|image|video|chiz|photo|button|logo|code)\s+(?:analyze|check|locate|dekh|scan)\b', lower_msg)
+            if m2:
+                target_term = f"{m2.group(1).strip()} {m2.group(2).strip()}"
+                
+            # Pattern 3: analyze <target> wala
+            m3 = re.search(r'\b(?:analyze|check|locate|dekh|scan)\s+(.+?)\s+wala\b', lower_msg)
+            if m3:
+                target_term = f"{m3.group(1).strip()} element"
+
+            # Pattern 4: Hinglish fallback for "wala" pattern
+            if not target_term and "wala" in lower_msg:
+                parts = lower_msg.split("wala")
+                if len(parts) >= 2:
+                    before = parts[0].strip()
+                    # take the first word after wala
+                    after_words = parts[1].strip().split()
+                    after = after_words[0] if after_words else "element"
+                    target_term = f"{before} {after}"
+
+            if target_term:
+                from services.screen_monitor import get_screen_monitor
+                response_text = await get_screen_monitor().locate_and_analyze_element(target_term)
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "chat",
+                    "agent": "Brain",
+                    "success": True,
+                    "task_id": "screen_selection_grounding"
+                }
+
         elif any(w in lower_msg for w in ("stop monitoring", "screen monitor band", "stop monitor", "monitoring band", "stop screen monitoring")):
             from services.screen_monitor import get_screen_monitor
             get_screen_monitor().stop_monitoring()
@@ -1906,7 +2075,7 @@ Respond with ONLY valid JSON matching this schema:
             }
 
         # 1. Intercept memory commands
-        mem_cmd_res = parse_memory_command(message)
+        mem_cmd_res = await parse_memory_command(message)
         if mem_cmd_res:
             memory_store.add_message("user", message)
             memory_store.add_message("assistant", mem_cmd_res)
@@ -2236,6 +2405,43 @@ Respond with ONLY valid JSON matching this schema:
                 memory_store.chat_history.pop()
             return await self.legacy_process(message)
 
+    async def process(self, message: str) -> dict:
+        """
+        Main entry point: receive user message, check memory commands,
+        check pending approvals, execute agentic loop, or run legacy flow.
+        """
+        result = await self._process_internal(message)
+        try:
+            if isinstance(result, dict) and "response" in result:
+                self._schedule_fact_extraction(message, result["response"])
+        except Exception as e:
+            logger.warning(f"Failed to schedule background fact extraction: {e}")
+        return result
+
+    def _schedule_fact_extraction(self, message: str, response: str) -> None:
+        """Helper to run async background fact extraction in a non-blocking way."""
+        async def run_extraction():
+            try:
+                combined_text = (message + " " + response).lower()
+                heavy_keywords = ["app", "website", "search", "code", "run", "error", "file", "install", "docker", "vulnerability", "scan", "script", "log", "analyze", "diagnose", "osint"]
+                if any(kw in combined_text for kw in heavy_keywords):
+                    from intelligence.fact_extractor import FactExtractor
+                    # Extract user prompt facts
+                    user_facts = await FactExtractor.extract_facts_async("user", message)
+                    if user_facts:
+                        memory_store.add_working_facts(user_facts)
+                    # Extract assistant response facts
+                    assistant_facts = await FactExtractor.extract_facts_async("assistant", response)
+                    if assistant_facts:
+                        memory_store.add_working_facts(assistant_facts)
+            except Exception as ex:
+                logger.warning(f"Error in background fact extraction: {ex}")
+
+        try:
+            asyncio.create_task(run_extraction())
+        except Exception as err:
+            logger.warning(f"Failed to create background task for fact extraction: {err}")
+
     async def legacy_process(self, message: str) -> dict:
         """
         Legacy processing fallback pipeline (classify -> route -> agent -> audit).
@@ -2404,7 +2610,14 @@ Respond with ONLY valid JSON matching this schema:
             "bg run", "in background", "background mein", "background me"
         ]):
             return True
-        return intent in ("codepipeline", "research")
+        # Auto-detect long building/creation/scaffolding/scanning objectives
+        if any(phrase in lower_msg for phrase in [
+            "build an app", "build a website", "build a project", "create an app", 
+            "create a website", "create a project", "scaffold a", "scaffold an",
+            "make a full", "make a complete", "deep scan", "vulnerability scan", "security audit"
+        ]):
+            return True
+        return intent in ("codepipeline", "research", "code")
 
     async def _run_background_job(self, job_id: str, message: str, intent: str):
         current_task = asyncio.current_task()
@@ -2412,6 +2625,17 @@ Respond with ONLY valid JSON matching this schema:
         job_manager = get_job_manager()
         job_manager._register_task(job_id, current_task)
         
+        # Automatically launch default browser to the dashboard URL
+        try:
+            import webbrowser
+            from config import settings
+            port = getattr(settings, "API_PORT", 8000)
+            url = f"http://localhost:{port}/dashboard/{job_id}"
+            webbrowser.open(url)
+            logger.info(f"[Background Job] Auto-opened browser dashboard: {url}")
+        except Exception as e:
+            logger.error(f"Failed to auto-open dashboard browser: {e}")
+            
         try:
             job_manager.update_job(job_id, status="running", event="Background job execution started.")
             from services.notification_hub import notify_job_status
@@ -2492,6 +2716,36 @@ Respond with ONLY valid JSON matching this schema:
                     "elapsed": result.get("execution_time", 0.0),
                     "attempts": 1,
                 })
+                
+            elif intent == "code" or (intent == "tool_execution" and any(w in message.lower() for w in ("build", "create", "scaffold", "develop"))):
+                logger.info(f"[Background Job] Running Swarm Delegator for {job_id}")
+                from agents.sub_agents.delegator import get_delegator
+                delegator = get_delegator()
+                loop = asyncio.get_event_loop()
+                
+                job_manager.update_job(
+                    job_id,
+                    current_agent="DelegatorAgent",
+                    event="Swarm Delegator started for app building mission."
+                )
+                
+                # Run delegator in executor to avoid blocking the async event loop
+                delegation_result = await loop.run_in_executor(None, delegator.process, message)
+                
+                response_text = str(delegation_result.get("result", "Swarm execution completed."))
+                agents_used = delegation_result.get("agents_used", [])
+                status = "completed" if delegation_result.get("route") == "complex" or delegation_result.get("success", True) else "failed"
+                
+                job_manager.update_job(
+                    job_id,
+                    status=status,
+                    progress=100,
+                    final_result=response_text,
+                    event=f"Swarm Delegator completed. Agents used: {', '.join(agents_used)}."
+                )
+                from services.notification_hub import notify_job_status
+                asyncio.create_task(notify_job_status(job_id, status, f"Swarm job completed: {status}.", results=response_text))
+                memory_store.add_message("assistant", response_text)
                 
             else:
                 logger.info(f"[Background Job] Running Agentic Loop for {job_id}")

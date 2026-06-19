@@ -41,6 +41,7 @@ class MemoryStore:
         self._normal_long_term_facts: list[str] = []
         self._normal_project_memory: dict[str, Any] = {}
         self._normal_vector_hooks: list[dict] = []
+        self._normal_working_fact_cache: list[str] = []
         
         # Internal fields for Hacker Mode
         self._hacker_chat_history: list[dict] = []
@@ -49,6 +50,7 @@ class MemoryStore:
         self._hacker_long_term_facts: list[str] = []
         self._hacker_project_memory: dict[str, Any] = {}
         self._hacker_vector_hooks: list[dict] = []
+        self._hacker_working_fact_cache: list[str] = []
 
         self._normal_file_path = settings.DATA_DIR / "memory.json"
         self._hacker_file_path = settings.DATA_DIR / "hacker_memory.json"
@@ -129,6 +131,17 @@ class MemoryStore:
             self._hacker_vector_hooks = val
         else:
             self._normal_vector_hooks = val
+
+    @property
+    def working_fact_cache(self) -> list[str]:
+        return self._hacker_working_fact_cache if self.is_hacker_mode else self._normal_working_fact_cache
+
+    @working_fact_cache.setter
+    def working_fact_cache(self, val: list[str]):
+        if self.is_hacker_mode:
+            self._hacker_working_fact_cache = val
+        else:
+            self._normal_working_fact_cache = val
 
     @property
     def _file_path(self) -> Path:
@@ -245,7 +258,7 @@ class MemoryStore:
         except Exception as e:
             logger.warning(f"Failed to check/rebuild vector index: {e}")
 
-    def add_fact(self, fact: str) -> bool:
+    async def add_fact(self, fact: str) -> bool:
         """Add a long-term user fact, avoiding duplicates and sensitive info."""
         if not fact or not isinstance(fact, str):
             return False
@@ -260,14 +273,14 @@ class MemoryStore:
             # Add to semantic vector database
             try:
                 from memory.vector_engine import get_vector_engine
-                self._run_sync(get_vector_engine().add_vector("long_term_facts", fact))
+                await get_vector_engine().add_vector("long_term_facts", fact)
             except Exception as e:
                 logger.warning(f"Could not index fact semantically: {e}")
 
             return True
         return False
 
-    def remove_fact(self, fact: str) -> bool:
+    async def remove_fact(self, fact: str) -> bool:
         """Remove a fact by string match or substring match."""
         if not fact:
             return False
@@ -319,7 +332,7 @@ class MemoryStore:
         })
         self.save()
 
-    def search_facts(self, query: str) -> list[str]:
+    async def search_facts(self, query: str) -> list[str]:
         """Performs semantic search across facts utilizing vector embeddings with keyword fallback."""
         if not query:
             return []
@@ -327,7 +340,7 @@ class MemoryStore:
         # 1. Attempt Semantic Vector search
         try:
             from memory.vector_engine import get_vector_engine
-            results = self._run_sync(get_vector_engine().search_vectors("long_term_facts", query, limit=5))
+            results = await get_vector_engine().search_vectors("long_term_facts", query, limit=5)
             if results:
                 # Filter out low similarity hits if appropriate (e.g. < 0.40 score)
                 matched_texts = [r["text"] for r in results if r.get("similarity", 0) > 0.40]
@@ -361,7 +374,7 @@ class MemoryStore:
             parts.append(f"Project Memory:\n{proj_str}")
         return "\n\n".join(parts)
 
-    def get_relevant_memory_context(self, query: str, limit: int = 5) -> str:
+    async def get_relevant_memory_context(self, query: str, limit: int = 5) -> str:
         """Get formatted memory context filtering for relevant facts to minimize tokens."""
         parts = []
         if self.short_term_summary:
@@ -369,7 +382,7 @@ class MemoryStore:
         
         # Memory Retriever: search for relevant facts
         if self.long_term_facts:
-            relevant_facts = self.search_facts(query)
+            relevant_facts = await self.search_facts(query)
             if relevant_facts:
                 # Take top `limit` relevant facts
                 facts_str = "\n".join(f"- {fact}" for fact in relevant_facts[:limit])
@@ -399,6 +412,33 @@ class MemoryStore:
                 
         return "\n\n".join(parts)
 
+    def add_working_facts(self, facts: list[str]) -> None:
+        """Add semantic facts to the current working fact cache, avoiding duplicates and pruning older ones."""
+        if not facts:
+            return
+        
+        current_cache = self.working_fact_cache
+        modified = False
+        for fact in facts:
+            fact = fact.strip()
+            if not fact:
+                continue
+            if is_sensitive(fact):
+                logger.warning("Rejected sensitive working fact injection containing potential secrets/keys")
+                continue
+            
+            fact_lower = fact.lower()
+            if not any(f.lower() == fact_lower for f in current_cache):
+                current_cache.append(fact)
+                modified = True
+                
+        if modified:
+            if len(current_cache) > 20:
+                current_cache = current_cache[-20:]
+            self.working_fact_cache = current_cache
+            self.save()
+            logger.info(f"Updated working fact cache: {self.working_fact_cache}")
+
     def clear_history(self) -> None:
         """Clear all chat history."""
         self.chat_history = []
@@ -413,6 +453,8 @@ class MemoryStore:
         self.long_term_facts = []
         self.project_memory = {}
         self.vector_hooks = []
+        self._normal_working_fact_cache = []
+        self._hacker_working_fact_cache = []
         self.save()
         logger.info("All memory cleared")
 
@@ -430,6 +472,7 @@ class MemoryStore:
                 "long_term_facts": self._hacker_long_term_facts if is_hacker else self._normal_long_term_facts,
                 "project_memory": self._hacker_project_memory if is_hacker else self._normal_project_memory,
                 "vector_hooks": self._hacker_vector_hooks if is_hacker else self._normal_vector_hooks,
+                "working_fact_cache": self._hacker_working_fact_cache if is_hacker else self._normal_working_fact_cache,
                 "last_saved": datetime.now(timezone.utc).isoformat(),
             }
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -449,6 +492,7 @@ class MemoryStore:
                 self._normal_long_term_facts = data.get("long_term_facts", [])
                 self._normal_project_memory = data.get("project_memory", {})
                 self._normal_vector_hooks = data.get("vector_hooks", [])
+                self._normal_working_fact_cache = data.get("working_fact_cache", [])
                 logger.info(f"Loaded normal memory: {len(self._normal_chat_history)} messages")
             else:
                 logger.info("No existing normal memory file — starting fresh")
@@ -465,6 +509,7 @@ class MemoryStore:
                 self._hacker_long_term_facts = data.get("long_term_facts", [])
                 self._hacker_project_memory = data.get("project_memory", {})
                 self._hacker_vector_hooks = data.get("vector_hooks", [])
+                self._hacker_working_fact_cache = data.get("working_fact_cache", [])
                 logger.info(f"Loaded hacker memory: {len(self._hacker_chat_history)} messages")
             else:
                 logger.info("No existing hacker memory file — starting fresh")

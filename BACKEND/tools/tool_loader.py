@@ -61,7 +61,7 @@ _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 if getattr(sys, "frozen", False):
     _DEFAULT_TOOLS_DIR = Path.home() / ".aeris" / "aeris_tools"
 else:
-    _DEFAULT_TOOLS_DIR = _BACKEND_DIR.parent / "aeris_tools"
+    _DEFAULT_TOOLS_DIR = _BACKEND_DIR / "aeris_tools"
 _DEFAULT_MANIFEST = _DEFAULT_TOOLS_DIR / "tool_manifest.json"
 
 
@@ -187,8 +187,13 @@ class DynamicToolLoader:
             spec.loader.exec_module(mod)
 
             if not hasattr(mod, "run"):
-                logger.warning(f"Skipping {path.name}: no 'run()' function found.")
-                return None
+                if hasattr(mod, path.stem):
+                    func_to_use = getattr(mod, path.stem)
+                else:
+                    logger.warning(f"Skipping {path.name}: no 'run()' or '{path.stem}()' function found.")
+                    return None
+            else:
+                func_to_use = mod.run
 
             # Extract metadata from module-level attributes
             description = getattr(mod, "__description__", f"Dynamic tool from {path.name}")
@@ -200,7 +205,7 @@ class DynamicToolLoader:
 
             # Build input schema from function signature
             import inspect
-            sig = inspect.signature(mod.run)
+            sig = inspect.signature(func_to_use)
             params = []
             for pname, p in sig.parameters.items():
                 if pname in ("self", "cls"):
@@ -228,7 +233,7 @@ class DynamicToolLoader:
             tool = UniversalToolDef(
                 name=path.stem,
                 description=description,
-                func=mod.run,
+                func=func_to_use,
                 input_schema=ToolInputSchema(params=params),
                 risk_level=RiskLevel(risk) if risk in RiskLevel._value2member_map_ else RiskLevel.MEDIUM,
                 category=category,

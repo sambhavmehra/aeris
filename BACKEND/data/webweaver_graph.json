@@ -12,48 +12,6 @@
       "label": "FastAPI Gateway",
       "type": "service",
       "status": "online"
-    },
-    {
-      "id": "sistec.ac.in",
-      "label": "sistec.ac.in",
-      "type": "domain",
-      "status": "online"
-    },
-    {
-      "id": "82.180.164.193",
-      "label": "82.180.164.193",
-      "type": "ip",
-      "status": "online"
-    },
-    {
-      "id": "216.24.57.251",
-      "label": "216.24.57.251",
-      "type": "host",
-      "status": "online"
-    },
-    {
-      "id": "216.24.57.251:80",
-      "label": "Port 80 (HTTP)",
-      "type": "service",
-      "status": "online"
-    },
-    {
-      "id": "216.24.57.251:443",
-      "label": "Port 443 (HTTPS)",
-      "type": "service",
-      "status": "online"
-    },
-    {
-      "id": "216.24.57.251:8080",
-      "label": "Port 8080 (HTTP-Alt)",
-      "type": "service",
-      "status": "online"
-    },
-    {
-      "id": "216.24.57.251:8443",
-      "label": "Port 8443 (HTTPS-Alt)",
-      "type": "service",
-      "status": "online"
     }
   ],
   "links": [
@@ -62,31 +20,6 @@
       "target": "api_gateway",
       "type": "connection",
       "port": 8000
-    },
-    {
-      "source": "sistec.ac.in",
-      "target": "82.180.164.193",
-      "type": "resolves_to"
-    },
-    {
-      "source": "216.24.57.251",
-      "target": "216.24.57.251:80",
-      "type": "exposes_port"
-    },
-    {
-      "source": "216.24.57.251",
-      "target": "216.24.57.251:443",
-      "type": "exposes_port"
-    },
-    {
-      "source": "216.24.57.251",
-      "target": "216.24.57.251:8080",
-      "type": "exposes_port"
-    },
-    {
-      "source": "216.24.57.251",
-      "target": "216.24.57.251:8443",
-      "type": "exposes_port"
     }
   ]
 }

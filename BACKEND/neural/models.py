@@ -1,34 +1,74 @@
 import torch
 import torch.nn as nn
 
+
 class IntentClassifierNet(nn.Module):
     """
-    Feed-forward neural network for intent classification.
-    Assumes input is a pre-computed text embedding (e.g., from an external model or TF-IDF).
+    Deep feed-forward neural network for intent classification.
+    
+    Architecture:
+      - 3 hidden layers with GELU activation and LayerNorm
+      - Residual (skip) connection from projected input to final hidden layer
+      - Dropout 0.4 for strong regularization
+      - Designed for TF-IDF input vectors
     """
     def __init__(self, input_dim: int, hidden_dim: int, num_classes: int):
         super(IntentClassifierNet, self).__init__()
-        self.network = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.BatchNorm1d(hidden_dim // 2),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(hidden_dim // 2, num_classes)
+
+        # Project input to hidden_dim for residual connection
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
+
+        # Layer 1
+        self.layer1 = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(0.4),
         )
+
+        # Layer 2
+        self.layer2 = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.LayerNorm(hidden_dim // 2),
+            nn.GELU(),
+            nn.Dropout(0.4),
+        )
+
+        # Layer 3
+        self.layer3 = nn.Sequential(
+            nn.Linear(hidden_dim // 2, hidden_dim // 4),
+            nn.LayerNorm(hidden_dim // 4),
+            nn.GELU(),
+            nn.Dropout(0.3),
+        )
+
+        # Residual projection: hidden_dim → hidden_dim // 4
+        self.residual_proj = nn.Linear(hidden_dim, hidden_dim // 4)
+
+        # Output head
+        self.classifier = nn.Linear(hidden_dim // 4, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass for intent classification.
+        Forward pass with residual skip connection.
         Args:
             x: Input tensor of shape (batch_size, input_dim)
         Returns:
             Logits of shape (batch_size, num_classes)
         """
-        return self.network(x)
+        # Project input to hidden space
+        identity = self.input_proj(x)
+
+        # Pass through hidden layers
+        h = self.layer1(identity)
+        h = self.layer2(h)
+        h = self.layer3(h)
+
+        # Add residual connection (projected to match dimensions)
+        h = h + self.residual_proj(identity)
+
+        # Classify
+        return self.classifier(h)
 
 
 class AnomalyDetectorNet(nn.Module):

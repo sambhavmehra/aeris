@@ -440,13 +440,16 @@ class ToolAwarenessEngine:
 
     # ── LLM Formatting ────────────────────────────────────────────────
 
-    def format_for_planner(self, include_stats: bool = True) -> str:
+    def format_for_planner(self, include_stats: bool = True, tool_names: List[str] = None) -> str:
         """Format tool knowledge for the planner's system prompt.
         This replaces the basic registry.format_for_llm() with awareness-enriched data."""
         self.refresh()
         lines = []
-        for tk in self._knowledge.values():
-            lines.append(tk.to_llm_string())
+        targets = tool_names if tool_names is not None else list(self._knowledge.keys())
+        for name in targets:
+            tk = self._knowledge.get(name)
+            if tk:
+                lines.append(tk.to_llm_string())
         return "\n".join(lines)
 
     def format_rich_for_planner(self, tool_names: List[str] = None) -> str:

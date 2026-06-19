@@ -6,6 +6,7 @@ import json
 import logging
 import random
 import threading
+import asyncio
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from watchdog.observers import Observer
@@ -31,6 +32,12 @@ class WorkspaceWatcher:
         if self._observer:
             return
         
+        # Capture the running event loop from the main thread
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = None
+            
         logger.info(f"Starting Workspace Watcher for directory: {self.workspace_dir}")
         handler = WorkspaceEventHandler(self)
         self._observer = Observer()
@@ -191,7 +198,20 @@ class WorkspaceWatcher:
 
         # Dispatch async notification safely
         import asyncio
-        asyncio.create_task(send_telegram_notification(telegram_msg, reply_markup=reply_markup))
+        if hasattr(self, 'loop') and self.loop and self.loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                send_telegram_notification(telegram_msg, reply_markup=reply_markup),
+                self.loop
+            )
+        else:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(send_telegram_notification(telegram_msg, reply_markup=reply_markup))
+                else:
+                    loop.run_until_complete(send_telegram_notification(telegram_msg, reply_markup=reply_markup))
+            except Exception as e:
+                logger.error(f"Failed to dispatch telegram notification from thread: {e}")
 
     async def trigger_repair(self, repair_id: str) -> str:
         """Invokes the AI model to repair the code syntax error and writes the fix."""

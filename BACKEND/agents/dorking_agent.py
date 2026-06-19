@@ -131,7 +131,7 @@ class DorkingAgent(BaseAgent):
         history_str = ""
         if chat_history:
             history_str = "\n".join(
-                f"[{m.get('role','').upper()}]: {m.get('content','')[:150]}"
+                f"[{m.get('role','').upper()}]: {m.get('content','')[:2000]}"
                 for m in chat_history[-5:]
             )
 

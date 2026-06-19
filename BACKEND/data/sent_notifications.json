@@ -23,5 +23,25 @@
     "tool_name": "extract_transcript_to_word",
     "error": "YouTube transcript extraction failed: type object 'YouTubeTranscriptApi' has no attribute 'get_transcript'. (Make sure the video exists and has public captions/subtitles enabled).",
     "timestamp": "2026-06-06T15:37:03.242879"
+  },
+  "f0c00d34d9ed71088228f6c5f5a9b9ec": {
+    "tool_name": "web_research",
+    "error": "Unknown tool execution failure",
+    "timestamp": "2026-06-11T23:32:38.422534"
+  },
+  "65d7a4d333afca0893f93badbcb5cf36": {
+    "tool_name": "dynamic_tool_forge",
+    "error": "SECURITY_BLOCKED: Critical risk tool requires explicit user approval. (Requires Approval)",
+    "timestamp": "2026-06-19T17:08:52.118542"
+  },
+  "efec805bb9230fd899d5dade66ef208a": {
+    "tool_name": "read_system_file",
+    "error": "File not found: C:\\Users\\Sambhav Mehra\\Downloads\\17",
+    "timestamp": "2026-06-19T17:12:43.803202"
+  },
+  "9425363e9bc768a800538f1c9e3cf3ef": {
+    "tool_name": "read_system_file",
+    "error": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\{path_to_file}",
+    "timestamp": "2026-06-19T17:13:02.399922"
   }
 }

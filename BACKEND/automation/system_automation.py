@@ -163,7 +163,7 @@ def _get_latest_project_path() -> Optional[str]:
 
 
 def open_folder(path: str) -> dict:
-    """Open a folder in the file explorer."""
+    """Open a folder in the file explorer. Supports vague/Hinglish references via FolderIntelligence."""
     import os, platform, subprocess
     try:
         path_lower = path.lower().strip()
@@ -179,12 +179,35 @@ def open_folder(path: str) -> dict:
         # Resolve the path to handle environment variables and user home directory
         path = os.path.expandvars(os.path.expanduser(path))
         if not os.path.exists(path):
-            # Try to search for the directory name in the specified drive or system
-            if "project" in path_lower:
-                from config import settings
-                path = str(settings.WORKSPACE_DIR)
-            else:
-                return {"success": False, "action": "open_folder", "error": f"Path not found: {path}"}
+            # ── Smart resolution via FolderIntelligence ──
+            try:
+                from intelligence.folder_intelligence import get_folder_intelligence
+                fi = get_folder_intelligence()
+                match = fi.resolve(path_lower)
+                if match and match.confidence >= 0.5 and os.path.exists(match.path):
+                    logger.info(f"[open_folder] FolderIntelligence resolved '{path}' -> {match.path} "
+                               f"(confidence={match.confidence:.2f})")
+                    path = match.path
+                    fi.set_context(path)
+                elif "project" in path_lower:
+                    from config import settings
+                    path = str(settings.WORKSPACE_DIR)
+                else:
+                    return {"success": False, "action": "open_folder", "error": f"Path not found: {path}"}
+            except Exception as fi_err:
+                logger.warning(f"[open_folder] FolderIntelligence failed: {fi_err}")
+                if "project" in path_lower:
+                    from config import settings
+                    path = str(settings.WORKSPACE_DIR)
+                else:
+                    return {"success": False, "action": "open_folder", "error": f"Path not found: {path}"}
+        else:
+            # Path exists — track context for future pronoun resolution
+            try:
+                from intelligence.folder_intelligence import get_folder_intelligence
+                get_folder_intelligence().set_context(path)
+            except Exception:
+                pass
             
         if platform.system() == "Windows":
             os.startfile(path)

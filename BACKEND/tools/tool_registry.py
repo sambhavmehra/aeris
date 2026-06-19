@@ -1385,6 +1385,73 @@ def _register_all_tools():
     except Exception as e:
         logger.warning(f"Failed to register advanced feature tools: {e}")
 
+    # ── 22. WiFi Scan & Network Diagnostics ──────────────────────────
+    try:
+        from tools.wifi_tools import (
+            wifi_scan_networks,
+            wifi_current_connection,
+            wifi_saved_profiles,
+            wifi_profile_detail,
+            wifi_network_info,
+            wifi_arp_table,
+            wifi_speed_test
+        )
+        reg.register("wifi_scan_networks", "Scan nearby visible WiFi networks. Returns a report detailing SSID, BSSID, Signal Strength, and Channels.", wifi_scan_networks, [], RiskLevel.SAFE, "wifi")
+        reg.register("wifi_current_connection", "Show details of the current active WiFi connection.", wifi_current_connection, [], RiskLevel.SAFE, "wifi")
+        reg.register("wifi_saved_profiles", "List all saved WiFi profiles on the machine.", wifi_saved_profiles, [], RiskLevel.SAFE, "wifi")
+        reg.register("wifi_profile_detail", "Get details of a specific saved WiFi profile (e.g. security configuration, credentials).", wifi_profile_detail, ["profile_name"], RiskLevel.LOW, "wifi")
+        reg.register("wifi_network_info", "Get detailed networking configuration of all active interfaces (similar to ipconfig /all).", wifi_network_info, [], RiskLevel.SAFE, "wifi")
+        reg.register("wifi_arp_table", "Retrieve local ARP table mapping IP addresses to physical MAC addresses on the local network link.", wifi_arp_table, [], RiskLevel.SAFE, "wifi")
+        reg.register("wifi_speed_test", "Perform quick latency test and ping diagnostics to major endpoints.", wifi_speed_test, [], RiskLevel.SAFE, "wifi")
+        logger.info("Registered WiFi scanning and network diagnostics tools")
+    except Exception as e:
+        logger.warning(f"Failed to register WiFi tools: {e}")
+
+    # ── 24. Autonomous Self-Upgrade & Research ───────────────────────
+    try:
+        async def run_autonomous_upgrade() -> str:
+            """
+            Trigger an autonomous research and system upgrade cycle in the background.
+            Researches trending software utilities/dependencies, fixes past failure logs,
+            forges and registers new safe tools, and sends UI + Email notifications.
+            """
+            from services.auto_updater import get_auto_updater
+            # Run the cycle asynchronously
+            status = await get_auto_updater().run_upgrade_cycle()
+            return f"Upgrade cycle completed. Created tools: {', '.join(status['created_tools']) or 'none'}. Errors: {len(status['errors'])}"
+
+        reg.register(
+            "run_autonomous_upgrade",
+            "Trigger the autonomous research and system upgrade cycle in the background. "
+            "Scans for trending packages/APIs, updates memory from errors, tests new tools, "
+            "and sends UI/email notifications.",
+            run_autonomous_upgrade,
+            [],
+            RiskLevel.MEDIUM,
+            "auto_improvement"
+        )
+        logger.info("Registered Autonomous Self-Upgrade tools")
+    except Exception as e:
+        logger.warning(f"Failed to register Autonomous Self-Upgrade tools: {e}")
+
+    
+    # —— 23. Autonomously Upgraded Tool —— #
+    try:
+        from tools.auto_helper_dev_kit import auto_helper_dev_kit
+        reg.register('auto_helper_dev_kit', 'Autonomously upgraded helper tool.', auto_helper_dev_kit, [], RiskLevel.SAFE, 'auto_improvement')
+        logger.info('Registered autonomously upgraded tool auto_helper_dev_kit')
+    except Exception as e:
+        logger.warning('Failed to register auto tool: ' + str(e))
+
+    
+    # —— 23. Autonomously Upgraded Tool —— #
+    try:
+        from tools.auto_helper_validate_and_format_input import auto_helper_validate_and_format_input
+        reg.register('auto_helper_validate_and_format_input', 'Autonomously upgraded helper tool.', auto_helper_validate_and_format_input, [], RiskLevel.SAFE, 'auto_improvement')
+        logger.info('Registered autonomously upgraded tool auto_helper_validate_and_format_input')
+    except Exception as e:
+        logger.warning('Failed to register auto tool: ' + str(e))
+
     logger.info(f"Tool registry initialized with {len(reg.get_tool_names())} tools.")
 
 # Register all tools on module load

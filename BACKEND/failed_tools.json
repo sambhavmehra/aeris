@@ -1,290 +1,100 @@
 {
   "failed_tools": [
     {
-      "timestamp": "2026-06-05T19:21:19.044202+00:00",
-      "task_id": "task_test_123",
-      "step_id": "step_1",
-      "agent_name": "ToolExecutorService",
-      "intent": "file_write",
-      "tool_name": "write_file",
-      "arguments": {
-        "path": "C:/restricted.txt",
-        "content": "hello"
-      },
-      "error": "SECURITY_BLOCKED: Path outside workspace boundary."
-    },
-    {
-      "timestamp": "2026-06-05T19:23:30.556367+00:00",
-      "task_id": "task_1780687403",
+      "timestamp": "2026-06-11T18:02:22.671769+00:00",
+      "task_id": "task_1781200735",
       "step_id": "s1",
       "agent_name": "ToolExecutorService",
       "intent": "tool_execution",
-      "tool_name": "edit_file",
+      "tool_name": "web_research",
       "arguments": {
-        "path": "hr.xlsx",
-        "old_text": "Sandeep Kumar",
-        "new_text": "Sandeep Kumar updated details"
+        "query": "Sambhavmehra.me information"
       },
-      "error": "'utf-8' codec can't decode byte 0xc6 in position 12: invalid continuation byte"
+      "error": "Unknown tool execution failure"
     },
     {
-      "timestamp": "2026-06-05T19:23:31.670084+00:00",
-      "task_id": "task_1780687403",
-      "step_id": "retry_1",
+      "timestamp": "2026-06-18T20:18:53.779419+00:00",
+      "task_id": "task_1781813915",
+      "step_id": "s2",
       "agent_name": "ToolExecutorService",
       "intent": "tool_execution",
-      "tool_name": "edit_file",
+      "tool_name": "port_scan",
       "arguments": {
-        "path": "hr.xlsx",
-        "old_text": "Sandeep Kumar",
-        "new_text": "Sandeep Kumar updated details"
+        "target": "nearby WiFi networks"
       },
-      "error": "'utf-8' codec can't decode byte 0xc6 in position 12: invalid continuation byte"
+      "error": "[Errno 11001] getaddrinfo failed"
     },
     {
-      "timestamp": "2026-06-05T19:23:32.437738+00:00",
-      "task_id": "task_1780687403",
-      "step_id": "retry_1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "edit_file",
-      "arguments": {
-        "path": "hr.xlsx",
-        "old_text": "Sandeep Kumar",
-        "new_text": "Sandeep Kumar updated details"
-      },
-      "error": "'utf-8' codec can't decode byte 0xc6 in position 12: invalid continuation byte"
-    },
-    {
-      "timestamp": "2026-06-05T19:23:43.004162+00:00",
-      "task_id": "task_1780687403",
-      "step_id": "retry_1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "edit_file",
-      "arguments": {
-        "path": "hr.xlsx",
-        "old_text": "Sandeep Kumar",
-        "new_text": "Sandeep Kumar updated details"
-      },
-      "error": "'utf-8' codec can't decode byte 0xc6 in position 12: invalid continuation byte"
-    },
-    {
-      "timestamp": "2026-06-05T19:25:22.049209+00:00",
-      "task_id": "task_1780687488",
-      "step_id": "s6",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "edit_file",
-      "arguments": {
-        "path": "D:\\Sambhav Projects\\AERIS\\workspace\\hr.xlsx",
-        "old_text": "",
-        "new_text": "Sandeep Kumar"
-      },
-      "error": "'utf-8' codec can't decode byte 0xc6 in position 12: invalid continuation byte"
-    },
-    {
-      "timestamp": "2026-06-05T19:26:45.959884+00:00",
-      "task_id": "task_1780687597",
-      "step_id": "s1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "update_excel_from_screen",
-      "arguments": {
-        "excel_path_or_keyword": "hr.xlsx",
-        "target_name": "Sandeep",
-        "manual_details": "Sandeep's updated details"
-      },
-      "error": "Failed to update Excel sheet: [Errno 13] Permission denied: 'D:\\\\Sambhav Projects\\\\AERIS\\\\workspace\\\\hr.xlsx'"
-    },
-    {
-      "timestamp": "2026-06-05T19:26:52.876393+00:00",
-      "task_id": "task_1780687597",
-      "step_id": "retry_1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "update_excel_from_screen",
-      "arguments": {
-        "excel_path_or_keyword": "hr.xlsx",
-        "target_name": "Sandeep",
-        "manual_details": "Sandeep's updated details"
-      },
-      "error": "Failed to update Excel sheet: [Errno 13] Permission denied: 'D:\\\\Sambhav Projects\\\\AERIS\\\\workspace\\\\hr.xlsx'"
-    },
-    {
-      "timestamp": "2026-06-05T19:26:59.924089+00:00",
-      "task_id": "task_1780687597",
-      "step_id": "retry_1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "update_excel_from_screen",
-      "arguments": {
-        "excel_path_or_keyword": "hr.xlsx",
-        "target_name": "Sandeep",
-        "manual_details": "Sandeep's updated details"
-      },
-      "error": "Failed to update Excel sheet: [Errno 13] Permission denied: 'D:\\\\Sambhav Projects\\\\AERIS\\\\workspace\\\\hr.xlsx'"
-    },
-    {
-      "timestamp": "2026-06-05T19:27:01.356003+00:00",
-      "task_id": "task_1780687606",
-      "step_id": "s1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "read_system_file",
-      "arguments": {
-        "path": "D:\\Sambhav Projects\\AERIS\\workspace\\sandeep.xlsx"
-      },
-      "error": "File not found: D:\\Sambhav Projects\\AERIS\\workspace\\sandeep.xlsx"
-    },
-    {
-      "timestamp": "2026-06-05T19:27:02.209490+00:00",
-      "task_id": "task_1780687606",
-      "step_id": "retry_1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "read_system_file",
-      "arguments": {
-        "path": "sandeep.xlsx"
-      },
-      "error": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\sandeep.xlsx"
-    },
-    {
-      "timestamp": "2026-06-05T19:27:16.987885+00:00",
-      "task_id": "task_1780687606",
-      "step_id": "retry_1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "read_system_file",
-      "arguments": {
-        "path": "../sandeep.xlsx"
-      },
-      "error": "File not found: D:\\Sambhav Projects\\AERIS\\sandeep.xlsx"
-    },
-    {
-      "timestamp": "2026-06-05T19:27:25.668325+00:00",
-      "task_id": "task_1780687606",
-      "step_id": "retry_1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "read_system_file",
-      "arguments": {
-        "path": "../sandeep.xlsx"
-      },
-      "error": "File not found: D:\\Sambhav Projects\\AERIS\\sandeep.xlsx"
-    },
-    {
-      "timestamp": "2026-06-06T10:06:31.298365+00:00",
-      "task_id": "task_1780740388",
-      "step_id": "s1",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "extract_transcript_to_word",
-      "arguments": {
-        "url": "https://www.youtube.com/live/AO1iCqW0RZw?si=UOkSepRQ8afElcTo",
-        "text": null,
-        "output_path": null,
-        "notes_style": null
-      },
-      "error": "Could not extract a valid 11-character YouTube Video ID from: https://www.youtube.com/live/AO1iCqW0RZw?si=UOkSepRQ8afElcTo"
-    },
-    {
-      "timestamp": "2026-06-06T10:06:32.252281+00:00",
-      "task_id": "task_1780740388",
+      "timestamp": "2026-06-18T20:18:54.871348+00:00",
+      "task_id": "task_1781813915",
       "step_id": "retry_s2",
       "agent_name": "ToolExecutorService",
       "intent": "tool_execution",
-      "tool_name": "extract_transcript_to_word",
+      "tool_name": "port_scan",
       "arguments": {
-        "url": null,
-        "text": null,
-        "output_path": null,
-        "notes_style": null
+        "target": "IP address of a device connected to Airtel_yuvr_6288 network"
       },
-      "error": "Either 'url' or 'text' parameter must be provided."
+      "error": "[Errno 11001] getaddrinfo failed"
     },
     {
-      "timestamp": "2026-06-06T10:06:33.319999+00:00",
-      "task_id": "task_1780740388",
-      "step_id": "retry_s4",
+      "timestamp": "2026-06-18T20:18:55.945952+00:00",
+      "task_id": "task_1781813915",
+      "step_id": "retry_s2_with_ip",
       "agent_name": "ToolExecutorService",
       "intent": "tool_execution",
-      "tool_name": "extract_transcript_to_word",
+      "tool_name": "port_scan",
       "arguments": {
-        "text": null,
-        "output_path": null,
-        "notes_style": null
+        "target": "IP address discovered in the previous step"
       },
-      "error": "Either 'url' or 'text' parameter must be provided."
+      "error": "[Errno 11001] getaddrinfo failed"
     },
     {
-      "timestamp": "2026-06-06T10:06:34.572528+00:00",
-      "task_id": "task_1780740388",
-      "step_id": "retry_s6",
+      "timestamp": "2026-06-18T20:18:56.536764+00:00",
+      "task_id": "task_1781813915",
+      "step_id": "retry_s2_with_ip",
       "agent_name": "ToolExecutorService",
       "intent": "tool_execution",
-      "tool_name": "extract_transcript_to_word",
+      "tool_name": "port_scan",
       "arguments": {
-        "text": null,
-        "output_path": null,
-        "notes_style": null
+        "target": "IP address discovered in the previous step"
       },
-      "error": "Either 'url' or 'text' parameter must be provided."
+      "error": "[Errno 11001] getaddrinfo failed"
     },
     {
-      "timestamp": "2026-06-06T10:06:35.905733+00:00",
-      "task_id": "task_1780740388",
-      "step_id": "extract_transcript",
+      "timestamp": "2026-06-18T20:18:57.215616+00:00",
+      "task_id": "task_1781813915",
+      "step_id": "retry_s2_with_ip",
       "agent_name": "ToolExecutorService",
       "intent": "tool_execution",
-      "tool_name": "extract_transcript_to_word",
+      "tool_name": "port_scan",
       "arguments": {
-        "text": null,
-        "output_path": null,
-        "notes_style": null
+        "target": "IP address discovered in the previous step"
       },
-      "error": "Either 'url' or 'text' parameter must be provided."
+      "error": "[Errno 11001] getaddrinfo failed"
     },
     {
-      "timestamp": "2026-06-06T10:06:50.672893+00:00",
-      "task_id": "task_1780740388",
-      "step_id": "extract_transcript_corrected",
+      "timestamp": "2026-06-19T11:42:33.272371+00:00",
+      "task_id": "task_1781869349",
+      "step_id": "s2",
       "agent_name": "ToolExecutorService",
       "intent": "tool_execution",
-      "tool_name": "extract_transcript_to_word",
+      "tool_name": "read_system_file",
       "arguments": {
-        "output_path": null,
-        "notes_style": null
+        "path": "~\\Downloads\\17"
       },
-      "error": "Either 'url' or 'text' parameter must be provided."
+      "error": "File not found: C:\\Users\\Sambhav Mehra\\Downloads\\17"
     },
     {
-      "timestamp": "2026-06-06T10:06:52.233864+00:00",
-      "task_id": "task_1780740388",
-      "step_id": "extract_transcript_retry",
+      "timestamp": "2026-06-19T11:42:55.739786+00:00",
+      "task_id": "task_1781869372",
+      "step_id": "s2",
       "agent_name": "ToolExecutorService",
       "intent": "tool_execution",
-      "tool_name": "extract_transcript_to_word",
+      "tool_name": "read_system_file",
       "arguments": {
-        "url": "{url}",
-        "output_path": null,
-        "notes_style": null
+        "path": "{path_to_file}"
       },
-      "error": "Webpage scraping failed: Request URL is missing an 'http://' or 'https://' protocol."
-    },
-    {
-      "timestamp": "2026-06-06T10:07:00.082272+00:00",
-      "task_id": "task_1780740388",
-      "step_id": "final_extract_transcript",
-      "agent_name": "ToolExecutorService",
-      "intent": "tool_execution",
-      "tool_name": "extract_transcript_to_word",
-      "arguments": {
-        "url": "https://www.youtube.com/watch?v=AO1iCqW0RZw",
-        "output_path": "youtube_notes.docx",
-        "notes_style": "professional_meeting"
-      },
-      "error": "YouTube transcript extraction failed: type object 'YouTubeTranscriptApi' has no attribute 'get_transcript'. (Make sure the video exists and has public captions/subtitles enabled)."
+      "error": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\{path_to_file}"
     }
   ]
 }

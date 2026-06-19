@@ -223,33 +223,10 @@ class AIEngine:
 
     async def vision(self, prompt: str, image_b64: str) -> str:
         """
-        Analyze an image using Gemini Vision with Groq Vision & local Ollama (Qwen2.5-VL) fallback.
+        Analyze an image using Groq Vision with local Ollama (Qwen/Llama VL) fallback.
+        Does not use Gemini and does not retry Groq on failure.
         """
-        # Try Gemini Vision first if configured
-        if self._gemini_client:
-            try:
-                import base64
-                image_bytes = base64.b64decode(image_b64)
-                
-                # Prepare image for Gemini
-                loop = asyncio.get_event_loop()
-                
-                def _call_vision():
-                    from google.genai import types
-                    return self._gemini_client.models.generate_content(
-                        model=settings.GEMINI_MODEL,
-                        contents=[
-                            prompt,
-                            types.Part.from_bytes(data=image_bytes, mime_type="image/png")
-                        ]
-                    )
-
-                response = await loop.run_in_executor(None, _call_vision)
-                return response.text or ""
-            except Exception as e:
-                logger.warning(f"Gemini Vision failed ({e}). Falling back to Groq Vision...")
-
-        # Fallback to Groq Vision (using dedicated or primary Groq client)
+        # Try Groq Vision first
         if self._groq_vision_client:
             try:
                 completion = await self._groq_vision_client.chat.completions.create(
@@ -270,18 +247,18 @@ class AIEngine:
                     ],
                     temperature=0.2,
                 )
-                logger.info("Groq Vision analysis completed successfully as fallback.")
+                logger.info("Groq Vision analysis completed successfully.")
                 return completion.choices[0].message.content or ""
             except Exception as ge:
-                logger.warning(f"Groq Vision fallback failed ({ge}). Falling back to local Ollama...")
+                logger.warning(f"Groq Vision failed ({ge}). Falling back to local Ollama immediately...")
 
-        # Fallback to local Ollama (Qwen2.5-VL)
+        # Fallback to local Ollama (Qwen2.5-VL / Llama)
         try:
             return await self._ollama_vision(prompt, image_b64)
         except Exception as oe:
             logger.error(f"Local Ollama Vision fallback also failed: {oe}")
             raise RuntimeError(
-                f"All Vision models failed. Gemini, Groq, and Ollama Vision models are unavailable."
+                f"All Vision models failed. Groq and Ollama Vision models are unavailable."
             )
 
     async def _ollama_vision(self, prompt: str, image_b64: str) -> str:

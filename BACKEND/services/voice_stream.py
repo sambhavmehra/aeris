@@ -34,6 +34,19 @@ async def transcribe_audio(audio_bytes: bytes) -> Optional[str]:
     if not audio_bytes or len(audio_bytes) < 3200: # Less than 100ms of audio
         return None
 
+    # Calculate RMS energy of the accumulated audio buffer to filter out quiet background noise/static
+    count = len(audio_bytes) // 2
+    if count > 0:
+        try:
+            import math
+            shorts = struct.unpack(f"{count}h", audio_bytes)
+            rms = math.sqrt(sum(s * s for s in shorts) / count)
+            if rms < 350:
+                logger.info(f"VAD: Skipping transcription because RMS energy ({rms:.1f}) is below speech threshold (350).")
+                return None
+        except Exception as e:
+            logger.warning(f"Error calculating RMS energy: {e}")
+
     # Wrap raw PCM in a simple WAV container so APIs can parse it
     wav_io = io.BytesIO()
     import wave

@@ -36,6 +36,13 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const [isVoiceModeEnabled, setIsVoiceModeEnabled] = useState(false);
   const [isVoiceSleeping, setIsVoiceSleeping] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
+  const [isAISpeaking, setIsAISpeaking] = useState(false);
+
+  // Auto-mute and mic feedback protection refs
+  const isVoiceModeEnabledRef = useRef(false);
+  const isMutedRef = useRef(false);
+  const isAISpeakingRef = useRef(false);
+  const isTypingRef = useRef(false);
 
   // Hacker Mode Challenge State
   const [showHackerPrompt, setShowHackerPrompt] = useState(false);
@@ -60,6 +67,14 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const audioProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const nextPlayTimeRef = useRef<number>(0);
+
+  const updateMicMuteState = useCallback((isAITyping: boolean, isAIspeaking: boolean) => {
+    const shouldMute = isAITyping || isAIspeaking;
+    isMutedRef.current = shouldMute;
+    if (isVoiceModeEnabledRef.current) {
+      setIsListening(!shouldMute);
+    }
+  }, []);
 
   const addAIMessage = useCallback((content: string, isStreaming = true, agent?: string, intent?: string) => {
     onSpeakingChange(true);
@@ -168,6 +183,8 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   // Start thinking animation
   const startThinking = useCallback(() => {
     setIsTyping(true);
+    isTypingRef.current = true;
+    updateMicMuteState(true, isAISpeakingRef.current);
     setThinkingStage(0);
     setActiveAgent(null);
 
@@ -185,15 +202,17 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       }
       elapsed += stage.duration;
     });
-  }, []);
+  }, [updateMicMuteState]);
 
   const stopThinking = useCallback(() => {
     thinkingTimers.current.forEach(t => clearTimeout(t));
     thinkingTimers.current = [];
     setIsTyping(false);
+    isTypingRef.current = false;
+    updateMicMuteState(false, isAISpeakingRef.current);
     setThinkingStage(0);
     setActiveAgent(null);
-  }, []);
+  }, [updateMicMuteState]);
 
   const handleStop = useCallback(() => {
     if (abortControllerRef.current) {
@@ -287,6 +306,12 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       abortControllerRef.current = null;
       stopThinking();
 
+      if (data.intent === 'assemble') {
+        onClose();
+        useAgentStore.getState().triggerAssembly();
+        return;
+      }
+
       if (data.hacker_mode_challenge) {
         setShowHackerPrompt(true);
         setHackerPassword('');
@@ -346,7 +371,11 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     });
     activeSourcesRef.current = [];
     nextPlayTimeRef.current = 0;
-  }, []);
+    setIsAISpeaking(false);
+    isAISpeakingRef.current = false;
+    onSpeakingChange(false);
+    updateMicMuteState(isTypingRef.current, false);
+  }, [onSpeakingChange, updateMicMuteState]);
 
   const stopVoiceSession = useCallback(() => {
     if (wsRef.current) {
@@ -384,10 +413,14 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     }
 
     setIsVoiceModeEnabled(false);
+    isVoiceModeEnabledRef.current = false;
     setIsListening(false);
     setIsVoiceSleeping(true);
     onSpeakingChange(false);
     stopThinking();
+    setIsAISpeaking(false);
+    isAISpeakingRef.current = false;
+    isMutedRef.current = false;
   }, [stopPlayback, onSpeakingChange, stopThinking]);
 
   useEffect(() => {
@@ -419,8 +452,10 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
 
     ws.onopen = () => {
       setIsVoiceModeEnabled(true);
+      isVoiceModeEnabledRef.current = true;
       setIsListening(true);
       onSpeakingChange(true);
+      isMutedRef.current = false;
     };
 
     ws.onmessage = async (event) => {
@@ -443,8 +478,18 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
         source.connect(outContext.destination);
         
         activeSourcesRef.current.push(source);
+        setIsAISpeaking(true);
+        isAISpeakingRef.current = true;
+        updateMicMuteState(isTypingRef.current, true);
+
         source.onended = () => {
           activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== source);
+          if (activeSourcesRef.current.length === 0) {
+            setIsAISpeaking(false);
+            isAISpeakingRef.current = false;
+            onSpeakingChange(false);
+            updateMicMuteState(isTypingRef.current, false);
+          }
         };
 
         const currentTime = outContext.currentTime;
@@ -460,9 +505,16 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
             }
           } else if (data.type === 'speak_start') {
             onSpeakingChange(true);
+            setIsAISpeaking(true);
+            isAISpeakingRef.current = true;
+            updateMicMuteState(isTypingRef.current, true);
           } else if (data.type === 'speak_end') {
             if (activeSourcesRef.current.length === 0) {
               nextPlayTimeRef.current = 0;
+              setIsAISpeaking(false);
+              isAISpeakingRef.current = false;
+              onSpeakingChange(false);
+              updateMicMuteState(isTypingRef.current, false);
             }
           } else if (data.type === 'transcription') {
             setMessages(prev => [
@@ -472,6 +524,12 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
             startThinking();
           } else if (data.type === 'chat_response') {
             stopThinking();
+            
+            if (data.intent === 'assemble') {
+              onClose();
+              useAgentStore.getState().triggerAssembly();
+              return;
+            }
             
             if (data.intent === 'wakeup') {
               setIsVoiceSleeping(false);
@@ -532,15 +590,19 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       audioProcessorRef.current = processor;
 
       processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
-        const pcmData = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          const s = Math.max(-1, Math.min(1, inputData[i]));
-          pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-        }
-        
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(pcmData.buffer);
+          if (isMutedRef.current) {
+            const silentPcm = new Int16Array(e.inputBuffer.length);
+            ws.send(silentPcm.buffer);
+          } else {
+            const inputData = e.inputBuffer.getChannelData(0);
+            const pcmData = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+              const s = Math.max(-1, Math.min(1, inputData[i]));
+              pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            ws.send(pcmData.buffer);
+          }
         }
       };
 
@@ -551,7 +613,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
       addAIMessage('Mic permission denied. Please allow microphone access to use voice mode.', false);
       stopVoiceSession();
     }
-  }, [addAIMessage, onSpeakingChange, startThinking, stopThinking, stopPlayback, stopVoiceSession]);
+  }, [addAIMessage, onSpeakingChange, startThinking, stopThinking, stopPlayback, stopVoiceSession, updateMicMuteState]);
 
   const toggleVoice = useCallback(() => {
     if (isVoiceModeEnabled) {
@@ -615,13 +677,10 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
             });
 
             if (hasBuds && isOpen) {
-              console.log("Bluetooth earbud/mic connected. Activating voice mode.");
+              console.log("Bluetooth earbud/mic connected.");
               if (!isVoiceModeEnabled) {
-                // Add a small delay for OS device registration
-                setTimeout(() => {
-                  startVoiceSession();
-                  addAIMessage("🎧 Earbuds connected. Microphone active and listening.", false, "Brain", "system");
-                }, 1200);
+                // Do not automatically start the voice session; notify the user to activate it manually.
+                addAIMessage("🎧 Earbuds/Headset connected. Click the microphone icon to activate voice mode.", false, "Brain", "system");
               }
             }
           }

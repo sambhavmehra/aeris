@@ -264,9 +264,13 @@ class FileToolSystem:
 
     # ── read_system_file (any absolute path) ─────────────────────────
     def read_system_file(self, filepath: str) -> FileToolResult:
-        """Read any file on the system by absolute path. Not restricted to workspace."""
-        filepath = os.path.expanduser(filepath)
-        target = Path(filepath).resolve()
+        """Read any file on the system. Supports absolute paths, relative paths, and directory aliases."""
+        try:
+            from services.path_utils import resolve_path
+            target = resolve_path(filepath)
+        except Exception:
+            filepath = os.path.expanduser(filepath)
+            target = Path(filepath).resolve()
         try:
             if not target.exists():
                 return FileToolResult(False, f"File not found: {target}", "read_system_file")
@@ -294,9 +298,26 @@ class FileToolSystem:
 
     # ── list_system_dir (any absolute path) ──────────────────────────
     def list_system_dir(self, dirpath: str) -> FileToolResult:
-        """List contents of any directory on the system by absolute path."""
-        dirpath = os.path.expanduser(dirpath)
-        target = Path(dirpath).resolve()
+        """List contents of any directory on the system. Supports absolute paths and smart directory/alias resolution."""
+        try:
+            from services.path_utils import resolve_folder_smart
+            resolved_path, confidence = resolve_folder_smart(dirpath)
+            if resolved_path:
+                target = resolved_path
+            else:
+                dir_expanded = os.path.expanduser(dirpath)
+                target = Path(dir_expanded).resolve()
+        except Exception:
+            dir_expanded = os.path.expanduser(dirpath)
+            target = Path(dir_expanded).resolve()
+
+        # Track directory context for future pronoun/contextual resolution
+        try:
+            from intelligence.folder_intelligence import get_folder_intelligence
+            get_folder_intelligence().set_context(str(target))
+        except Exception:
+            pass
+
         try:
             if not target.exists():
                 return FileToolResult(False, f"Directory not found: {target}", "list_system_dir")
@@ -450,11 +471,33 @@ class FileToolSystem:
             ]
             search_order = priority_dirs + other_dirs
 
+            # If searching in the default home directory, append other drive roots for system-wide coverage
+            if search_dir == "~":
+                for letter in "CDEFGHIJ":
+                    drive_path = Path(f"{letter}:\\")
+                    if drive_path.exists():
+                        # Resolve paths to avoid duplicate entries in search_order
+                        try:
+                            res_path = drive_path.resolve()
+                            if res_path not in [Path(p).resolve() for p in search_order]:
+                                search_order.append(res_path)
+                        except Exception:
+                            pass
+
             matches: list[str] = []
 
             for search_root in search_order:
-                for root, dirs, files in os.walk(str(search_root)):
+                search_root_str = str(search_root)
+                search_root_depth = search_root_str.count(os.sep)
+                for root, dirs, files in os.walk(search_root_str):
                     dirs[:] = [d for d in dirs if d not in self._SKIP_DIRS and not d.startswith('.')]
+                    
+                    # Enforce a max depth limit of 5 levels relative to the search root to prevent infinite traversals
+                    current_depth = root.count(os.sep) - search_root_depth
+                    if current_depth >= 5:
+                        dirs[:] = []
+                        continue
+
                     for file in files:
                         f_lower = file.lower()
                         f_clean = f_lower.replace(" ", "")
@@ -497,7 +540,23 @@ class FileToolSystem:
             return FileToolResult(False, str(exc), "find_system_file")
 
     def find_system_folder(self, foldername: str, search_dir: str = "~") -> FileToolResult:
-        """Search for a directory by name. Prioritizes Downloads, Documents, Desktop, OneDrive, and workspace."""
+        """Search for a directory by name. Uses FolderIntelligence for smart matching first,
+        then falls back to filesystem scan. Prioritizes Downloads, Documents, Desktop, OneDrive, workspace, and AERIS project dirs."""
+        
+        # ── Step 1: Try FolderIntelligence for instant smart resolution ──
+        try:
+            from intelligence.folder_intelligence import get_folder_intelligence
+            fi = get_folder_intelligence()
+            match = fi.resolve(foldername)
+            if match and match.confidence >= 0.6:
+                logger.info(f"🎯 FolderIntelligence resolved '{foldername}' -> {match.path} "
+                           f"(confidence={match.confidence:.2f}, type={match.match_type})")
+                fi.set_context(match.path)  # Track for pronoun resolution
+                return FileToolResult(True, match.path, "find_system_folder")
+        except Exception as e:
+            logger.warning(f"FolderIntelligence unavailable for find_system_folder: {e}")
+        
+        # ── Step 2: Fallback to filesystem scan ──
         try:
             start_dir = resolve_path(search_dir) if search_dir else Path.home()
         except Exception as e:
@@ -536,6 +595,18 @@ class FileToolSystem:
             if self.workspace and self.workspace.is_dir() and self.workspace not in priority_dirs:
                 priority_dirs.insert(0, self.workspace)
             
+            # Add AERIS project directories as high-priority search targets
+            try:
+                from config import settings
+                aeris_backend = settings.BASE_DIR
+                aeris_root = settings.BASE_DIR.parent
+                aeris_parent = aeris_root.parent
+                for aeris_dir in [aeris_backend, aeris_root, aeris_parent]:
+                    if aeris_dir.is_dir() and aeris_dir not in priority_dirs:
+                        priority_dirs.insert(0, aeris_dir)
+            except Exception:
+                pass
+            
             other_dirs = [
                 d for d in start_dir.iterdir()
                 if d.is_dir() and d.name not in priority_names
@@ -543,11 +614,33 @@ class FileToolSystem:
             ]
             search_order = priority_dirs + other_dirs
 
+            # If searching in the default home directory, append other drive roots for system-wide coverage
+            if search_dir == "~":
+                for letter in "CDEFGHIJ":
+                    drive_path = Path(f"{letter}:\\")
+                    if drive_path.exists():
+                        # Resolve paths to avoid duplicate entries in search_order
+                        try:
+                            res_path = drive_path.resolve()
+                            if res_path not in [Path(p).resolve() for p in search_order]:
+                                search_order.append(res_path)
+                        except Exception:
+                            pass
+
             matches: list[str] = []
 
             for search_root in search_order:
-                for root, dirs, files in os.walk(str(search_root)):
+                search_root_str = str(search_root)
+                search_root_depth = search_root_str.count(os.sep)
+                for root, dirs, files in os.walk(search_root_str):
                     dirs[:] = [d for d in dirs if d not in self._SKIP_DIRS and not d.startswith('.')]
+                    
+                    # Enforce a max depth limit of 5 levels relative to the search root to prevent infinite traversals
+                    current_depth = root.count(os.sep) - search_root_depth
+                    if current_depth >= 5:
+                        dirs[:] = []
+                        continue
+
                     for d in dirs:
                         d_lower = d.lower()
                         d_clean = d_lower.replace(" ", "")
@@ -569,6 +662,12 @@ class FileToolSystem:
             top = matches[:10]
 
             if top:
+                # Track context for the best match
+                try:
+                    from intelligence.folder_intelligence import get_folder_intelligence
+                    get_folder_intelligence().set_context(top[0])
+                except Exception:
+                    pass
                 return FileToolResult(True, "\n".join(top), "find_system_folder")
             else:
                 return FileToolResult(True, "No matching folders found.", "find_system_folder")

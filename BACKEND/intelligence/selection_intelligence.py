@@ -69,6 +69,10 @@ _INTENT_CATEGORY_MAP: Dict[str, List[str]] = {
     "email": ["email"], "mail": ["email"], "brevo": ["email", "mcp"],
     "monitor": ["system", "automation"], "whatsapp": ["automation", "file"],
     "telegram": ["system", "file"], "audio": ["system"], "voice": ["system"],
+    # Valid intents addition
+    "drana": ["security", "drana"], "diagnose": ["system"], "repair": ["system"],
+    "debate": ["conversation"], "investigate": ["research"], "schedule": ["system"],
+    "timer": ["system"], "reminder": ["system"]
 }
 
 # ─── Common Pipeline Patterns ────────────────────────────────────────
@@ -206,6 +210,36 @@ _INTENT_TO_TOOL_MAP: Dict[str, Dict[str, Any]] = {
         "categories": ["system"],
         "keywords": ["audio", "voice", "microphone", "mic", "record"],
         "must_include_names": ["record_audio"]
+    },
+    "drana": {
+        "categories": ["security", "drana"],
+        "keywords": ["drana", "vapt", "xss", "bug", "bounty", "traffic", "payload", "exploit", "recon"],
+        "must_include_names": ["run_bash"]
+    },
+    "diagnose": {
+        "categories": ["system", "diagnose"],
+        "keywords": ["diagnose", "check", "health", "system", "hardware", "cpu", "memory", "load", "dependency", "package", "syntax"],
+        "must_include_names": ["monitor_system"]
+    },
+    "repair": {
+        "categories": ["system", "repair"],
+        "keywords": ["repair", "fix", "patch", "error", "syntax", "compile", "verify", "healer"],
+        "must_include_names": ["edit_file", "write_file", "run_bash"]
+    },
+    "debate": {
+        "categories": ["conversation"],
+        "keywords": ["debate", "argue", "discuss", "opinion", "perspective", "pro", "con"],
+        "must_include_names": ["chat_with_ai"]
+    },
+    "investigation": {
+        "categories": ["research", "investigation"],
+        "keywords": ["investigate", "trace", "track", "find", "search", "investigation"],
+        "must_include_names": ["grep_search", "find_system_file", "read_file"]
+    },
+    "scheduler": {
+        "categories": ["system", "scheduler"],
+        "keywords": ["schedule", "reminder", "alarm", "meeting", "task", "cron", "timer", "schedule_execution"],
+        "must_include_names": ["schedule_execution"]
     }
 }
 
@@ -228,7 +262,22 @@ class SelectionIntelligence:
     """
 
     def __init__(self):
-        pass
+        self._cached_selector = None
+        self._last_tools_count = 0
+
+    def _get_selector(self, registry) -> Any:
+        from tools.tool_selector import ToolSelector
+        try:
+            enabled_tools = registry.get_enabled_tools()
+            count = len(enabled_tools)
+        except Exception:
+            enabled_tools = []
+            count = 0
+            
+        if self._cached_selector is None or count != self._last_tools_count:
+            self._cached_selector = ToolSelector(enabled_tools)
+            self._last_tools_count = count
+        return self._cached_selector
 
     def select(self, objective: str, intent: Optional[str] = None, top_k: int = 5) -> List[SelectionResult]:
         """
@@ -264,14 +313,16 @@ class SelectionIntelligence:
         # 4. Enrich with awareness data
         enriched = self._enrich_with_awareness(base_candidates, intent_categories)
         
+        from tools.universal_registry import get_universal_registry
+        registry = get_universal_registry()
+        selector = self._get_selector(registry)
+        
         if has_antigravity:
             # Guarantee build_project is added if not already present
             existing_names = {r.tool_name for r in enriched}
             if "build_project" not in existing_names:
                 try:
-                    from tools.universal_registry import get_universal_registry
-                    registry = get_universal_registry()
-                    if registry.get_tool("build_project"):
+                    if selector and "build_project" in selector._by_name:
                         enriched.append(SelectionResult(
                             tool_name="build_project",
                             score=1.0,
@@ -317,9 +368,7 @@ class SelectionIntelligence:
             
             # Guarantee intent-specific tools are present
             try:
-                from tools.universal_registry import get_universal_registry
-                registry = get_universal_registry()
-                all_enabled_tools = registry.get_enabled_tools()
+                all_enabled_tools = selector._tools if selector else []
             except Exception as e:
                 logger.warning(f"Could not load registry for fallback check: {e}")
                 all_enabled_tools = []
@@ -415,9 +464,8 @@ class SelectionIntelligence:
         """Get base candidates from the existing ToolSelector."""
         try:
             from tools.universal_registry import get_universal_registry
-            from tools.tool_selector import ToolSelector
             registry = get_universal_registry()
-            selector = ToolSelector(registry.get_enabled_tools())
+            selector = self._get_selector(registry)
             candidates = selector.select(objective, top_k=top_k, use_advanced=False)
             return [
                 {"name": c.tool.name, "score": c.score, "reason": c.match_reason}

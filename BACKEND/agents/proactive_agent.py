@@ -131,6 +131,7 @@ class ProactiveAgent(BaseAgent):
         self.register_job("integrity_check", self._job_integrity_check, interval_seconds=7200)
         self.register_job("critical_domain_monitor", self._job_critical_domain_monitor, interval_seconds=3600)
         self.register_job("proactive_news", self._job_proactive_news, interval_seconds=1800)
+        self.register_job("self_improvement", self._job_self_improvement, interval_seconds=3600)
 
     def register_job(self, name: str, func: Callable, interval_seconds: int):
         """Register a new periodic job."""
@@ -540,6 +541,7 @@ class ProactiveAgent(BaseAgent):
                 self._cached_states["last_ping_time"] = time.time()
                 self._cached_states["next_ping_interval"] = random.randint(180, 300)
                 
+                
                 msg = random.choice(messages)
                 self._add_alert(ProactiveAlert(
                     alert_type="briefing",
@@ -547,6 +549,35 @@ class ProactiveAgent(BaseAgent):
                     message=msg,
                     priority="normal"
                 ))
+
+    def _job_self_improvement(self):
+        """Autonomously improve AERIS: run tech research, upgrade tools, learn from failures, and retrain classifier."""
+        logger.info("Proactive Agent: Starting background self-improvement job...")
+        try:
+            # 1. Run the AutoUpdater upgrade cycle
+            from services.auto_updater import get_auto_updater
+            import asyncio
+            
+            # Since proactive loop runs in a background thread, we can run synchronous or async code using an event loop
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Run upgrade cycle
+            status = get_auto_updater().run_upgrade_cycle()
+            
+            # 2. Trigger neural model calibration/retraining if ready
+            from neural.core import neural_core
+            if neural_core.is_intent_ready:
+                logger.info("Proactive Agent: Calibrating/retraining local intent classifier...")
+                neural_core.train_initial_intent_model(epochs=100, lr=0.005)
+                logger.info("Proactive Agent: Neural intent classifier calibrated successfully.")
+                
+            self.log(f"Self-improvement job completed. Created tools: {status.get('created_tools')}, Errors: {status.get('errors')}")
+        except Exception as e:
+            logger.error(f"Self-improvement background job failed: {e}")
                 
                
 

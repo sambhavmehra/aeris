@@ -291,7 +291,7 @@ class SecurityAgent(BaseAgent):
         lines = []
         for msg in chat_history[-limit:]:
             role = msg.get("role", "user").upper()
-            content = msg.get("content", "")[:200]  # truncate long messages
+            content = msg.get("content", "")[:2000]  # truncate long messages
             lines.append(f"[{role}]: {content}")
         return "\n".join(lines)
 

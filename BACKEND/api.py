@@ -241,6 +241,17 @@ class OverlayRequest(BaseModel):
     text: str
 
 
+class OverlayQueryRequest(BaseModel):
+    text: str
+
+
+class CropBoxRequest(BaseModel):
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+
 class ExtensionV2RegisterRequest(BaseModel):
     extension_id: str = "extension-v2"
     client_name: str = "Extension V2"
@@ -436,12 +447,12 @@ async def update_memory(req: MemoryUpdateRequest):
     elif action == "add_fact":
         if not req.fact:
             raise HTTPException(status_code=400, detail="fact is required for add_fact action")
-        added = memory_store.add_fact(req.fact)
+        added = await memory_store.add_fact(req.fact)
         return {"success": added, "message": "Fact added" if added else "Fact not added (duplicate or sensitive)"}
     elif action == "remove_fact":
         if not req.fact:
             raise HTTPException(status_code=400, detail="fact is required for remove_fact action")
-        removed = memory_store.remove_fact(req.fact)
+        removed = await memory_store.remove_fact(req.fact)
         return {"success": removed, "message": "Fact removed" if removed else "Fact not found"}
     elif action == "update_summary":
         if req.summary is None:
@@ -528,6 +539,12 @@ async def repair_file_by_id(repair_id: str):
     return {"success": True, "message": result}
 
 
+@app.get("/api/jobs")
+async def get_all_jobs_endpoint():
+    from services.job_manager import get_job_manager
+    return {"jobs": get_job_manager().list_all_jobs()}
+
+
 @app.get("/api/jobs/{job_id}")
 async def get_job_by_id(job_id: str):
     from services.job_manager import get_job_manager
@@ -537,11 +554,748 @@ async def get_job_by_id(job_id: str):
     return job
 
 
+@app.post("/api/jobs/{job_id}/pause")
+async def pause_job_endpoint(job_id: str):
+    from services.job_manager import get_job_manager
+    success = get_job_manager().pause_job(job_id)
+    return {"success": success, "message": f"Job {job_id} paused" if success else "Job not found or not running"}
+
+
+@app.post("/api/jobs/{job_id}/resume")
+async def resume_job_endpoint(job_id: str):
+    from services.job_manager import get_job_manager
+    from brain import brain
+    from config import settings
+    import json
+    from pathlib import Path
+
+    job_mgr = get_job_manager()
+    
+    # Check if there is pending approval to resume from
+    pending_file = settings.DATA_DIR / "pending_approval.json"
+    state = None
+    if pending_file.exists():
+        try:
+            with open(pending_file, "r", encoding="utf-8") as f:
+                state = json.load(f)
+        except Exception:
+            pass
+
+    success = job_mgr.resume_job(job_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Job not found or not in paused state")
+
+    if state and state.get("task_id") == job_id:
+        tool_name = state.get("tool_name_pending")
+        if tool_name:
+            from tools.tool_permissions import get_permission_system
+            get_permission_system().approve_for_session(tool_name)
+            
+        try:
+            pending_file.unlink()
+        except Exception:
+            pass
+            
+        # Spawn the task based on the saving core
+        agent_core = state.get("agent", "Brain")
+        if agent_core == "HackerBrain":
+            from hacker_brain import hacker_brain
+            asyncio.create_task(hacker_brain._run_background_job_resume(job_id, state))
+        else:
+            asyncio.create_task(brain._run_background_job_resume(job_id, state))
+            
+        return {"success": True, "message": f"Job {job_id} resumed from security approval."}
+    
+    return {"success": True, "message": f"Job {job_id} resumed."}
+
+
 @app.post("/api/jobs/{job_id}/cancel")
 async def cancel_job_endpoint(job_id: str):
     from services.job_manager import get_job_manager
     success = get_job_manager().cancel_job(job_id)
     return {"success": success, "message": f"Job {job_id} cancelled" if success else "Job not found or not running"}
+
+
+@app.get("/dashboard/{job_id}")
+async def get_dashboard_page(job_id: str):
+    from fastapi.responses import HTMLResponse
+    from services.job_manager import get_job_manager
+    
+    job = get_job_manager().get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AERIS Mission Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #08090f;
+            --panel-bg: rgba(18, 20, 32, 0.7);
+            --border-color: rgba(0, 242, 254, 0.15);
+            --accent-cyan: #00f2fe;
+            --accent-purple: #9d4edd;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --status-running: #00f2fe;
+            --status-paused: #f59e0b;
+            --status-completed: #10b981;
+            --status-failed: #ef4444;
+            --status-cancelled: #6b7280;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem 1rem;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(157, 78, 221, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(0, 242, 254, 0.05) 0%, transparent 40%);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1rem;
+        }
+
+        .logo-section {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .logo-glow {
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+            border-radius: 50%;
+            box-shadow: 0 0 12px var(--accent-cyan);
+            animation: pulse 2s infinite alternate;
+        }
+
+        h1 {
+            font-size: 1.75rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            background: linear-gradient(to right, #fff, var(--text-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .job-id-badge {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            color: var(--accent-cyan);
+            border: 1px solid var(--border-color);
+        }
+
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .status-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.85rem;
+            border-radius: 9999px;
+            font-weight: 600;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border: 1px solid transparent;
+        }
+
+        .status-badge.running {
+            background: rgba(0, 242, 254, 0.1);
+            color: var(--status-running);
+            border-color: rgba(0, 242, 254, 0.25);
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.25);
+        }
+        
+        .status-badge.paused {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--status-paused);
+            border-color: rgba(245, 158, 11, 0.25);
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.25);
+        }
+
+        .status-badge.completed {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--status-completed);
+            border-color: rgba(16, 185, 129, 0.25);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.25);
+        }
+
+        .status-badge.failed {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--status-failed);
+            border-color: rgba(239, 68, 68, 0.25);
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.25);
+        }
+
+        .status-badge.cancelled {
+            background: rgba(107, 114, 128, 0.1);
+            color: var(--status-cancelled);
+            border-color: rgba(107, 114, 128, 0.25);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+        }
+
+        .status-badge.running .status-dot {
+            animation: pulse 1.5s infinite alternate;
+        }
+
+        .agent-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        .agent-name {
+            font-weight: 600;
+            color: var(--accent-purple);
+        }
+
+        .progress-container {
+            margin-bottom: 1.5rem;
+        }
+
+        .progress-bar-bg {
+            background: rgba(255, 255, 255, 0.05);
+            height: 10px;
+            border-radius: 9999px;
+            width: 100%;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 9999px;
+            background: linear-gradient(to right, var(--accent-purple), var(--accent-cyan));
+            width: 0%;
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 10px var(--accent-cyan);
+        }
+
+        .progress-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .progress-pct {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .controls-section {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 1.5rem;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            font-size: 0.95rem;
+            border: 1px solid transparent;
+        }
+
+        .btn-pause {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--status-paused);
+            border-color: rgba(245, 158, 11, 0.2);
+        }
+        
+        .btn-pause:hover:not(:disabled) {
+            background: var(--status-paused);
+            color: #000;
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+        }
+
+        .btn-resume {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--status-completed);
+            border-color: rgba(16, 185, 129, 0.2);
+        }
+
+        .btn-resume:hover:not(:disabled) {
+            background: var(--status-completed);
+            color: #000;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn-cancel {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--status-failed);
+            border-color: rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-cancel:hover:not(:disabled) {
+            background: var(--status-failed);
+            color: #fff;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+
+        .request-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 1.25rem;
+            border-radius: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .request-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .request-text {
+            font-size: 1.05rem;
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        .log-section {
+            display: flex;
+            flex-direction: column;
+            height: 380px;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .log-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .connection-status {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .connection-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--status-failed);
+        }
+
+        .connection-status.connected .connection-dot {
+            background-color: var(--status-completed);
+            box-shadow: 0 0 6px var(--status-completed);
+        }
+
+        .log-terminal {
+            flex: 1;
+            background: #040508;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.65rem;
+            scroll-behavior: smooth;
+        }
+
+        .log-item {
+            display: flex;
+            flex-direction: column;
+            border-left: 2px solid rgba(255, 255, 255, 0.1);
+            padding-left: 0.75rem;
+            transition: border-color 0.2s ease;
+        }
+
+        .log-item.coder { border-left-color: var(--accent-cyan); }
+        .log-item.architect { border-left-color: var(--accent-purple); }
+        .log-item.qa { border-left-color: #f59e0b; }
+        .log-item.docs { border-left-color: #10b981; }
+
+        .log-meta {
+            display: flex;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.15rem;
+        }
+
+        .log-timestamp {
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        .log-agent {
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .log-message {
+            color: #e2e8f0;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.75; }
+            100% { transform: scale(1.05); opacity: 1; }
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.01);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo-section">
+                <div class="logo-glow"></div>
+                <h1>AERIS Mission OS</h1>
+            </div>
+            <div class="job-id-badge" id="job-id-display">JOB ID: ...</div>
+        </header>
+
+        <div class="card request-card">
+            <div class="request-label">Active Mission Objective</div>
+            <div class="request-text" id="request-text">Loading mission objective...</div>
+        </div>
+
+        <div class="card" id="approval-card" style="display: none; border-color: #f59e0b; background: rgba(245, 158, 11, 0.04); margin-bottom: 0.5rem; animation: pulse 2s infinite alternate;">
+            <div class="request-label" style="color: #f59e0b; display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+                <span>🛡️ Security Authorization Required</span>
+            </div>
+            <div style="margin-top: 0.75rem;">
+                <p style="font-size: 0.95rem; line-height: 1.5; color: #f8fafc;">
+                    This mission is paused because executing tool <strong id="approval-tool-name" style="color: #00f2fe;">...</strong> requires your explicit approval.
+                </p>
+                <div style="margin-top: 0.85rem; background: #040508; border: 1px solid rgba(255,255,255,0.05); padding: 0.75rem; border-radius: 0.5rem; font-family: 'JetBrains Mono', monospace; font-size: 0.825rem; overflow-x: auto;">
+                    <span style="color: #94a3b8;">Arguments:</span>
+                    <pre id="approval-tool-args" style="color: #00f2fe; margin-top: 0.25rem; white-space: pre-wrap; font-family: inherit;">{}</pre>
+                </div>
+                <p style="font-size: 0.85rem; color: #94a3b8; margin-top: 0.85rem;">
+                    Click the <strong>"Resume Mission"</strong> button below to authorize and execute this step, or <strong>"Abort Mission"</strong> to cancel the job.
+                </p>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="status-section">
+                <div class="status-badge" id="status-badge">
+                    <div class="status-dot"></div>
+                    <span id="status-text">loading</span>
+                </div>
+                <div class="agent-info">
+                    <span>Active Agent:</span>
+                    <span class="agent-name" id="agent-name">Brain</span>
+                </div>
+            </div>
+
+            <div class="progress-container">
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progress-fill"></div>
+                </div>
+                <div class="progress-labels">
+                    <span>Step Execution Progress</span>
+                    <span class="progress-pct" id="progress-pct">0%</span>
+                </div>
+            </div>
+
+            <div class="controls-section">
+                <button class="btn btn-pause" id="btn-pause" onclick="controlJob('pause')">
+                    Pause Mission
+                </button>
+                <button class="btn btn-resume" id="btn-resume" onclick="controlJob('resume')" style="display:none;">
+                    Resume Mission
+                </button>
+                <button class="btn btn-cancel" id="btn-cancel" onclick="controlJob('cancel')">
+                    Abort Mission
+                </button>
+            </div>
+        </div>
+
+        <div class="card log-section">
+            <div class="log-header">
+                <div class="log-title">Live Execution Timeline</div>
+                <div class="connection-status" id="connection-status">
+                    <div class="connection-dot"></div>
+                    <span id="connection-text">Connecting WebSocket</span>
+                </div>
+            </div>
+            <div class="log-terminal" id="log-terminal">
+                <!-- Log entries will be added here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const jobId = window.location.pathname.split('/').pop();
+        document.getElementById('job-id-display').textContent = jobId;
+
+        let socket = null;
+        let pollingInterval = null;
+        let lastUpdated = 0;
+
+        async function fetchInitialData() {
+            try {
+                const response = await fetch(`/api/jobs/${jobId}`);
+                if (response.ok) {
+                    const job = await response.json();
+                    updateUI(job);
+                } else {
+                    document.getElementById('request-text').textContent = 'Error: Job not found.';
+                }
+            } catch (err) {
+                console.error('Failed to fetch initial job state:', err);
+            }
+        }
+
+        function updateUI(job) {
+            if (!job) return;
+            
+            document.getElementById('request-text').textContent = job.request;
+            
+            const badge = document.getElementById('status-badge');
+            badge.className = 'status-badge ' + job.status;
+            document.getElementById('status-text').textContent = job.status;
+            
+            document.getElementById('agent-name').textContent = job.current_agent || 'Brain';
+            
+            const pct = job.progress || 0;
+            document.getElementById('progress-fill').style.width = pct + '%';
+            document.getElementById('progress-pct').textContent = pct + '%';
+
+            // Update security approval card display
+            const approvalCard = document.getElementById('approval-card');
+            if (approvalCard) {
+                if (job.requires_approval) {
+                    approvalCard.style.display = 'block';
+                    document.getElementById('approval-tool-name').textContent = job.tool_name_pending || 'unknown';
+                    try {
+                        document.getElementById('approval-tool-args').textContent = JSON.stringify(job.args_pending || {}, null, 2);
+                    } catch(e) {
+                        document.getElementById('approval-tool-args').textContent = '{}';
+                    }
+                } else {
+                    approvalCard.style.display = 'none';
+                }
+            }
+            
+            const btnPause = document.getElementById('btn-pause');
+            const btnResume = document.getElementById('btn-resume');
+            const btnCancel = document.getElementById('btn-cancel');
+            
+            if (job.status === 'running' || job.status === 'queued') {
+                btnPause.style.display = 'flex';
+                btnResume.style.display = 'none';
+                btnPause.disabled = false;
+                btnCancel.disabled = false;
+            } else if (job.status === 'paused') {
+                btnPause.style.display = 'none';
+                btnResume.style.display = 'flex';
+                btnResume.disabled = false;
+                btnCancel.disabled = false;
+            } else {
+                btnPause.style.display = 'flex';
+                btnResume.style.display = 'none';
+                btnPause.disabled = true;
+                btnResume.disabled = true;
+                btnCancel.disabled = true;
+            }
+            
+            const terminal = document.getElementById('log-terminal');
+            terminal.innerHTML = '';
+            
+            if (job.event_log && job.event_log.length > 0) {
+                job.event_log.forEach(log => {
+                    const item = document.createElement('div');
+                    const agentClass = (log.agent || 'brain').toLowerCase();
+                    item.className = `log-item ${agentClass}`;
+                    
+                    const meta = document.createElement('div');
+                    meta.className = 'log-meta';
+                    
+                    const ts = document.createElement('span');
+                    ts.className = 'log-timestamp';
+                    ts.textContent = log.timestamp;
+                    
+                    const ag = document.createElement('span');
+                    ag.className = 'log-agent';
+                    ag.textContent = log.agent || 'Brain';
+                    
+                    meta.appendChild(ts);
+                    meta.appendChild(ag);
+                    
+                    const msg = document.createElement('div');
+                    msg.className = 'log-message';
+                    msg.textContent = log.event;
+                    
+                    item.appendChild(meta);
+                    item.appendChild(msg);
+                    terminal.appendChild(item);
+                });
+                terminal.scrollTop = terminal.scrollHeight;
+            }
+        }
+
+        async function controlJob(action) {
+            try {
+                const response = await fetch(`/api/jobs/${jobId}/${action}`, { method: 'POST' });
+                if (response.ok) {
+                    setTimeout(fetchInitialData, 200);
+                }
+            } catch (err) {
+                console.error(`Failed to trigger ${action} control:`, err);
+            }
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/jobs`;
+            
+            socket = new WebSocket(wsUrl);
+            
+            socket.onopen = () => {
+                const statusEl = document.getElementById('connection-status');
+                statusEl.className = 'connection-status connected';
+                document.getElementById('connection-text').textContent = 'Live Feed Connected';
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            };
+            
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'job_update' && data.job && data.job.job_id === jobId) {
+                        updateUI(data.job);
+                    }
+                } catch (err) {
+                    console.error('Error parsing websocket payload:', err);
+                }
+            };
+            
+            socket.onclose = () => {
+                handleWebSocketDisconnect();
+            };
+            
+            socket.onerror = () => {
+                handleWebSocketDisconnect();
+            };
+        }
+
+        function handleWebSocketDisconnect() {
+            const statusEl = document.getElementById('connection-status');
+            statusEl.className = 'connection-status';
+            document.getElementById('connection-text').textContent = 'Reconnecting / Polling';
+            
+            if (!pollingInterval) {
+                pollingInterval = setInterval(fetchInitialData, 1000);
+            }
+        }
+
+        fetchInitialData();
+        connectWebSocket();
+        
+        setInterval(() => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 15000);
+    </script>
+</body>
+</html>"""
+    return HTMLResponse(content=html_content)
 
 
 @app.get("/api/execute/capabilities")
@@ -956,7 +1710,7 @@ async def voice_websocket_endpoint(websocket: WebSocket):
                 pcm_chunk = message["bytes"]
                 
                 # Check VAD silence
-                silent = is_silent(pcm_chunk, threshold=400)
+                silent = is_silent(pcm_chunk, threshold=1000)
                 is_speaking = active_tts_task is not None and not active_tts_task.done()
                 
                 if silent:
@@ -1172,6 +1926,97 @@ async def api_overlay_dismiss():
     from services.screen_monitor import get_screen_monitor
     get_screen_monitor().dismiss_overlay()
     return {"success": True}
+
+
+# ── Screen Selection & Crop Region Endpoints ───────────────────────────────
+
+@app.post("/api/screen/select")
+async def api_screen_select():
+    from services.screen_monitor import get_screen_monitor
+    get_screen_monitor().trigger_selection()
+    return {"success": True, "message": "Selection canvas triggered."}
+
+
+@app.post("/api/screen/crop-box")
+async def api_screen_crop_box(req: CropBoxRequest):
+    from services.screen_monitor import get_screen_monitor
+    monitor = get_screen_monitor()
+    monitor.set_crop_box(req.x1, req.y1, req.x2, req.y2)
+    # Immediately trigger on-demand analysis of the crop box
+    asyncio.create_task(monitor.check_screen_and_suggest_now())
+    return {
+        "success": True, 
+        "crop_box": [req.x1, req.y1, req.x2, req.y2],
+        "message": "Crop box coordinates updated and analysis triggered."
+    }
+
+
+@app.post("/api/screen/clear-crop")
+async def api_screen_clear_crop():
+    from services.screen_monitor import get_screen_monitor
+    monitor = get_screen_monitor()
+    monitor.clear_crop_box()
+    return {"success": True, "message": "Crop box cleared, full screen monitoring restored."}
+
+
+@app.get("/api/screen/status")
+async def api_screen_status():
+    from services.screen_monitor import get_screen_monitor
+    monitor = get_screen_monitor()
+    return {
+        "is_monitoring": monitor.is_monitoring,
+        "crop_box": monitor.crop_box
+    }
+
+
+@app.post("/api/overlay/query")
+async def api_overlay_query(request: OverlayQueryRequest):
+    from services.screen_monitor import get_screen_monitor
+    import base64
+    monitor = get_screen_monitor()
+    
+    # 1. Load active suggestion context if any
+    suggestion = ""
+    if monitor._last_suggestion:
+        suggestion = monitor._last_suggestion.get("suggestion", "")
+        
+    # 2. Check if a cropped screenshot is available
+    img_b64 = None
+    temp_dir = Path(settings.DATA_DIR) / "temp"
+    temp_path = temp_dir / "monitor_screenshot.png"
+    if not temp_path.exists():
+        temp_path = temp_dir / "on_demand_screenshot.png"
+        
+    if temp_path.exists():
+        try:
+            with open(temp_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+        except Exception:
+            pass
+            
+    # 3. Formulate prompt
+    if img_b64:
+        prompt = f"""
+The user is looking at the selected area of their screen.
+We previously suggested: "{suggestion}".
+The user is now asking this follow-up question: "{request.text}".
+
+Look at the image of their screen selection and answer their question clearly, concisely, and directly in Hindi or Hinglish. Keep it short and readable, fitting within a small card.
+"""
+        from ai_engine import ai_engine
+        raw_resp = await ai_engine.vision(prompt, img_b64)
+        answer = raw_resp.strip()
+    else:
+        # Fallback to text only
+        prompt = f"""
+The user is looking at a screen suggestion: "{suggestion}".
+They ask: "{request.text}".
+Provide a concise, direct answer in Hinglish. Keep it short.
+"""
+        from ai_engine import ai_engine
+        answer = await ai_engine.chat([{"role": "user", "content": prompt}])
+        
+    return {"success": True, "response": answer}
 
 
 # ── Voice Endpoints ─────────────────────────────────────────────────────────
@@ -1920,6 +2765,23 @@ async def clear_webweaver_graph():
         logger.exception("Failed to clear webweaver graph")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+@app.websocket("/ws/jobs")
+async def jobs_websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    from services.job_manager import get_job_manager
+    mgr = get_job_manager()
+    mgr.register_websocket(websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if isinstance(data, dict) and data.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        mgr.deregister_websocket(websocket)
+    except Exception:
+        mgr.deregister_websocket(websocket)
 
 
 @app.websocket("/ws/{path:path}")

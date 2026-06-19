@@ -48,7 +48,7 @@ def get_shared_directories() -> dict:
 def resolve_path(path_str: str, base_dir: str = None) -> Path:
     """
     Resolve a path string to an absolute Path object.
-    Handles ~, relative, and absolute paths.
+    Handles ~, relative, absolute paths, drive letters, and Hinglish aliases.
     
     Args:
         path_str: Path string to resolve
@@ -63,24 +63,105 @@ def resolve_path(path_str: str, base_dir: str = None) -> Path:
         logger.debug(f"Resolved ~ path: {path_str} -> {resolved}")
         return resolved
     
-    # Check aliases
+    # Check aliases (expanded with drives, AERIS dirs, and Hinglish)
     path_lower = path_str.lower().strip()
+    
+    home = Path.home()
+    
+    # Build AERIS project paths dynamically
+    try:
+        from config import settings
+        aeris_root = settings.BASE_DIR.parent
+        backend = settings.BASE_DIR
+        frontend = aeris_root / "FRONTEND"
+        workspace = settings.WORKSPACE_DIR
+    except Exception:
+        aeris_root = Path("d:/Sambhav Projects/AERIS")
+        backend = aeris_root / "BACKEND"
+        frontend = aeris_root / "FRONTEND"
+        workspace = aeris_root / "workspace"
+    
     aliases = {
+        # ── Standard user folders ──
         "downloads": get_downloads_path(),
+        "download": get_downloads_path(),
         "my downloads": get_downloads_path(),
+        "mera download": get_downloads_path(),
+        "download folder": get_downloads_path(),
         "documents": get_documents_path(),
+        "document": get_documents_path(),
         "my documents": get_documents_path(),
+        "mera document": get_documents_path(),
+        "docs": get_documents_path(),
         "desktop": get_desktop_path(),
         "my desktop": get_desktop_path(),
-        "pictures": Path.home() / "Pictures",
-        "my pictures": Path.home() / "Pictures",
-        "music": Path.home() / "Music",
-        "videos": Path.home() / "Videos",
+        "mera desktop": get_desktop_path(),
+        "pictures": home / "Pictures",
+        "my pictures": home / "Pictures",
+        "photos": home / "Pictures",
+        "meri photos": home / "Pictures",
+        "music": home / "Music",
+        "songs": home / "Music",
+        "gaane": home / "Music",
+        "videos": home / "Videos",
+        "video": home / "Videos",
+        "meri videos": home / "Videos",
+        "home": home,
+        "user folder": home,
+        "home directory": home,
+        
+        # ── AppData / System ──
+        "appdata": home / "AppData",
+        "app data": home / "AppData",
+        "temp": home / "AppData" / "Local" / "Temp",
+        "program files": Path("C:/Program Files"),
+        
+        # ── Drive letters ──
+        "c drive": Path("C:/"),
+        "d drive": Path("D:/"),
+        "e drive": Path("E:/"),
+        "d wali drive": Path("D:/"),
+        "c wali drive": Path("C:/"),
+        
+        # ── AERIS Project ──
+        "aeris": aeris_root,
+        "aeris project": aeris_root,
+        "project root": aeris_root,
+        "backend": backend,
+        "back end": backend,
+        "server": backend,
+        "frontend": frontend,
+        "front end": frontend,
+        "workspace": workspace,
+        "agents": backend / "agents",
+        "agent": backend / "agents",
+        "services": backend / "services",
+        "service": backend / "services",
+        "tools": backend / "tools",
+        "intelligence": backend / "intelligence",
+        "automation": backend / "automation",
+        "memory": backend / "memory",
+        "neural": backend / "neural",
+        "plugins": backend / "plugins",
+        "utils": backend / "utils",
+        "data": backend / "data",
+        "engine": backend / "engine",
+        "generation": backend / "generation",
+        "src": frontend / "src",
     }
     
     if path_lower in aliases:
         resolved = aliases[path_lower]
         logger.debug(f"Resolved alias: {path_str} -> {resolved}")
+        return resolved
+
+    # Check if path starts with a known alias prefix (e.g. "backend/api.py")
+    normalized_path = path_str.replace("\\", "/")
+    parts = [p.strip() for p in normalized_path.split("/") if p.strip()]
+    if parts and parts[0].lower() in aliases:
+        base = aliases[parts[0].lower()]
+        resolved = Path(base).joinpath(*parts[1:]).resolve()
+        logger.debug(f"Resolved prefix alias: {path_str} -> {resolved}")
         return resolved
     
     # Absolute path
@@ -100,6 +181,40 @@ def resolve_path(path_str: str, base_dir: str = None) -> Path:
     resolved = Path(path_str).resolve()
     logger.debug(f"Resolved relative path: {path_str} -> {resolved}")
     return resolved
+
+
+def resolve_folder_smart(raw_query: str) -> tuple[Path | None, float]:
+    """
+    Smart folder resolution using the FolderIntelligence engine.
+    Falls back to basic resolve_path() if FolderIntelligence finds nothing.
+    
+    Args:
+        raw_query: Natural language folder reference (can be Hinglish, vague, etc.)
+        
+    Returns:
+        (resolved_path, confidence) — confidence is 0.0-1.0. None if unresolved.
+    """
+    # Try FolderIntelligence first (fuzzy + context-aware)
+    try:
+        from intelligence.folder_intelligence import get_folder_intelligence
+        fi = get_folder_intelligence()
+        match = fi.resolve(raw_query)
+        if match and match.confidence >= 0.5:
+            logger.info(f"Smart folder resolved: '{raw_query}' -> {match.path} "
+                        f"(confidence={match.confidence:.2f}, type={match.match_type})")
+            return Path(match.path), match.confidence
+    except Exception as e:
+        logger.warning(f"FolderIntelligence failed for '{raw_query}': {e}")
+    
+    # Fallback to basic alias resolution
+    try:
+        resolved = resolve_path(raw_query)
+        if resolved.is_dir():
+            return resolved, 0.7
+    except Exception:
+        pass
+    
+    return None, 0.0
 
 def check_path_accessible(path_obj: Path) -> tuple[bool, str]:
     """

@@ -11,6 +11,7 @@ import torch.optim as optim
 import numpy as np
 import logging
 import pickle
+import json
 from typing import Optional, List, Tuple
 
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -23,7 +24,9 @@ logger = logging.getLogger("aeris.neural.core")
 INTENT_LABELS = [
     "chat", "security", "system", "research", "search",
     "code", "image", "diagram", "codepipeline", "analyze",
-    "osint", "email", "scheduler", "drana", "dorking", "pentest"
+    "osint", "email", "scheduler", "drana", "dorking", "pentest",
+    "diagnose", "repair", "debate", "investigation", "assemble",
+    "guardian", "mechanic", "critic"
 ]
 
 # --------------- Training Data ---------------
@@ -241,38 +244,107 @@ class NeuralCore:
 
     # ======================= Intent Classification =======================
 
-    def train_initial_intent_model(self, epochs: int = 150, lr: float = 0.01) -> None:
-        """Bootstrap the intent classifier using built-in training phrases."""
+    def train_initial_intent_model(self, epochs: int = 300, lr: float = 0.01) -> None:
+        """Bootstrap the intent classifier using training_data.json or fallback phrases."""
         vectorizer_path = os.path.join(self.model_dir, "tfidf_vectorizer.pkl")
         model_path = os.path.join(self.model_dir, "intent_model.pth")
+        json_path = os.path.join(os.path.dirname(__file__), "training_data.json")
 
-        texts = [t[0] for t in TRAINING_DATA]
-        labels = [self.intent_labels.index(t[1]) for t in TRAINING_DATA]
+        texts = []
+        labels = []
 
-        self.vectorizer = TfidfVectorizer(max_features=256, ngram_range=(1, 2))
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                for item in data:
+                    lbl = item["label"]
+                    if lbl in self.intent_labels:
+                        texts.append(item["text"])
+                        labels.append(self.intent_labels.index(lbl))
+                logger.info(f"Loaded {len(texts)} training samples from {json_path}")
+            except Exception as e:
+                logger.error(f"Failed to load training_data.json: {e}. Using fallback.")
+                texts = []
+                labels = []
+
+        if not texts:
+            logger.info("Using fallback inline training data.")
+            texts = [t[0] for t in TRAINING_DATA]
+            labels = [self.intent_labels.index(t[1]) for t in TRAINING_DATA if t[1] in self.intent_labels]
+
+        self.vectorizer = TfidfVectorizer(max_features=1024, ngram_range=(1, 3), sublinear_tf=True)
         X = self.vectorizer.fit_transform(texts).toarray().astype(np.float32)
         y = np.array(labels, dtype=np.int64)
 
         self._input_dim = X.shape[1]
         num_classes = len(self.intent_labels)
 
+        # 85/15 train/validation split
+        num_samples = len(texts)
+        indices = np.arange(num_samples)
+        np.random.seed(42)
+        np.random.shuffle(indices)
+        
+        split_idx = int(num_samples * 0.85)
+        train_indices = indices[:split_idx]
+        val_indices = indices[split_idx:]
+        
+        X_train, y_train = X[train_indices], y[train_indices]
+        X_val, y_val = X[val_indices], y[val_indices]
+
         self.intent_model = IntentClassifierNet(
             input_dim=self._input_dim, hidden_dim=256, num_classes=num_classes,
         ).to(self.device)
 
-        X_tensor = torch.tensor(X).to(self.device)
-        y_tensor = torch.tensor(y).to(self.device)
-        optimizer = optim.Adam(self.intent_model.parameters(), lr=lr)
-        criterion = nn.CrossEntropyLoss()
+        X_train_tensor = torch.tensor(X_train).to(self.device)
+        y_train_tensor = torch.tensor(y_train).to(self.device)
+        X_val_tensor = torch.tensor(X_val).to(self.device)
+        y_val_tensor = torch.tensor(y_val).to(self.device)
+
+        optimizer = optim.AdamW(self.intent_model.parameters(), lr=lr, weight_decay=1e-4)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+        criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+
+        best_val_loss = float("inf")
+        best_state = None
+        patience = 30
+        patience_counter = 0
 
         self.intent_model.train()
         for epoch in range(epochs):
+            self.intent_model.train()
             optimizer.zero_grad()
-            logits = self.intent_model(X_tensor)
-            loss = criterion(logits, y_tensor)
+            logits = self.intent_model(X_train_tensor)
+            loss = criterion(logits, y_train_tensor)
             loss.backward()
+            
+            # Gradient clipping for stability
+            torch.nn.utils.clip_grad_norm_(self.intent_model.parameters(), max_norm=1.0)
+            
             optimizer.step()
+            scheduler.step()
 
+            # Validation loss check
+            self.intent_model.eval()
+            with torch.no_grad():
+                val_logits = self.intent_model(X_val_tensor)
+                val_loss = criterion(val_logits, y_val_tensor)
+
+            if val_loss.item() < best_val_loss:
+                best_val_loss = val_loss.item()
+                best_state = self.intent_model.state_dict().copy()
+                patience_counter = 0
+            else:
+                patience_counter += 1
+
+            if patience_counter >= patience:
+                logger.info(f"Early stopping triggered at epoch {epoch+1}")
+                break
+
+        if best_state is not None:
+            self.intent_model.load_state_dict(best_state)
+            
         self.intent_model.eval()
 
         torch.save(self.intent_model.state_dict(), model_path)
@@ -280,9 +352,8 @@ class NeuralCore:
             pickle.dump(self.vectorizer, f)
 
         self.is_intent_ready = True
-        final_loss = loss.item()
         logger.info(
-            f"Intent model trained ({epochs} epochs, loss={final_loss:.4f}). "
+            f"Intent model trained (val_loss={best_val_loss:.4f}). "
             f"Classes: {num_classes}, InputDim: {self._input_dim}. Saved to {model_path}"
         )
 
@@ -424,10 +495,18 @@ class NeuralCore:
         path = model_path or os.path.join(self.model_dir, "anomaly_model.pth")
 
         if os.path.exists(path):
-            self.anomaly_model.load_state_dict(
-                torch.load(path, map_location=self.device, weights_only=True)
-            )
-            logger.info(f"Loaded AnomalyDetectorNet weights from {path}")
+            try:
+                loaded = torch.load(path, map_location=self.device, weights_only=True)
+                if isinstance(loaded, dict) and "state_dict" in loaded:
+                    loaded = loaded["state_dict"]
+                self.anomaly_model.load_state_dict(loaded)
+                logger.info(f"Loaded AnomalyDetectorNet weights from {path}")
+            except Exception as e:
+                logger.warning(f"Failed to load anomaly weights ({e}). Retraining...")
+                try:
+                    self.train_initial_anomaly_model(input_dim=input_dim, latent_dim=latent_dim, model_path=path)
+                except Exception as train_err:
+                    logger.error(f"Failed to retrain anomaly model: {train_err}")
         else:
             logger.warning(f"No weights at {path}. Training initial anomaly model...")
             try:

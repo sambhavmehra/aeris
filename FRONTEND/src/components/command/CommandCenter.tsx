@@ -56,6 +56,46 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
   const recognitionRef = useRef<any>(null);
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Screen Selection State
+  const [cropBox, setCropBox] = useState<number[] | null>(null);
+  const [isScreenMonitoring, setIsScreenMonitoring] = useState(false);
+
+  const fetchScreenStatus = useCallback(async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/screen/status');
+      if (res.ok) {
+        const data = await res.json();
+        setCropBox(data.crop_box);
+        setIsScreenMonitoring(data.is_monitoring);
+      }
+    } catch (e) {
+      console.warn("Failed to fetch screen status:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchScreenStatus();
+    const interval = setInterval(fetchScreenStatus, 3000);
+    return () => clearInterval(interval);
+  }, [fetchScreenStatus]);
+
+  const handleTriggerSelect = async () => {
+    try {
+      await fetch('http://localhost:8000/api/screen/select', { method: 'POST' });
+    } catch (e) {
+      console.error("Failed to trigger selection canvas:", e);
+    }
+  };
+
+  const handleClearCrop = async () => {
+    try {
+      await fetch('http://localhost:8000/api/screen/clear-crop', { method: 'POST' });
+      setCropBox(null);
+    } catch (e) {
+      console.error("Failed to clear crop box:", e);
+    }
+  };
+
   // Load chat history on mount
   const loadHistory = useCallback(async () => {
     try {
@@ -489,9 +529,71 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
           }}>
             SWARM CODES ACTIVE [35/35]
           </span>
+          {cropBox && (
+            <span style={{
+              fontSize: '9px',
+              padding: '2px 8px',
+              background: 'rgba(14, 165, 233, 0.08)',
+              border: '1px solid rgba(14, 165, 233, 0.45)',
+              borderRadius: '4px',
+              color: '#38bdf8',
+              fontWeight: 700,
+              letterSpacing: '1px',
+              textShadow: '0 0 5px rgba(14, 165, 233, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              CROP ACTIVE [{cropBox[0]},{cropBox[1]} to {cropBox[2]},{cropBox[3]}]
+              <button 
+                onClick={handleClearCrop}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#ef4444',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '9px',
+                  padding: '0 2px'
+                }}
+                title="Clear crop box"
+              >
+                ✕
+              </button>
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          {/* Select Area button */}
+          <button
+            onClick={handleTriggerSelect}
+            style={{
+              background: 'rgba(0, 255, 255, 0.05)',
+              border: '1px solid rgba(0, 255, 255, 0.25)',
+              borderRadius: '4px',
+              color: 'var(--cyan)',
+              padding: '6px 14px',
+              fontSize: '9px',
+              fontWeight: 800,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              letterSpacing: '1.5px',
+              transition: 'background 0.2s, box-shadow 0.2s',
+              marginRight: '8px'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(0, 255, 255, 0.12)';
+              e.currentTarget.style.boxShadow = '0 0 8px rgba(0,255,255,0.2)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(0, 255, 255, 0.05)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            ✂️ SELECT AREA
+          </button>
+
           {/* Mute button */}
           <button
             onClick={handleToggleMute}

@@ -49,6 +49,7 @@ class ContextInjector:
         objective: str,
         memory_context: str = "",
         include_rich_tools: bool = False,
+        selected_tool_names: List[str] = None,
     ) -> Dict[str, Any]:
         """
         Build the complete context package for the Planner.
@@ -69,9 +70,9 @@ class ContextInjector:
             tool_awareness.refresh()
 
             if include_rich_tools:
-                tools_text = tool_awareness.format_rich_for_planner()
+                tools_text = tool_awareness.format_rich_for_planner(selected_tool_names)
             else:
-                tools_text = tool_awareness.format_for_planner()
+                tools_text = tool_awareness.format_for_planner(tool_names=selected_tool_names)
 
             tool_names = tool_awareness.get_tool_names_list()
             unreliable = tool_awareness.get_unreliable_tools()
@@ -79,13 +80,17 @@ class ContextInjector:
             logger.warning(f"Tool awareness unavailable, falling back to registry: {e}")
             try:
                 from tools.universal_registry import get_universal_registry
-                tools_text = get_universal_registry().format_for_llm()
+                if selected_tool_names:
+                    selected_tools = [get_universal_registry().get_tool(t) for t in selected_tool_names]
+                    selected_tools = [t for t in selected_tools if t and t.is_enabled]
+                    tools_text = "\n".join(t.to_llm_string() for t in selected_tools)
+                else:
+                    tools_text = get_universal_registry().format_for_llm()
                 tool_names = get_universal_registry().get_tool_names()
             except Exception:
                 tools_text = "No tools available."
                 tool_names = []
             unreliable = []
-
         # 2. System State
         system_state = ""
         try:

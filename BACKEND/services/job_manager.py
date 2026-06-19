@@ -14,6 +14,7 @@ class BackgroundJobManager:
         self.file_path = Path(settings.BASE_DIR) / "data" / "background_jobs.json"
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self._active_tasks: Dict[str, asyncio.Task] = {}
+        self._websocket_clients = set()
 
     def _load_jobs(self) -> List[Dict[str, Any]]:
         if not self.file_path.exists():
@@ -30,6 +31,60 @@ class BackgroundJobManager:
                 json.dump(jobs, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save background jobs: {e}")
+
+    def _inject_approval_state(self, job: dict) -> dict:
+        """Helper to dynamically inject pending approval details if this job is paused for security check."""
+        if not job or job.get("status") != "paused":
+            return job
+        
+        from config import settings
+        pending_file = Path(settings.BASE_DIR) / "data" / "pending_approval.json"
+        if pending_file.exists():
+            try:
+                with open(pending_file, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+                    if state.get("task_id") == job.get("job_id"):
+                        job = dict(job) # Copy to avoid mutating underlying dict
+                        job["requires_approval"] = True
+                        job["tool_name_pending"] = state.get("tool_name_pending")
+                        job["args_pending"] = state.get("args_pending")
+            except Exception:
+                pass
+        return job
+
+    def register_websocket(self, websocket):
+        self._websocket_clients.add(websocket)
+        logger.info(f"[JobManager] Registered websocket client. Total: {len(self._websocket_clients)}")
+
+    def deregister_websocket(self, websocket):
+        self._websocket_clients.discard(websocket)
+        logger.info(f"[JobManager] Deregistered websocket client. Total: {len(self._websocket_clients)}")
+
+    async def broadcast_job_update(self, job: dict):
+        if not self._websocket_clients:
+            return
+        import json
+        job = self._inject_approval_state(job)
+        payload = {"type": "job_update", "job": job}
+        message = json.dumps(payload)
+        
+        disconnected = []
+        for ws in list(self._websocket_clients):
+            try:
+                await ws.send_text(message)
+            except Exception:
+                disconnected.append(ws)
+        
+        for ws in disconnected:
+            self._websocket_clients.discard(ws)
+
+    def _broadcast_sync(self, job: dict):
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                loop.create_task(self.broadcast_job_update(job))
+        except RuntimeError:
+            pass # No running loop
 
     def create_job(self, request: str) -> Dict[str, Any]:
         now = datetime.now()
@@ -58,6 +113,7 @@ class BackgroundJobManager:
         jobs.append(job)
         self._save_jobs(jobs)
         logger.info(f"Created background job {job_id} for request: '{request[:60]}...'")
+        self._broadcast_sync(job)
         return job
 
     def update_job(self, job_id: str, **kwargs) -> Optional[Dict[str, Any]]:
@@ -98,21 +154,22 @@ class BackgroundJobManager:
 
         if updated_job:
             self._save_jobs(jobs)
+            self._broadcast_sync(updated_job)
         return updated_job
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         jobs = self._load_jobs()
         for job in jobs:
             if job["job_id"] == job_id:
-                return job
+                return self._inject_approval_state(job)
         return None
 
     def list_active_jobs(self) -> List[Dict[str, Any]]:
         jobs = self._load_jobs()
-        return [job for job in jobs if job["status"] in ("queued", "running", "paused")]
+        return [self._inject_approval_state(job) for job in jobs if job["status"] in ("queued", "running", "paused")]
 
     def list_all_jobs(self) -> List[Dict[str, Any]]:
-        return self._load_jobs()
+        return [self._inject_approval_state(job) for job in self._load_jobs()]
 
     def cancel_job(self, job_id: str) -> bool:
         task = self._active_tasks.get(job_id)

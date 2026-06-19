@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 
 from ai_engine import ai_engine
-from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent, DorkingAgent, PentestAgent, PhantomAgent, LeakGraphAgent, AntigravityAgent, DiagnosisAgent, RepairAgent, DebateAgent, InvestigationAgent
+from agents import ChatAgent, SecurityAgent, SystemAgent, ResearchAgent, CodeAgent, AuditAgent, ImageAgent, ObserverAgent, SearchAgent, AnalyzerAgent, OSINTAgent, EmailAgent, SchedulerAgent, DranaAgent, DorkingAgent, PentestAgent, PhantomAgent, LeakGraphAgent, AntigravityAgent, DiagnosisAgent, RepairAgent, DebateAgent, InvestigationAgent, GuardianAgent, MechanicAgent, CriticAgent, ToolManagerAgent
 from agents.agent_registry import agent_registry, AgentStatus
 from memory.store import memory_store
 from neural.core import neural_core
@@ -100,7 +100,7 @@ async def query_llm_json(prompt: str, system_prompt: str = "You are a helpful as
             return {}
 
 
-def parse_memory_command(message: str) -> Optional[str]:
+async def parse_memory_command(message: str) -> Optional[str]:
     """Intercept and parse memory commands."""
     import re
     text = message.strip()
@@ -117,21 +117,21 @@ def parse_memory_command(message: str) -> Optional[str]:
     from memory.store import memory_store
     
     if cmd in ["remember that", "remember"]:
-        added = memory_store.add_fact(fact)
+        added = await memory_store.add_fact(fact)
         if added:
             return f"I will remember that: \"{fact}\""
         else:
             return f"I already know that or it looks like sensitive information."
             
     elif cmd in ["forget that", "forget"]:
-        removed = memory_store.remove_fact(fact)
+        removed = await memory_store.remove_fact(fact)
         if removed:
             return f"I have forgotten: \"{fact}\""
         else:
             return f"I couldn't find a matching fact to forget."
             
     elif cmd == "update memory":
-        added = memory_store.add_fact(fact)
+        added = await memory_store.add_fact(fact)
         if added:
             return f"I have updated my memory with: \"{fact}\""
         else:
@@ -153,9 +153,12 @@ NEVER use paths like "C:/", "D:/", "/tmp", or any absolute path outside the work
 
 CRITICAL RULES:
 - For ANY security-related request (SSL check, port scan, DNS lookup, recon, VAPT, vulnerability scan, WHOIS, subdomain enumeration), use the appropriate recon tool (e.g., `dns_lookup`, `subdomain_enum`, `port_scan`, `whois_lookup`, `header_analysis`, `ssl_check`).
+- For WiFi scanning, current wireless connection checks, list saved profiles, or network neighbor topology discovery, use the appropriate WiFi tools (`wifi_scan_networks`, `wifi_current_connection`, `wifi_saved_profiles`, `wifi_profile_detail`, `wifi_network_info`, `wifi_arp_table`, `wifi_speed_test`).
 - For sending email or mail notifications, ALWAYS use the `send_email` tool. Do NOT use `brevo_send_email` or `brevo_send_test_email` as they are meant for Brevo campaign/contact lists and will cause API authentication failures.
 - If you need to search the web for CVE vulnerabilities, exploit databases, or threat intelligence, use `web_research` (which routes through the ResearchAgent) or `realtime_search` (which routes through the SearchAgent).
 - If the user wants to schedule any security task, reminder, or periodic scan, use the `schedule_execution` tool.
+- For requests related to system self-improvement, background technology research, learning from errors, or auto-upgrading packages/tools, use the `run_autonomous_upgrade` tool.
+- DYNAMIC TOOL CREATION: If a required capability or utility does not exist in the available tools list, you can propose a new, specific tool name that starts with `dynamic_` (e.g. `dynamic_calculate_fibonacci` or `dynamic_convert_currency`) and specify its required arguments and description. The system will autonomously forge, validate in a sandbox, and register the tool for execution on the fly.
 - If the user mentions 'antigravity', 'ide', or 'antigravity_agent', or requests to build/create a project using Antigravity, you MUST use the `build_project` tool to delegate it to the external Antigravity IDE assistant. Do NOT use `generate_website` or `generate_code` or `write_file` for this purpose.
 
 CONVERSATION CONTEXT:
@@ -216,11 +219,7 @@ MYTHOS PERSONA & RESPONSE RULES:
 1. Address the user as "Sir" in every response. NEVER use "bhai", "bro", "buddy".
 2. Maintain a dark, precise, technically-dense Hinglish persona. You are a cyber operator, not a chatbot.
 3. Use correct English security terminology ("reconnaissance", "exfiltration vectors", "lateral movement", "privilege escalation", "CVE exploitation", "MITRE ATT&CK", "zero-day surface", "OPSEC") woven into natural Hinglish.
-4. For EVERY finding, provide:
-   - **Threat Score**: Rate 1-10 (1=info, 5=medium, 8=high, 10=critical)
-   - **MITRE ATT&CK**: Reference the relevant technique ID if applicable (e.g., T1190 - Exploit Public-Facing Application)
-   - **Operator Notes**: Your tactical assessment of what this means
-   - **Remediation**: Concrete fix or mitigation steps
+4. ONLY provide a **Threat Score**, **MITRE ATT&CK Technique ID**, **Operator Notes**, and **Remediation** if the query/task is actually security-related (e.g. port scans, vulnerability scans, recon, VAPT, leak checks) or if Sir explicitly requests security metrics. For normal tasks (like writing code, general questions, opening applications), do NOT output threat scores, MITRE IDs, or security vulnerabilities unless relevant.
 5. Auto-suggest the next logical reconnaissance step after findings.
 6. Stay strictly within ethical boundaries. Explain vulnerabilities for defense. If asked for illegal actions, refuse and suggest defensive alternatives.
 7. End security debriefs with a status summary: "Mission Status: [COMPLETE/PARTIAL/FAILED]"
@@ -286,6 +285,7 @@ Respond with ONLY valid JSON:
 """
 
 _KEYWORD_MAP: List[Tuple[List[str], str]] = [
+    (["agent assemble", "assemble agents", "agent assembly", "assemble", "launch assembly"], "assemble"),
     (["scan", "port", "recon", "vulnerability", "nmap", "ssl", "hack",
       "header", "fuzz", "whois", "dns", "subdomain"], "security"),
     ([
@@ -391,6 +391,14 @@ _KEYWORD_MAP: List[Tuple[List[str], str]] = [
     (["leakgraph", "leak graph", "recursive osint", "public exposure", "exposure analysis",
       "exposure scan", "public profile graph", "leak history", "credential leak"
     ], "leakgraph"),
+    # ── Casual Chat / Greeting / Personalization ──────────────────────────────
+    ([
+      "hello", "hi ", "hey", "good morning", "good afternoon", "good evening",
+      "kaise ho", "how are you", "namaste", "suna", "yaar", "mast joke",
+      "tell me a joke", "tell me a story", "suna de", "suna do", "sunaa de",
+      "kaise hai", "kaise hain", "what is your name", "who are you",
+      "who made you", "what is aeris", "aeris kya hai"
+    ], "chat"),
 ]
 
 
@@ -425,7 +433,7 @@ class HackerBrain:
     """
 
     NEURAL_CONFIDENCE_THRESHOLD = 0.80
-    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler", "drana", "dorking", "pentest", "phantom", "leakgraph", "diagnose"}
+    VALID_INTENTS = {"chat", "security", "system", "research", "search", "code", "image", "codepipeline", "diagram", "analyze", "osint", "email", "scheduler", "drana", "dorking", "pentest", "phantom", "leakgraph", "diagnose", "assemble", "guardian", "mechanic", "critic", "tools"}
 
     def __init__(self):
         # ── Instantiate all Core agents ──
@@ -451,6 +459,10 @@ class HackerBrain:
             "repair":   RepairAgent(),
             "debate":   DebateAgent(),
             "investigation": InvestigationAgent(),
+            "guardian": GuardianAgent(),
+            "mechanic": MechanicAgent(),
+            "critic":   CriticAgent(),
+            "tools":    ToolManagerAgent(),
         }
         self.antigravity_agent = self.agents["codepipeline"]
         self.audit_agent = AuditAgent()
@@ -477,7 +489,7 @@ class HackerBrain:
             from agents.sub_agents import (
                 DelegatorAgent, CodingAgent as SwarmCodingAgent,
                 ResearchAgent as SwarmResearchAgent, AnalysisAgent,
-                VulnerabilityAgent, ToolManagerAgent, RuntimeAgent,
+                VulnerabilityAgent, RuntimeAgent,
                 ArchitectureAgent, DocumentationAgent,
             )
             sub_agents_meta = [
@@ -558,17 +570,29 @@ class HackerBrain:
             logger.warning(f"[HackerBrain] Error evaluating central delegation: {e}. Defaulting to True.")
             return True
 
-    def _build_history_summary(self, limit: int = 3) -> str:
+    def _build_history_summary(self, limit: int = 4) -> str:
         """Format last N memory messages as a compact context string for LLM prompts."""
         try:
-            history = memory_store.get_context(limit)
-            if not history:
-                return "No prior conversation."
+            # Enforce last 2 turns (up to 4 messages) as raw history to preserve tone/phrasing
+            history = memory_store.get_context(4)
             lines = []
-            for msg in history:
-                role = msg.get("role", "user").upper()
-                content = msg.get("content", "")[:180]
-                lines.append(f"[{role}]: {content}")
+            
+            # Add active working facts from the memory store if any
+            working_facts = memory_store.working_fact_cache
+            if working_facts:
+                lines.append("=== ACTIVE WORKING CONTEXT FACTS ===")
+                for fact in working_facts:
+                    lines.append(f"- {fact}")
+                lines.append("====================================")
+                lines.append("") # blank line separator
+            
+            if not history:
+                lines.append("No prior conversation.")
+            else:
+                for msg in history:
+                    role = msg.get("role", "user").upper()
+                    content = msg.get("content", "")[:2000]
+                    lines.append(f"[{role}]: {content}")
             return "\n".join(lines)
         except Exception:
             return "No prior conversation."
@@ -603,9 +627,9 @@ class HackerBrain:
 
     async def _classify_intent(self, message: str) -> str:
         """Single-intent classification with conversation context."""
-        # Keyword override check for strong intents like pentest/dorking/drana/osint/leakgraph
+        # Keyword override check (instant local mapping, bypass LLM latency)
         keyword_intent = _keyword_route(message)
-        if keyword_intent in ("pentest", "dorking", "drana", "osint", "leakgraph"):
+        if keyword_intent:
             logger.info(f"[HackerBrain] Keyword override routing -> '{keyword_intent}'")
             return keyword_intent
 
@@ -713,6 +737,17 @@ class HackerBrain:
         """Execute a single BrainTask through the appropriate agent."""
         logger.info(f"[HackerBrain] Task {step_idx + 1}/{total}: intent='{task.intent}' — {task.description[:80]}")
 
+        # Handle assemble intent
+        if task.intent == "assemble":
+            return {
+                "task_id": task.task_id,
+                "intent": "assemble",
+                "agent": "Brain",
+                "response": "Initiating agent assembly sequence, Sir.",
+                "success": True,
+                "execution_time": 0.0,
+            }
+
         # Handle diagram intent
         if task.intent == "diagram":
             try:
@@ -809,6 +844,8 @@ class HackerBrain:
         # 1. Plan / Resume Plan
         if pending_state:
             plan_dict = pending_state.get("plan")
+            if not isinstance(plan_dict, dict):
+                plan_dict = {}
             plan = AgenticPlan(**plan_dict)
             current_step_index = pending_state.get("current_step_index", 0)
             observations = [Observation(**obs) for obs in pending_state.get("observations", [])]
@@ -843,13 +880,21 @@ class HackerBrain:
                 if tool_def and tool_def.is_enabled:
                     selected_tools.append(tool_def)
 
-            tools_summary = "\n".join(t.to_llm_string() for t in selected_tools)
+            from intelligence.context_injector import get_context_injector
+            
+            history = self._build_history_summary(10)
+            memory_context = await memory_store.get_relevant_memory_context(message)
+            
+            # Build planning context package
+            context_pkg = get_context_injector().build_planning_context(
+                objective=message,
+                memory_context=memory_context,
+                selected_tool_names=list(selected_names)
+            )
+            
             all_tools_count = len(registry.get_enabled_tools())
             logger.info(f"[HackerBrain] Retracted tools list from {all_tools_count} to {len(selected_tools)}")
-
-            history = self._build_history_summary(10)
-            memory_context = memory_store.get_relevant_memory_context(message)
-
+            
             from memory.user_profile import user_profile_store
             profile = user_profile_store.get_profile()
             profile_context = (
@@ -858,11 +903,11 @@ class HackerBrain:
                 f"Tone Preference: {profile.get('tone_preference', 'natural agentic')}\n"
                 f"Preferred Response Style: {profile.get('preferred_response_style', '')}"
             )
-
+            
             prompt = HACKER_PLANNER_PROMPT.format(
-                tools_summary=tools_summary,
+                tools_summary=context_pkg["tools_text"],
                 history=history,
-                memory_context=memory_context,
+                memory_context=context_pkg["full_system_prompt_section"],
                 profile_context=profile_context,
                 message=message,
                 workspace_dir=workspace_dir
@@ -879,6 +924,24 @@ class HackerBrain:
 
         # 2. Loop Execution
         while current_step_index < len(plan.steps):
+            # Check pause status
+            from services.job_manager import get_job_manager
+            job_mgr = get_job_manager()
+            job = job_mgr.get_job(task_id)
+            if job and job["status"] == "paused":
+                logger.info(f"[HackerBrain] Job {task_id} is paused. Waiting for resume/cancel.")
+                while True:
+                    await asyncio.sleep(1)
+                    job = job_mgr.get_job(task_id)
+                    if not job:
+                        break
+                    if job["status"] == "cancelled":
+                        raise asyncio.CancelledError()
+                    if job["status"] in ("running", "queued"):
+                        logger.info(f"[HackerBrain] Job {task_id} resumed.")
+                        job_mgr.update_job(task_id, status="running", event="Job execution resumed from pause.")
+                        break
+
             step = plan.steps[current_step_index]
 
             # If this is a background job, update its progress
@@ -898,6 +961,26 @@ class HackerBrain:
             from tools.tool_permissions import get_permission_system
 
             tool_def = get_universal_registry().get_tool(step.tool_name)
+            if not tool_def:
+                if step.tool_name.startswith("dynamic_") or "create" in step.description.lower():
+                    logger.info(f"[HackerBrain] Tool '{step.tool_name}' not found. Attempting autonomous generation...")
+                    try:
+                        tm_agent = self.agents.get("tools")
+                        if not tm_agent:
+                            from agents.sub_agents.tool_manager_agent import ToolManagerAgent
+                            tm_agent = ToolManagerAgent()
+                        
+                        forge_res = await asyncio.to_thread(
+                            tm_agent.create_tool,
+                            request=f"Create a tool named '{step.tool_name}' that does: {step.description}. Input arguments: {json.dumps(step.args)}",
+                            tool_name=step.tool_name
+                        )
+                        if forge_res.get("success"):
+                            logger.info(f"[HackerBrain] Successfully forged and registered dynamic tool '{step.tool_name}'. Retrying execution...")
+                            tool_def = get_universal_registry().get_tool(step.tool_name)
+                    except Exception as forge_err:
+                        logger.error(f"[HackerBrain] Failed to autonomously forge tool '{step.tool_name}': {forge_err}")
+
             if not tool_def:
                 obs = Observation(
                     step_id=step.step_id,
@@ -1217,16 +1300,15 @@ Respond with ONLY valid JSON:
             "summary": summary_actions,
         }
 
-    async def process(self, message: str) -> dict:
+    async def _process_internal(self, message: str) -> dict:
         """
-        Specialized process router for Hacker Brain.
+        Internal specialized process router for Hacker Brain.
         Intercepts toggles, memory commands, checks approvals, and executes.
         """
         lower_msg = message.lower()
 
         # Intercept Map/HUD Clearing Commands
         if any(cmd in lower_msg for cmd in ("clear map", "clear scan map", "reset map", "clear hud", "clear graph")):
-            import json
             graph_path = settings.DATA_DIR / "webweaver_graph.json"
             default_graph = {
                 "nodes": [
@@ -1417,7 +1499,7 @@ Respond with ONLY valid JSON:
                 "task_id": f"hac_{int(time.time())}"
             }
 
-        mem_cmd_res = parse_memory_command(message)
+        mem_cmd_res = await parse_memory_command(message)
         if mem_cmd_res:
             memory_store.add_message("user", message)
             memory_store.add_message("assistant", mem_cmd_res)
@@ -1902,6 +1984,43 @@ Respond with ONLY valid JSON:
                 memory_store.chat_history.pop()
             return await self.legacy_process(message)
 
+    async def process(self, message: str) -> dict:
+        """
+        Specialized process router for Hacker Brain.
+        Intercepts toggles, memory commands, checks approvals, and executes.
+        """
+        result = await self._process_internal(message)
+        try:
+            if isinstance(result, dict) and "response" in result:
+                self._schedule_fact_extraction(message, result["response"])
+        except Exception as e:
+            logger.warning(f"Failed to schedule background fact extraction: {e}")
+        return result
+
+    def _schedule_fact_extraction(self, message: str, response: str) -> None:
+        """Helper to run async background fact extraction in a non-blocking way."""
+        async def run_extraction():
+            try:
+                combined_text = (message + " " + response).lower()
+                heavy_keywords = ["app", "website", "search", "code", "run", "error", "file", "install", "docker", "vulnerability", "scan", "script", "log", "analyze", "diagnose", "osint"]
+                if any(kw in combined_text for kw in heavy_keywords):
+                    from intelligence.fact_extractor import FactExtractor
+                    # Extract user prompt facts
+                    user_facts = await FactExtractor.extract_facts_async("user", message)
+                    if user_facts:
+                        memory_store.add_working_facts(user_facts)
+                    # Extract assistant response facts
+                    assistant_facts = await FactExtractor.extract_facts_async("assistant", response)
+                    if assistant_facts:
+                        memory_store.add_working_facts(assistant_facts)
+            except Exception as ex:
+                logger.warning(f"Error in background fact extraction: {ex}")
+
+        try:
+            asyncio.create_task(run_extraction())
+        except Exception as err:
+            logger.warning(f"Failed to create background task for fact extraction: {err}")
+
     async def legacy_process(self, message: str) -> dict:
         """
         Legacy processing fallback pipeline for HackerBrain.
@@ -2055,7 +2174,14 @@ Respond with ONLY valid JSON:
             "bg run", "in background", "background mein", "background me"
         ]):
             return True
-        return intent in ("codepipeline", "research")
+        # Auto-detect long building/creation/scaffolding/scanning objectives
+        if any(phrase in lower_msg for phrase in [
+            "build an app", "build a website", "build a project", "create an app", 
+            "create a website", "create a project", "scaffold a", "scaffold an",
+            "make a full", "make a complete", "deep scan", "vulnerability scan", "security audit"
+        ]):
+            return True
+        return intent in ("codepipeline", "research", "code", "pentest")
 
     async def _run_background_job(self, job_id: str, message: str, intent: str):
         current_task = asyncio.current_task()
@@ -2063,6 +2189,17 @@ Respond with ONLY valid JSON:
         job_manager = get_job_manager()
         job_manager._register_task(job_id, current_task)
         
+        # Automatically launch default browser to the dashboard URL
+        try:
+            import webbrowser
+            from config import settings
+            port = getattr(settings, "API_PORT", 8000)
+            url = f"http://localhost:{port}/dashboard/{job_id}"
+            webbrowser.open(url)
+            logger.info(f"[Background Job] Auto-opened browser dashboard: {url}")
+        except Exception as e:
+            logger.error(f"Failed to auto-open dashboard browser: {e}")
+            
         try:
             job_manager.update_job(job_id, status="running", event="Background job execution started.")
             from services.notification_hub import notify_job_status
@@ -2260,6 +2397,36 @@ Respond with ONLY valid JSON:
                     "elapsed": result.get("execution_time", 0.0),
                     "attempts": 1,
                 })
+                
+            elif intent == "code" or (intent == "tool_execution" and any(w in message.lower() for w in ("build", "create", "scaffold", "develop"))):
+                logger.info(f"[Background Job] Running Swarm Delegator for {job_id}")
+                from agents.sub_agents.delegator import get_delegator
+                delegator = get_delegator()
+                loop = asyncio.get_event_loop()
+                
+                job_manager.update_job(
+                    job_id,
+                    current_agent="DelegatorAgent",
+                    event="Swarm Delegator started for app building mission."
+                )
+                
+                # Run delegator in executor to avoid blocking the async event loop
+                delegation_result = await loop.run_in_executor(None, delegator.process, message)
+                
+                response_text = str(delegation_result.get("result", "Swarm execution completed."))
+                agents_used = delegation_result.get("agents_used", [])
+                status = "completed" if delegation_result.get("route") == "complex" or delegation_result.get("success", True) else "failed"
+                
+                job_manager.update_job(
+                    job_id,
+                    status=status,
+                    progress=100,
+                    final_result=response_text,
+                    event=f"Swarm Delegator completed. Agents used: {', '.join(agents_used)}."
+                )
+                from services.notification_hub import notify_job_status
+                asyncio.create_task(notify_job_status(job_id, status, f"Swarm job completed: {status}.", results=response_text))
+                memory_store.add_message("assistant", response_text)
                 
             else:
                 logger.info(f"[Background Job] Running Agentic Loop for {job_id}")

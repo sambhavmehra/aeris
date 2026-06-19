@@ -146,7 +146,7 @@ def check_hinglish(text: str) -> bool:
     return len(words.intersection(hinglish_words)) > 0
 
 
-def run_fast_eval() -> int:
+async def run_fast_eval() -> int:
     """
     Run fast evaluation using local rules, routing keywords, and permission simulation.
     Runs completely offline, very fast (< 0.1s total).
@@ -165,7 +165,7 @@ def run_fast_eval() -> int:
         print(f"[{case.id:02d}] Prompt: '{case.prompt}'")
         
         # 1. Check Memory Command Parsing
-        is_mem_cmd = parse_memory_command(case.prompt) is not None
+        is_mem_cmd = (await parse_memory_command(case.prompt)) is not None
         actual_mem_expected = "memory command" in case.category
         
         # 2. Check Intent Routing (keyword/regex)
@@ -319,7 +319,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.mode == "fast":
-        failures = run_fast_eval()
+        failures = asyncio.run(run_fast_eval())
     else:
         # Run async E2E suite
         failures = asyncio.run(run_llm_eval())
