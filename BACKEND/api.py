@@ -252,6 +252,14 @@ class CropBoxRequest(BaseModel):
     y2: int
 
 
+class QueryRegionRequest(BaseModel):
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+    query: str
+
+
 class ExtensionV2RegisterRequest(BaseModel):
     extension_id: str = "extension-v2"
     client_name: str = "Extension V2"
@@ -1733,6 +1741,96 @@ async def voice_websocket_endpoint(websocket: WebSocket):
                                     
                                 await websocket.send_json({"type": "transcription", "text": text})
                                 
+                                from services.guardian_mode import guardian_mode_manager
+                                lower_text = text.lower()
+                                
+                                # Voice registration command handler
+                                if "register my voice" in lower_text or "register owner voice" in lower_text or "record my voice profile" in lower_text:
+                                    success = guardian_mode_manager.voice_matcher.register_voice(audio_bytes)
+                                    if success:
+                                        response_text = "Sir, your voice profile has been registered successfully as the owner."
+                                    else:
+                                        response_text = "Failed to register voice profile, Sir."
+                                        
+                                    await websocket.send_json({
+                                        "type": "chat_response",
+                                        "response": response_text,
+                                        "intent": "guardian_voice_register",
+                                        "agent": "Guardian"
+                                    })
+                                    if response_text:
+                                        active_tts_task = asyncio.create_task(speak_response(response_text, "guardian"))
+                                    return
+                                
+                                # Check if they are trying to unlock/deactivate or access restricted app/folder/website
+                                is_deactivation_cmd = any(cmd in lower_text for cmd in ["unlock", "disable guardian", "guardian mode off", "productivity mode", "normal mode", "ye main hoon"])
+                                
+                                # Check if asking for blocked resources
+                                is_blocked_resource = False
+                                for app in guardian_mode_manager.config.get("blocked_apps", []):
+                                    if app.lower().replace(".exe", "") in lower_text:
+                                        is_blocked_resource = True
+                                        break
+                                for domain in guardian_mode_manager.config.get("blocked_domains", []):
+                                    short_domain = domain.split(".")[0] if "." in domain else domain
+                                    if short_domain in lower_text:
+                                        is_blocked_resource = True
+                                        break
+                                for folder in guardian_mode_manager.config.get("protected_folders", []):
+                                    if folder.lower() in lower_text:
+                                        is_blocked_resource = True
+                                        break
+                                        
+                                if guardian_mode_manager.is_active:
+                                    if is_deactivation_cmd or is_blocked_resource:
+                                        verified, voice_msg = await guardian_mode_manager.verify_voice_deactivation(audio_bytes)
+                                        if verified:
+                                            response_text = voice_msg
+                                        else:
+                                            # Voice mismatch - trigger violation
+                                            guardian_mode_manager._handle_violation(
+                                                viol_type="risky_action",
+                                                target="Voice Authentication",
+                                                details=f"Unauthorized user attempted voice unlock/access with command: '{text}'",
+                                                hwnd=0
+                                            )
+                                            response_text = "Access Denied, Sir. Voice matching failed."
+                                            
+                                        await websocket.send_json({
+                                            "type": "chat_response",
+                                            "response": response_text,
+                                            "intent": "guardian_violation" if not verified else "guardian_deactivation",
+                                            "agent": "Guardian"
+                                        })
+                                        if response_text:
+                                            active_tts_task = asyncio.create_task(speak_response(response_text, "guardian"))
+                                        return
+                                        
+                                elif not guardian_mode_manager.is_active and is_blocked_resource:
+                                    # If reference voice profile exists, check it
+                                    if guardian_mode_manager.voice_matcher.has_reference():
+                                        matched, confidence = await guardian_mode_manager.voice_matcher.compare_voice(audio_bytes)
+                                        if not matched or confidence < 0.75:
+                                            # Voice mismatch - enable Guardian Mode (guest mode) automatically!
+                                            msg = guardian_mode_manager.enable_guardian_mode(method="auto_voice_mismatch")
+                                            response_text = f"Security Alert: Voice mismatch detected. Guest Mode has been enabled automatically. Access to {text} is blocked."
+                                            guardian_mode_manager._handle_violation(
+                                                viol_type="app",
+                                                target="WhatsApp" if "whatsapp" in lower_text else text,
+                                                details=f"Voice mismatch on restricted resource request. Guest Mode enabled automatically.",
+                                                hwnd=0
+                                            )
+                                            
+                                            await websocket.send_json({
+                                                "type": "chat_response",
+                                                "response": response_text,
+                                                "intent": "guardian_activation",
+                                                "agent": "Guardian"
+                                            })
+                                            if response_text:
+                                                active_tts_task = asyncio.create_task(speak_response(response_text, "guardian"))
+                                            return
+
                                 from memory.user_profile import user_profile_store
                                 from hacker_brain import hacker_brain
                                 is_hacker = user_profile_store.get_profile().get("hacker_mode", False)
@@ -1951,6 +2049,15 @@ async def api_screen_crop_box(req: CropBoxRequest):
     }
 
 
+@app.post("/api/screen/query-region")
+async def api_screen_query_region(req: QueryRegionRequest):
+    """Capture a specific screen region and answer the user's question about it."""
+    from services.screen_monitor import get_screen_monitor
+    monitor = get_screen_monitor()
+    result = await monitor.analyze_region_with_query(req.x1, req.y1, req.x2, req.y2, req.query)
+    return result
+
+
 @app.post("/api/screen/clear-crop")
 async def api_screen_clear_crop():
     from services.screen_monitor import get_screen_monitor
@@ -1965,8 +2072,77 @@ async def api_screen_status():
     monitor = get_screen_monitor()
     return {
         "is_monitoring": monitor.is_monitoring,
-        "crop_box": monitor.crop_box
+        "crop_box": monitor.crop_box,
+        "pending_query": getattr(monitor, "_pending_query", None)
     }
+
+
+# ── Guardian Mode Endpoints ──────────────────────────────────────────────────
+
+class GuardianVerifyPinRequest(BaseModel):
+    pin: str
+
+class GuardianUpdateRequest(BaseModel):
+    blocked_apps: Optional[list[str]] = None
+    blocked_domains: Optional[list[str]] = None
+    protected_folders: Optional[list[str]] = None
+    allowed_apps: Optional[list[str]] = None
+    warning_limit: Optional[int] = None
+    lock_after_attempts: Optional[int] = None
+    pin: Optional[str] = None
+    secret_phrase: Optional[str] = None
+
+@app.get("/api/guardian/status")
+async def get_guardian_status():
+    from services.guardian_mode import guardian_mode_manager
+    return {
+        "enabled": guardian_mode_manager.is_active,
+        "overlay_active": guardian_mode_manager.overlay_active,
+        "config": guardian_mode_manager.config.config,
+        "attempt_counters": guardian_mode_manager.attempt_counters
+    }
+
+@app.post("/api/guardian/toggle")
+async def toggle_guardian(request: dict[str, Any]):
+    from services.guardian_mode import guardian_mode_manager
+    action = request.get("action", "")
+    code = request.get("code")
+    
+    if action == "enable":
+        msg = guardian_mode_manager.enable_guardian_mode(method="api")
+        return {"success": True, "message": msg}
+    elif action == "disable":
+        success, msg = guardian_mode_manager.disable_guardian_mode(code=code)
+        return {"success": success, "message": msg}
+    return {"success": False, "message": "Invalid action."}
+
+@app.post("/api/guardian/verify-pin")
+async def verify_guardian_pin(request: GuardianVerifyPinRequest):
+    from services.guardian_mode import guardian_mode_manager
+    pin = request.pin
+    stored_pin = guardian_mode_manager.config.get("pin", "1234")
+    if pin == stored_pin:
+        guardian_mode_manager.disable_guardian_mode(bypass_auth=True)
+        return {"success": True, "message": "PIN verified. Unlocked successfully."}
+    return {"success": False, "message": "Incorrect PIN!"}
+
+@app.post("/api/guardian/dismiss-overlay")
+async def dismiss_guardian_overlay():
+    from services.guardian_mode import guardian_mode_manager
+    guardian_mode_manager.overlay_active = False
+    return {"success": True}
+
+@app.post("/api/guardian/update-config")
+async def update_guardian_config(request: GuardianUpdateRequest):
+    from services.guardian_mode import guardian_mode_manager
+    updates = {k: v for k, v in request.dict().items() if v is not None}
+    guardian_mode_manager.config.update(updates)
+    return {"success": True, "config": guardian_mode_manager.config.config}
+
+@app.get("/api/guardian/logs")
+async def get_guardian_logs():
+    from services.guardian_mode import guardian_mode_manager
+    return {"logs": guardian_mode_manager.audit_logger.get_logs()}
 
 
 @app.post("/api/overlay/query")

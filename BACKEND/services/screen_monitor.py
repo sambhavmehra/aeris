@@ -29,6 +29,7 @@ class ScreenMonitor:
         self._selection_process: Optional[subprocess.Popen] = None
         self._last_suggestion: Optional[dict] = None
         self._lock = asyncio.Lock()
+        self._pending_query: Optional[str] = None
         
     def start_monitoring(self):
         """Starts the background screen monitoring loop."""
@@ -80,6 +81,17 @@ class ScreenMonitor:
         self.crop_box = None
         logger.info("ScreenMonitor crop box cleared")
         send_desktop_notification("AERIS: Selection Reset", "Sir, monitoring region reset to full screen.")
+
+    def set_pending_query(self, query: Optional[str]):
+        """Sets a pending query for the next screen selection."""
+        self._pending_query = query
+        logger.info(f"Pending screen query set: {query}")
+
+    def get_and_clear_pending_query(self) -> Optional[str]:
+        """Gets and clears the pending query."""
+        q = self._pending_query
+        self._pending_query = None
+        return q
 
     def trigger_selection(self):
         """Launches the Tkinter selection canvas tool subprocess."""
@@ -244,6 +256,11 @@ Respond ONLY with valid JSON in this structure:
         await asyncio.sleep(3.0)
         
         while self.is_monitoring:
+            # Skip checking if user is currently using the screen selection tool
+            if self._selection_process and self._selection_process.poll() is None:
+                await asyncio.sleep(1.0)
+                continue
+                
             try:
                 # 1. Take screenshot
                 loop = asyncio.get_event_loop()
@@ -362,6 +379,62 @@ Respond ONLY with valid JSON in this structure:
         except Exception as e:
             logger.error(f"On-demand screen check failed: {e}")
             return f"Sir, screen analyze karne me error aayi: {e}"
+
+    async def analyze_region_with_query(self, x1: int, y1: int, x2: int, y2: int, query: str) -> dict:
+        """Capture a specific screen region and answer the user's question about it."""
+        try:
+            logger.info(f"[ScreenMonitor] Analyzing region ({x1}, {y1}) to ({x2}, {y2}) with query: '{query}'")
+            loop = asyncio.get_event_loop()
+            screenshot = await loop.run_in_executor(None, pyautogui.screenshot)
+            
+            # Crop to coordinates
+            cropped_img = screenshot.crop((x1, y1, x2, y2))
+            
+            temp_dir = Path(settings.DATA_DIR) / "temp"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            # Save to monitor_screenshot.png so overlays/other commands can reference the last cropped image
+            temp_path = temp_dir / "monitor_screenshot.png"
+            
+            await loop.run_in_executor(None, lambda: cropped_img.save(temp_path))
+            
+            with open(temp_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+                
+            prompt = f"""
+The user has selected a specific area of their screen.
+They are asking this question about it: "{query}"
+
+Look at the image of their screen selection and answer their question clearly, concisely, and directly.
+Respond in Hindi or Hinglish. Address the user as "Sir". Keep it short and readable, fitting within a small card.
+"""
+            from ai_engine import ai_engine
+            raw_resp = await ai_engine.vision(prompt, img_b64)
+            clean_resp = raw_resp.strip()
+            
+            # Show the answer in the suggestion overlay window
+            await self._show_suggestion_overlay(clean_resp)
+            
+            # Also keep it in _last_suggestion for implementation/dismiss if needed
+            self._last_suggestion = {
+                "issue_detected": True,
+                "confidence": 1.0,
+                "suggestion": clean_resp,
+                "implementation_plan": f"Answer user query: {query}",
+                "command_to_run": ""
+            }
+            
+            return {
+                "success": True,
+                "response": clean_resp,
+                "crop_box": [x1, y1, x2, y2]
+            }
+            
+        except Exception as e:
+            logger.error(f"Region analysis with query failed: {e}")
+            return {
+                "success": False,
+                "response": f"Sir, region query fail ho gaya: {e}"
+            }
 
     async def locate_and_analyze_element(self, description: str) -> str:
         """Locates a screen region by matching its content description via Gemini Vision, crops it, and runs on-demand analysis."""

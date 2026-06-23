@@ -43,5 +43,20 @@
     "tool_name": "read_system_file",
     "error": "File not found: D:\\Sambhav Projects\\AERIS\\BACKEND\\{path_to_file}",
     "timestamp": "2026-06-19T17:13:02.399922"
+  },
+  "99fc4e661cac86b1c5a4462a35632e14": {
+    "tool_name": "generate_code",
+    "error": "Missing required arguments: request. The planner must provide these values.",
+    "timestamp": "2026-06-20T01:01:50.601170"
+  },
+  "85bba35bb11b793a6a576be4f1ba0619": {
+    "tool_name": "chat_with_ai",
+    "error": "Missing required arguments: message. The planner must provide these values.",
+    "timestamp": "2026-06-20T01:10:41.590655"
+  },
+  "4bd71a81fcf610e8ef3b945d4d17a919": {
+    "tool_name": "realtime_search",
+    "error": "Missing required arguments: query. The planner must provide these values.",
+    "timestamp": "2026-06-20T01:13:54.098666"
   }
 }

@@ -1,0 +1,49 @@
+{
+  "enabled": false,
+  "blocked_apps": [
+    "WhatsApp.exe",
+    "Telegram.exe",
+    "Discord.exe",
+    "Signal.exe",
+    "whatsapp",
+    "telegram",
+    "discord",
+    "signal",
+    "mssecurities",
+    "keepass",
+    "bitwarden",
+    "outlook.exe"
+  ],
+  "blocked_domains": [
+    "web.whatsapp.com",
+    "mail.google.com",
+    "instagram.com",
+    "facebook.com",
+    "paypal.com",
+    "paytm.com",
+    "binance.com",
+    "coinbase.com",
+    "banking"
+  ],
+  "protected_folders": [
+    "Documents",
+    "Pictures",
+    "Downloads",
+    "Desktop",
+    "credentials",
+    "private"
+  ],
+  "allowed_apps": [
+    "notepad.exe",
+    "calc.exe",
+    "explorer.exe",
+    "chrome.exe",
+    "msedge.exe",
+    "vlc.exe"
+  ],
+  "warning_limit": 0,
+  "lock_after_attempts": 3,
+  "owner_verification_method": "voice_pin",
+  "pin": "1234",
+  "secret_phrase": "sambhav"
+}

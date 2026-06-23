@@ -20,13 +20,15 @@ from tools.diagnostics_tools import get_system_metrics
 logger = logging.getLogger("aeris.agent.guardian")
 
 PLAN_PROMPT = """You are AERIS's Guardian Agent (Watchdog).
-Your job is to determine how to investigate system stability, check running processes, restart frozen agents, or coordinate agent failovers.
+Your job is to determine how to investigate system stability, check running processes, restart frozen agents, coordinate agent failovers, or check/audit local Guardian Mode configurations and logs.
 
 Available actions:
 - monitor_registry: Audit the Universal Agent Registry for any crashed or ERROR status agents.
 - audit_system_load: Scan current CPU, RAM, and Disk space for bottleneck thresholds.
 - handle_failover(agent_name: str): Marks a crashed agent as OFFLINE and determines an alternative routing path.
 - check_scheduler_queue: Review background scheduler execution queue to find stuck processes.
+- get_guardian_status: Retrieve the status, configuration, active blocks, and violation counts of local Guardian Mode.
+- get_guardian_logs: Retrieve the security audit logs and violation attempts of local Guardian Mode.
 
 User request: {message}
 
@@ -35,6 +37,8 @@ Rules:
 - If the user wants to check CPU load, memory warnings, or server capacity -> use audit_system_load.
 - If a specific agent (e.g. CodeAgent) is crashed or in error -> use handle_failover.
 - If the user wants to check stuck background tasks -> use check_scheduler_queue.
+- If the user wants to check/status/config of local Guardian/Guest Mode -> use get_guardian_status.
+- If the user wants to see security logs/audit/violations of local Guardian/Guest Mode -> use get_guardian_logs.
 
 Respond with ONLY valid JSON:
 {{
@@ -153,6 +157,22 @@ class GuardianAgent(BaseAgent):
                         "success": True,
                         "pending_count": len(tasks),
                         "queue": tasks
+                    })
+                elif name == "get_guardian_status":
+                    from services.guardian_mode import guardian_mode_manager
+                    results.append({
+                        "action": name,
+                        "success": True,
+                        "enabled": guardian_mode_manager.is_active,
+                        "config": guardian_mode_manager.config.config,
+                        "attempt_counters": guardian_mode_manager.attempt_counters
+                    })
+                elif name == "get_guardian_logs":
+                    from services.guardian_mode import guardian_mode_manager
+                    results.append({
+                        "action": name,
+                        "success": True,
+                        "logs": guardian_mode_manager.audit_logger.get_logs()[-20:]
                     })
             except Exception as e:
                 self.log(f"Error running action {name}: {e}", "ERROR")

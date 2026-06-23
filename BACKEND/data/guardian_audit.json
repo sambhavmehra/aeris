@@ -1,0 +1,138 @@
+[
+  {
+    "timestamp": "2026-06-20T00:49:39",
+    "event_type": "enable",
+    "target": "system",
+    "action": "activated",
+    "attempt": 0,
+    "details": "Activated via test command."
+  },
+  {
+    "timestamp": "2026-06-20T00:49:39",
+    "event_type": "violation_app",
+    "target": "WhatsApp.exe",
+    "action": "warn",
+    "attempt": 1,
+    "details": "Simulated manual violation for testing"
+  },
+  {
+    "timestamp": "2026-06-20T00:49:39",
+    "event_type": "violation_app",
+    "target": "WhatsApp.exe",
+    "action": "close",
+    "attempt": 2,
+    "details": "Simulated manual violation 2 for testing"
+  },
+  {
+    "timestamp": "2026-06-20T00:49:39",
+    "event_type": "violation_app",
+    "target": "WhatsApp.exe",
+    "action": "lock",
+    "attempt": 3,
+    "details": "Simulated manual violation 3 for testing"
+  },
+  {
+    "timestamp": "2026-06-20T00:49:39",
+    "event_type": "auth_failure",
+    "target": "system",
+    "action": "rejected",
+    "attempt": 0,
+    "details": "Incorrect deactivation PIN/passphrase attempt."
+  },
+  {
+    "timestamp": "2026-06-20T00:49:39",
+    "event_type": "disable",
+    "target": "system",
+    "action": "deactivated",
+    "attempt": 0,
+    "details": "Deactivated successfully via verified clearance."
+  },
+  {
+    "timestamp": "2026-06-20T00:49:39",
+    "event_type": "enable",
+    "target": "system",
+    "action": "activated",
+    "attempt": 0,
+    "details": "Activated via text command."
+  },
+  {
+    "timestamp": "2026-06-20T00:49:39",
+    "event_type": "disable",
+    "target": "system",
+    "action": "deactivated",
+    "attempt": 0,
+    "details": "Deactivated successfully via verified clearance."
+  },
+  {
+    "timestamp": "2026-06-20T00:58:46",
+    "event_type": "enable",
+    "target": "system",
+    "action": "activated",
+    "attempt": 0,
+    "details": "Activated via text command."
+  },
+  {
+    "timestamp": "2026-06-20T01:01:28",
+    "event_type": "enable",
+    "target": "system",
+    "action": "activated",
+    "attempt": 0,
+    "details": "Activated via test command."
+  },
+  {
+    "timestamp": "2026-06-20T01:01:28",
+    "event_type": "violation_app",
+    "target": "WhatsApp.exe",
+    "action": "close",
+    "attempt": 1,
+    "details": "Simulated manual violation for testing"
+  },
+  {
+    "timestamp": "2026-06-20T01:01:28",
+    "event_type": "violation_app",
+    "target": "WhatsApp.exe",
+    "action": "close",
+    "attempt": 2,
+    "details": "Simulated manual violation 2 for testing"
+  },
+  {
+    "timestamp": "2026-06-20T01:01:28",
+    "event_type": "violation_app",
+    "target": "WhatsApp.exe",
+    "action": "lock",
+    "attempt": 3,
+    "details": "Simulated manual violation 3 for testing"
+  },
+  {
+    "timestamp": "2026-06-20T01:01:28",
+    "event_type": "auth_failure",
+    "target": "system",
+    "action": "rejected",
+    "attempt": 0,
+    "details": "Incorrect deactivation PIN/passphrase attempt."
+  },
+  {
+    "timestamp": "2026-06-20T01:01:28",
+    "event_type": "disable",
+    "target": "system",
+    "action": "deactivated",
+    "attempt": 0,
+    "details": "Deactivated successfully via verified clearance."
+  },
+  {
+    "timestamp": "2026-06-20T01:01:28",
+    "event_type": "enable",
+    "target": "system",
+    "action": "activated",
+    "attempt": 0,
+    "details": "Activated via text command."
+  },
+  {
+    "timestamp": "2026-06-20T01:01:28",
+    "event_type": "disable",
+    "target": "system",
+    "action": "deactivated",
+    "attempt": 0,
+    "details": "Deactivated successfully via verified clearance."
+  }
+]

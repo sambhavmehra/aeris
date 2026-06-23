@@ -13,6 +13,10 @@ export interface Message {
   streaming?: boolean;
   agent?: string;
   intent?: string;
+  requires_approval?: boolean;
+  tool_name_pending?: string;
+  task_id?: string;
+  is_background?: boolean;
 }
 
 interface FormField {
@@ -242,6 +246,9 @@ const INTENT_META: Record<string, { icon: string; color: string; label: string }
   image:       { icon: '🎨', color: 'rgba(255,140,200,0.8)', label: 'Image' },
   diagram:     { icon: '📊', color: 'rgba(96,165,250,0.85)', label: 'Diagram' },
   codepipeline:{ icon: '📐', color: 'rgba(52,211,153,0.85)', label: 'CodePipeline' },
+  guardian:    { icon: '🛡️', color: 'rgba(244,63,94,0.85)', label: 'Guardian' },
+  mechanic:    { icon: '🔧', color: 'rgba(245,158,11,0.85)', label: 'Mechanic' },
+  critic:      { icon: '⚖️', color: 'rgba(16,185,129,0.85)', label: 'Critic' },
 };
 
 function CodeBlock({
@@ -762,9 +769,11 @@ function HudNavigationButton({ targetPath, label, icon }: { targetPath: string; 
 interface ChatMessageProps {
   message: Message;
   onStreamDone?: () => void;
+  onApprove?: (msgId: string) => void;
+  onCancel?: (msgId: string) => void;
 }
 
-const ChatMessage = memo(function ChatMessage({ message, onStreamDone }: ChatMessageProps) {
+const ChatMessage = memo(function ChatMessage({ message, onStreamDone, onApprove, onCancel }: ChatMessageProps) {
   const isAI = message.role === 'ai';
 
   // Check if this AI message represents a form request UI Action
@@ -862,13 +871,114 @@ const ChatMessage = memo(function ChatMessage({ message, onStreamDone }: ChatMes
         {/* Agent badge for AI messages */}
         {isAI && <AgentBadge agent={message.agent} intent={message.intent} />}
 
-        {formConfig ? (
-          <DynamicForm config={formConfig} />
-        ) : isAI && message.streaming && onStreamDone ? (
-          <StreamingBubble content={message.content} onDone={onStreamDone} />
-        ) : (
-          renderContent(message.content)
-        )}
+        {(() => {
+          const isApprovalRequest = isAI && (
+            message.requires_approval ||
+            message.content.includes("Security Check") ||
+            message.content.includes("Permission Required") ||
+            message.content.includes("Requires Permission")
+          );
+
+          let cleanContent = message.content;
+          if (isApprovalRequest) {
+            cleanContent = cleanContent
+              .replace(/Reply with \*\*'yes'\*\* or \*\*'approve'\*\* to execute, or \*\*'no'\*\* \/ \*\*'cancel'\*\* to abort\./gi, '')
+              .replace(/\(Kripaya 'haan' ya 'yes' se confirm karein\)/gi, '')
+              .trim();
+          }
+
+          return (
+            <>
+              {formConfig ? (
+                <DynamicForm config={formConfig} />
+              ) : isAI && message.streaming && onStreamDone ? (
+                <StreamingBubble content={cleanContent} onDone={onStreamDone} />
+              ) : (
+                renderContent(cleanContent)
+              )}
+
+              {isApprovalRequest && hasFinishedStreaming && (
+                <div style={{
+                  background: 'rgba(239,68,68,0.06)',
+                  border: '1px solid rgba(239,68,68,0.25)',
+                  borderRadius: '12px',
+                  padding: '14px 16px',
+                  marginTop: '12px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  animation: 'msg-appear 0.4s ease',
+                  boxShadow: '0 4px 20px rgba(239,68,68,0.08)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fca5a5' }}>
+                    <span style={{ fontSize: '18px' }}>🛡️</span>
+                    <strong style={{ fontSize: '13px', letterSpacing: '0.5px' }}>INTERACTIVE SAFETY GATE</strong>
+                  </div>
+                  <p style={{ fontSize: '12px', margin: 0, color: 'rgba(200,240,255,0.7)', lineHeight: 1.5 }}>
+                    This operation requires explicit user authorization. Please review the arguments above before proceeding.
+                  </p>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                    <button
+                      onClick={() => onCancel?.(message.id)}
+                      style={{
+                        flex: 1,
+                        background: 'rgba(239,68,68,0.12)',
+                        border: '1px solid rgba(239,68,68,0.4)',
+                        color: '#fca5a5',
+                        borderRadius: '8px',
+                        padding: '8px 14px',
+                        fontSize: '12.5px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        fontFamily: 'inherit',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'rgba(239,68,68,0.22)';
+                        e.currentTarget.style.borderColor = 'rgba(239,68,68,0.6)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'rgba(239,68,68,0.12)';
+                        e.currentTarget.style.borderColor = 'rgba(239,68,68,0.4)';
+                      }}
+                    >
+                      ❌ Deny & Abort
+                    </button>
+                    <button
+                      onClick={() => onApprove?.(message.id)}
+                      style={{
+                        flex: 1,
+                        background: 'linear-gradient(135deg, rgba(16,185,129,0.25), rgba(4,120,87,0.2))',
+                        border: '1px solid rgba(16,185,129,0.45)',
+                        color: '#a7f3d0',
+                        borderRadius: '8px',
+                        padding: '8px 14px',
+                        fontSize: '12.5px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        fontFamily: 'inherit',
+                        boxShadow: '0 0 12px rgba(16,185,129,0.15)',
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16,185,129,0.35), rgba(4,120,87,0.3))';
+                        e.currentTarget.style.borderColor = 'rgba(16,185,129,0.75)';
+                        e.currentTarget.style.boxShadow = '0 0 20px rgba(16,185,129,0.25)';
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.background = 'linear-gradient(135deg, rgba(16,185,129,0.25), rgba(4,120,87,0.2))';
+                        e.currentTarget.style.borderColor = 'rgba(16,185,129,0.45)';
+                        e.currentTarget.style.boxShadow = '0 0 12px rgba(16,185,129,0.15)';
+                      }}
+                    >
+                      ✅ Yes, Approve
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {showWebWeaverButton && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

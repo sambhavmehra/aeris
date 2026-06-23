@@ -37,6 +37,38 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
   const [isVoiceSleeping, setIsVoiceSleeping] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [isAISpeaking, setIsAISpeaking] = useState(false);
+  const [cropBox, setCropBox] = useState<number[] | null>(null);
+
+  // Poll crop box status from backend
+  useEffect(() => {
+    let active = true;
+    const pollStatus = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/screen/status');
+        if (res.ok && active) {
+          const data = await res.json();
+          setCropBox(data.crop_box);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch screen status:', err);
+      }
+    };
+    
+    pollStatus();
+    const interval = setInterval(pollStatus, 1500);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const triggerScreenSelection = async () => {
+    try {
+      await fetch('http://localhost:8000/api/screen/select', { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to trigger screen selection:', err);
+    }
+  };
 
   // Auto-mute and mic feedback protection refs
   const isVoiceModeEnabledRef = useRef(false);
@@ -283,6 +315,61 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
     startThinking();
     onSpeakingChange(true);
 
+    if (cropBox) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'process_text', text: msg }));
+        setCropBox(null);
+        return;
+      }
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      try {
+        const res = await fetch('http://localhost:8000/api/screen/query-region', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            x1: cropBox[0],
+            y1: cropBox[1],
+            x2: cropBox[2],
+            y2: cropBox[3],
+            query: msg
+          }),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) throw new Error('Query region failed');
+
+        const data = await res.json();
+        abortControllerRef.current = null;
+        stopThinking();
+        
+        addAIMessage(
+          data.response || 'No response received.',
+          true,
+          'Brain',
+          'screen_query_region'
+        );
+
+        // Clear crop box
+        try {
+          await fetch('http://localhost:8000/api/screen/clear-crop', { method: 'POST' });
+          setCropBox(null);
+        } catch {}
+
+      } catch (e: any) {
+        abortControllerRef.current = null;
+        stopThinking();
+        if (e?.name === 'AbortError') {
+          addAIMessage('⏹ Request cancelled.', false);
+        } else {
+          addAIMessage('Error querying selected region.');
+        }
+      }
+      return;
+    }
+
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'process_text', text: msg }));
       return;
@@ -361,7 +448,7 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
         addAIMessage('Error: Could not connect to AERIS neural core. System may be offline or initializing.');
       }
     }
-  }, [input, isTyping, addAIMessage, onSpeakingChange, startThinking, stopThinking]);
+  }, [input, isTyping, addAIMessage, onSpeakingChange, startThinking, stopThinking, cropBox, isVoiceModeEnabled]);
 
   const stopPlayback = useCallback(() => {
     activeSourcesRef.current.forEach(source => {
@@ -977,6 +1064,38 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
             ))}
           </div>
 
+          {/* Crop active badge */}
+          {cropBox && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifySelf: 'start', gap: '8px',
+              background: 'rgba(var(--cyan-rgb),0.08)', border: '1px solid rgba(var(--cyan-rgb),0.25)',
+              borderRadius: '8px', padding: '6px 12px', marginBottom: '10px',
+              fontSize: '11.5px', color: 'rgba(var(--cyan-rgb),0.9)',
+              animation: 'msg-appear 0.25s ease',
+              width: 'fit-content',
+            }}>
+              <span>✂️ Area Selected: ({cropBox[0]}, {cropBox[1]}) to ({cropBox[2]}, {cropBox[3]})</span>
+              <button
+                onClick={async () => {
+                  try {
+                    await fetch('http://localhost:8000/api/screen/clear-crop', { method: 'POST' });
+                    setCropBox(null);
+                  } catch (err) {
+                    console.error('Failed to clear crop:', err);
+                  }
+                }}
+                style={{
+                  background: 'none', border: 'none', color: '#ff4444',
+                  cursor: 'pointer', fontSize: '11px', fontWeight: 'bold', padding: '0 2px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+                title="Clear selection"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* Input row */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: '10px',
@@ -1003,6 +1122,28 @@ export default function ChatPanel({ isOpen, onClose, onSpeakingChange }: ChatPan
                 maxHeight: '80px', minHeight: '20px',
               }}
             />
+            <button
+              onClick={triggerScreenSelection}
+              title="Select Screen Area"
+              style={{
+                width: '32px', height: '32px', borderRadius: '50%',
+                background: 'rgba(var(--cyan-rgb),0.06)',
+                border: '1px solid rgba(var(--cyan-rgb),0.2)',
+                color: 'rgba(var(--cyan-rgb),0.75)',
+                cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all 0.2s', flexShrink: 0,
+              }}
+              onMouseEnter={e => {
+                (e.target as HTMLElement).style.background = 'rgba(var(--cyan-rgb),0.12)';
+                (e.target as HTMLElement).style.color = 'rgba(var(--cyan-rgb),0.95)';
+              }}
+              onMouseLeave={e => {
+                (e.target as HTMLElement).style.background = 'rgba(var(--cyan-rgb),0.06)';
+                (e.target as HTMLElement).style.color = 'rgba(var(--cyan-rgb),0.75)';
+              }}
+            >
+              ✂️
+            </button>
             <button
               onClick={toggleVoice}
               title={isListening ? (isVoiceSleeping ? "Standby mode (listening for wakeup)" : "Listening") : "Voice input"}

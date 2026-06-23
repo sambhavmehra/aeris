@@ -494,6 +494,7 @@ class Brain:
 
         # ── Hacker Mode challenge state (for voice 2-step activation) ──
         self._hacker_challenge_pending = False
+        self._guardian_challenge_pending = False
 
         # ── Register Core agents in the Universal Agent Registry ──
         for intent, agent in self.agents.items():
@@ -1613,8 +1614,192 @@ Respond with ONLY valid JSON matching this schema:
         Internal process logic: receive user message, check memory commands,
         check pending approvals, execute agentic loop, or run legacy flow.
         """
-        # Intercept Hacker Mode Toggle Commands
         lower_msg = message.lower()
+        from services.guardian_mode import guardian_mode_manager
+        from services.self_evolution import self_evolution_engine
+
+        # --- Self-Evolution Interceptors ---
+        if any(cmd in lower_msg for cmd in ["apply proposal", "confirm proposal", "apply upgrade", "execute upgrade", "accept proposal"]):
+            success, response_text = await self_evolution_engine.execute_proposal()
+            memory_store.add_message("user", message)
+            memory_store.add_message("assistant", response_text)
+            return {
+                "response": response_text,
+                "intent": "self_evolution_execute",
+                "agent": "Brain",
+                "success": success,
+                "task_id": f"evo_{int(time.time())}"
+            }
+
+        is_upgrade_req = (
+            "tu khud kyu" in lower_msg or 
+            "khud kyu nahi" in lower_msg or 
+            "khud se soch" in lower_msg or 
+            "self-implement" in lower_msg or
+            ("implement" in lower_msg and any(w in lower_msg for w in ["iot", "sensor", "emotion", "sentiment", "nlg", "encryption", "multi-language", "language"])) or
+            ("integrate" in lower_msg and any(w in lower_msg for w in ["iot", "sensor", "emotion", "sentiment", "nlg", "encryption", "multi-language", "language"])) or
+            ("add" in lower_msg and any(w in lower_msg for w in ["iot", "sensor", "emotion", "sentiment", "nlg", "encryption", "multi-language", "language"]))
+        )
+        if is_upgrade_req:
+            res = await self_evolution_engine.propose_improvement(message)
+            if res.get("success"):
+                response_text = res.get("report")
+            else:
+                response_text = f"Sir, improvement proposal generate karne mein error aaya: {res.get('error')}"
+                
+            memory_store.add_message("user", message)
+            memory_store.add_message("assistant", response_text)
+            return {
+                "response": response_text,
+                "intent": "self_evolution_propose",
+                "agent": "Brain",
+                "success": res.get("success", False),
+                "task_id": f"evo_{int(time.time())}"
+            }
+
+        # --- Guardian Mode Challenge Flow ---
+        if getattr(self, "_guardian_challenge_pending", False):
+            self._guardian_challenge_pending = False
+            
+            if any(cmd in lower_msg for cmd in ["cancel", "abort", "nevermind", "go back"]):
+                response_text = "Clearance cancelled. Guardian Mode remains active, Sir."
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "guardian_deactivation_cancelled",
+                    "agent": "Brain",
+                    "success": True,
+                    "task_id": f"grd_{int(time.time())}"
+                }
+                
+            success, msg = guardian_mode_manager.disable_guardian_mode(code=message.strip())
+            if success:
+                response_text = msg
+            else:
+                guardian_mode_manager._handle_violation(
+                    viol_type="risky_action",
+                    target="Clearance Code",
+                    details="Invalid PIN/secret phrase deactivation attempt.",
+                    hwnd=0
+                )
+                response_text = "Access Denied, Sir. Invalid security clearance code."
+                
+            memory_store.add_message("user", message)
+            memory_store.add_message("assistant", response_text)
+            return {
+                "response": response_text,
+                "intent": "guardian_deactivation",
+                "agent": "Brain",
+                "success": success,
+                "task_id": f"grd_{int(time.time())}"
+            }
+
+        # --- Guardian Mode Command Interceptors ---
+        activation_keywords = [
+            "guest mode enable karo", "guest mode enable", "guest mode on", "guest mode chalu",
+            "ye main nahi hoon", "ye main nahi hu", "guardian mode activate", "enable guardian mode",
+            "guardian mode on", "activate guardian mode"
+        ]
+        if any(cmd in lower_msg for cmd in activation_keywords):
+            response_text = guardian_mode_manager.enable_guardian_mode(method="text")
+            memory_store.add_message("user", message)
+            memory_store.add_message("assistant", response_text)
+            return {
+                "response": response_text,
+                "intent": "guardian_activation",
+                "agent": "Brain",
+                "success": True,
+                "task_id": f"grd_{int(time.time())}"
+            }
+
+        deactivation_keywords = [
+            "disable guardian mode", "disable guardian", "off guardian mode", "guardian mode off",
+            "turn off guardian mode", "disable guest mode", "guest mode off"
+        ]
+        if any(cmd in lower_msg for cmd in deactivation_keywords):
+            if not guardian_mode_manager.is_active:
+                response_text = "Sir, Guardian Mode already off hai."
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "guardian_deactivation",
+                    "agent": "Brain",
+                    "success": True,
+                    "task_id": f"grd_{int(time.time())}"
+                }
+                
+            # Check if they provided code inline
+            words = message.split()
+            code_attempt = ""
+            for word in words:
+                word_clean = word.strip(" .,!?").lower()
+                if word_clean.isdigit() or word_clean == guardian_mode_manager.config.get("secret_phrase", "sambhav"):
+                    code_attempt = word_clean
+                    break
+                    
+            if code_attempt:
+                success, msg = guardian_mode_manager.disable_guardian_mode(code=code_attempt)
+                response_text = msg
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "guardian_deactivation",
+                    "agent": "Brain",
+                    "success": success,
+                    "task_id": f"grd_{int(time.time())}"
+                }
+            else:
+                self._guardian_challenge_pending = True
+                response_text = "Please enter your security clearance PIN or secret phrase to disable Guardian Mode."
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "guardian_deactivation_challenge",
+                    "agent": "Brain",
+                    "success": True,
+                    "task_id": f"grd_{int(time.time())}"
+                }
+
+        # --- Guardian Mode Request Gating ---
+        if guardian_mode_manager.is_active:
+            is_blocked_req = False
+            for app in guardian_mode_manager.config.get("blocked_apps", []):
+                if app.lower().replace(".exe", "") in lower_msg:
+                    is_blocked_req = True
+                    break
+            for domain in guardian_mode_manager.config.get("blocked_domains", []):
+                short_domain = domain.split(".")[0] if "." in domain else domain
+                if short_domain in lower_msg:
+                    is_blocked_req = True
+                    break
+            for folder in guardian_mode_manager.config.get("protected_folders", []):
+                if folder.lower() in lower_msg:
+                    is_blocked_req = True
+                    break
+                    
+            if is_blocked_req:
+                guardian_mode_manager._handle_violation(
+                    viol_type="app",
+                    target="Restricted Request",
+                    details=f"Text request blocked under Guardian Mode: '{message}'",
+                    hwnd=0
+                )
+                response_text = "Guardian Mode is active. This app/site/folder is private and requires owner approval."
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "guardian_blocked",
+                    "agent": "Brain",
+                    "success": False,
+                    "task_id": f"grd_{int(time.time())}"
+                }
+
+        # Intercept Hacker Mode Toggle Commands
 
         # Intercept Map/HUD Clearing Commands
         if any(cmd in lower_msg for cmd in ("clear map", "clear scan map", "reset map", "clear hud", "clear graph")):
@@ -1647,9 +1832,33 @@ Respond with ONLY valid JSON matching this schema:
 
 
         # Intercept Screen Monitoring Commands
+        from services.screen_monitor import get_screen_monitor
+        monitor = get_screen_monitor()
+
+        # Check if user is answering a pending question about a selected screen area
+        if monitor.crop_box and not any(w in lower_msg for w in ("clear selection", "clear crop", "reset screen", "stop monitoring", "select area", "select screen", "ye dekho", "isko dekho", "ye select karo", "isko select karo", "ye area dekho", "yahan dekho", "is area ko dekho", "ye dekhao")):
+            # User has an active selection and is saying something that isn't a screen command
+            # Check if this could be a follow-up question about the selected area
+            question_indicators = ["kya hai", "kya ho raha", "batao", "explain", "samjhao", "describe", "fix karo", "solve", "help", "error", "issue", "problem", "dikkat", "galat", "sahi", "check", "what is", "what's", "how to", "why", "isme", "isne", "yahan", "ye kya", "isko", "iske"]
+            if any(q in lower_msg for q in question_indicators):
+                result = await monitor.analyze_region_with_query(
+                    monitor.crop_box[0], monitor.crop_box[1], 
+                    monitor.crop_box[2], monitor.crop_box[3], 
+                    message
+                )
+                response_text = result.get("response", "Sir, maine analyze kar liya hai.")
+                memory_store.add_message("user", message)
+                memory_store.add_message("assistant", response_text)
+                return {
+                    "response": response_text,
+                    "intent": "chat",
+                    "agent": "Brain",
+                    "success": True,
+                    "task_id": "screen_query_region"
+                }
+
         if any(w in lower_msg for w in ("start monitoring", "screen monitor karo", "monitor my screen", "monitor screen chalu", "screen monitor chalu", "continuously monitor", "monitor screen start")):
-            from services.screen_monitor import get_screen_monitor
-            get_screen_monitor().start_monitoring()
+            monitor.start_monitoring()
             response_text = "Sir, maine continuous screen monitoring chalu kar di hai. Main aapki screen ko continuously monitor karunga aur agar koi issue ya optimization milegi toh screen par overlay show karunga."
             memory_store.add_message("user", message)
             memory_store.add_message("assistant", response_text)
@@ -1661,10 +1870,26 @@ Respond with ONLY valid JSON matching this schema:
                 "task_id": "screen_monitor_start"
             }
 
-        elif any(w in lower_msg for w in ("select area", "select screen", "crop screen", "crop area", "analyze area", "selection chalu", "selection enable", "region select")):
-            from services.screen_monitor import get_screen_monitor
-            get_screen_monitor().trigger_selection()
-            response_text = "Sir, maine screen selection mode chalu kar diya hai. Aap screen par click aur drag karke region select kar sakte hain."
+        elif any(w in lower_msg for w in ("select area", "select screen", "crop screen", "crop area", "analyze area", "selection chalu", "selection enable", "region select", "ye dekho", "isko dekho", "ye select karo", "isko select karo", "ye area dekho", "yahan dekho", "is area ko dekho", "ye dekhao")):
+            # Check if there is also a question or query mentioned in the same sentence
+            has_query = False
+            extracted_query = None
+            
+            # Common query indicators in voice mode
+            query_indicators = ["kya hai", "kya ho raha", "batao", "explain", "samjhao", "describe", "fix karo", "solve", "help", "error", "issue", "problem", "dikkat", "galat", "sahi", "check", "what is", "what's", "how to", "why", "isme", "isne", "yahan", "ye kya", "isko", "iske"]
+            if any(q in lower_msg for q in query_indicators):
+                has_query = True
+                extracted_query = message
+                
+            monitor.trigger_selection()
+            
+            if has_query:
+                monitor.set_pending_query(extracted_query)
+                response_text = "Sir, maine screen selection mode chalu kar diya hai. Aap area select karein, main uske baare me bataunga."
+            else:
+                monitor.set_pending_query(None)
+                response_text = "Sir, maine screen selection mode chalu kar diya hai. Aap area select karein. Phir batayein, kya aap us area ke baare me kuch jaanna chahte hain?"
+                
             memory_store.add_message("user", message)
             memory_store.add_message("assistant", response_text)
             return {

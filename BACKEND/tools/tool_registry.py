@@ -393,8 +393,19 @@ def _register_all_tools():
                 return result["content"]
             raise RuntimeError(result.get("error", "Scrape failed"))
 
+        from tools.web_tools import inspect_webpage
+
         reg.register("web_research", "Research a topic using web search + AI synthesis.", web_research, ["query"], RiskLevel.SAFE, "research", timeout=90)
         reg.register("scrape_website", "Scrape text content from a URL.", scrape_website, ["url"], RiskLevel.LOW, "research")
+        reg.register(
+            "inspect_webpage",
+            "Launch a headless Chromium browser using Selenium to inspect a webpage, capturing DOM details, console logs, network errors/warnings, and saving a screenshot.",
+            inspect_webpage,
+            ["url"],
+            RiskLevel.LOW,
+            "research",
+            optional_params=["save_screenshot"]
+        )
         logger.info("Registered research tools")
     except Exception as e:
         logger.warning(f"Failed to register research tools: {e}")

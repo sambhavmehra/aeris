@@ -18,13 +18,14 @@ from tools.tool_registry import global_tool_registry as tool_registry
 logger = logging.getLogger("aeris.agent.diagnostics")
 
 PLAN_PROMPT = """You are AERIS's Diagnosis Agent.
-Your job is to determine what tools to use to diagnose system health, check a specific agent, or scan code for errors.
+Your job is to determine what tools to use to diagnose system health, check a specific agent, scan code for errors, or inspect websites/webpages.
 
 Available tools:
 - diagnose_system(): Checks environment configuration, hardware stats, package dependencies, and agent statuses.
 - diagnose_agent(agent_name: str): Diagnose a specific agent by its name (e.g. 'SecurityAgent', 'ChatAgent', 'DorkingAgent'). Checks registration, version, capabilities, children, and runs a dry-run test.
 - diagnose_code(path: str): Scans Python, JS, TS, HTML, and CSS files in a codebase recursively. Provide a specific subfolder path if requested, or leave empty/blank to scan the root workspace.
 - suggest_code_fixes(path: str, errors: str): Generates automated repair solutions and cleaned code diffs for a file with specific error messages.
+- inspect_webpage(url: str): Launches a headless Chromium browser using Selenium to inspect a webpage, capturing DOM details, console logs, network errors/warnings, and saving a screenshot.
 
 User request: {message}
 
@@ -33,6 +34,7 @@ Rules:
 - If the user wants to diagnose or check a particular/specific agent (e.g. 'SecurityAgent', 'DorkingAgent', 'reaper', 'hunter', 'strategos') -> use diagnose_agent (with the agent name).
 - If the user wants to scan, analyze, check, or diagnose their codebase/files for warnings, style, console.logs, or compile/syntax bugs -> use diagnose_code (optionally passing the file/folder path).
 - If the user wants to fix or repair specific errors -> use suggest_code_fixes (passing path and errors).
+- If the user wants to check, inspect, debug, or diagnose a website/URL for errors, console logs, or network failures -> use inspect_webpage (extracting and passing the URL).
 - You can chain multiple tools if needed.
 
 Respond with ONLY valid JSON:
@@ -99,6 +101,9 @@ class DiagnosisAgent(BaseAgent):
                 return {"tools": [{"name": "diagnose_agent", "params": {"agent_name": target_agent}}], "explanation": "Agent diagnosis fallback"}
             elif "code" in lower or "file" in lower:
                 return {"tools": [{"name": "diagnose_code", "params": {}}], "explanation": "Code scan fallback"}
+            elif "http" in lower or "www." in lower or ".com" in lower or ".org" in lower or ".net" in lower or "website" in lower or "site" in lower:
+                url = self._extract_url(message) or "https://google.com"
+                return {"tools": [{"name": "inspect_webpage", "params": {"url": url}}], "explanation": "Website inspection fallback"}
             return {"tools": [{"name": "diagnose_system", "params": {}}], "explanation": "System check fallback"}
 
     async def execute(self, plan: Any) -> Any:
@@ -129,3 +134,14 @@ class DiagnosisAgent(BaseAgent):
             ], max_tokens=2048)
         except Exception as e:
             return f"## Diagnostics Completed\n\n```json\n{json.dumps(results, indent=2)}\n```"
+
+    @staticmethod
+    def _extract_url(text: str) -> str | None:
+        import re
+        match = re.search(r'https?://[^\s<>"\']+|www\.[^\s<>"\']+\.[a-z]{2,}|[a-zA-Z0-9.-]+\.[a-z]{2,}/?[^\s<>"\']*', text)
+        if match:
+            url = match.group(0)
+            if not url.startswith(("http://", "https://")):
+                url = "https://" + url
+            return url
+        return None

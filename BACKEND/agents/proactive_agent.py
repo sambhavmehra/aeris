@@ -574,6 +574,35 @@ class ProactiveAgent(BaseAgent):
                 logger.info("Proactive Agent: Calibrating/retraining local intent classifier...")
                 neural_core.train_initial_intent_model(epochs=100, lr=0.005)
                 logger.info("Proactive Agent: Neural intent classifier calibrated successfully.")
+
+            # 3. Check for any failed tools and generate proactive self-evolution suggestion
+            failed_file = Path(settings.DATA_DIR) / "failed_tools.json"
+            if failed_file.exists():
+                try:
+                    import json
+                    data = json.loads(failed_file.read_text(encoding="utf-8"))
+                    failures = data.get("failed_tools", [])
+                    if failures:
+                        last_fail = failures[-1]
+                        tool_name = last_fail.get("tool_name")
+                        error_msg = last_fail.get("error", "")
+                        
+                        # Generate proactive proposal to fix it
+                        from services.self_evolution import self_evolution_engine
+                        logger.info(f"Proactive Agent: Generating fix proposal for failed tool: {tool_name}")
+                        loop.run_until_complete(self_evolution_engine.propose_improvement(
+                            f"Fix execution error for tool '{tool_name}': {error_msg}. Write a corrected helper version."
+                        ))
+                        
+                        # Alert user of proactive improvement proposal
+                        self._add_alert(ProactiveAlert(
+                            alert_type="suggestion",
+                            title="Proactive Improvement Proposal",
+                            message=f"I have analyzed the failure in '{tool_name}' and designed a sandboxed upgrade. Say 'Apply proposal' to install.",
+                            priority="normal"
+                        ))
+                except Exception as ex:
+                    logger.warning(f"Proactive self-evolution analysis failed: {ex}")
                 
             self.log(f"Self-improvement job completed. Created tools: {status.get('created_tools')}, Errors: {status.get('errors')}")
         except Exception as e:
